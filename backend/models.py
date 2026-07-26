@@ -1,0 +1,306 @@
+"""
+models.py
+SQLAlchemy ORM models — one class per table, matching database/schema.sql exactly.
+"""
+
+from sqlalchemy import (
+    Column, Integer, String, Text, Date, DateTime, Time, TIMESTAMP,
+    ForeignKey, Enum, SmallInteger, func, Boolean, DECIMAL
+)
+from sqlalchemy.orm import relationship
+
+from database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    mobile = Column(String(15), nullable=False, unique=True)
+    email = Column(String(100), unique=True, nullable=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(Enum("superadmin", "admin", "user", name="user_role"), nullable=False, default="user")
+    department = Column(String(100), nullable=False)
+    designation = Column(String(100), nullable=False)
+    status = Column(Enum("active", "inactive", name="user_status"), nullable=False, default="active")
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    device_token = Column(String(255), nullable=True)
+    device_name = Column(String(255), nullable=True)
+    browser_name = Column(String(100), nullable=True)
+    device_registered_at = Column(DateTime, nullable=True)
+    last_login = Column(TIMESTAMP, nullable=True)
+
+    annual_leave = Column(Integer, default=6)
+    leave_encashed = Column(Integer, default=0)
+    last_leave_accrual_date = Column(Date, nullable=True)
+    paid_leave_available = Column(Integer, default=1)
+    carried_leave = Column(Integer, default=0)
+
+    # Relationships
+    attendance_records = relationship("Attendance", back_populates="user", foreign_keys="Attendance.user_id")
+    leave_requests = relationship("LeaveRequest", back_populates="user", foreign_keys="LeaveRequest.user_id")
+    activity_logs = relationship("ActivityLog", back_populates="user")
+    daily_reports = relationship("DailyReport", back_populates="user", foreign_keys="DailyReport.user_id")
+
+
+class Attendance(Base):
+    __tablename__ = "attendance"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    check_in = Column(DateTime, nullable=True)
+    check_out = Column(DateTime, nullable=True)
+    status = Column(
+        Enum("Present", "Late", "Half Day", "Absent", "Holiday", "On Leave", name="attendance_status"),
+        default="Present",
+    )
+    ip_address = Column(String(45), nullable=True)
+    reason = Column(String(255), nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_by = Column(Integer, nullable=True)
+
+    user = relationship("User", back_populates="attendance_records", foreign_keys=[user_id])
+    corrections = relationship("AttendanceCorrection", back_populates="attendance")
+
+
+class AttendanceCorrection(Base):
+    __tablename__ = "attendance_corrections"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    attendance_id = Column(Integer, ForeignKey("attendance.id"), nullable=False)
+    requested_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reason = Column(String(255), nullable=True)
+    old_check_in = Column(DateTime, nullable=True)
+    new_check_in = Column(DateTime, nullable=True)
+    old_check_out = Column(DateTime, nullable=True)
+    new_check_out = Column(DateTime, nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="correction_status"), default="Pending")
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    attendance = relationship("Attendance", back_populates="corrections")
+    requester = relationship("User", foreign_keys=[requested_by])
+
+
+class CompanySettings(Base):
+    __tablename__ = "company_settings"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    office_start_time = Column(Time, nullable=False)
+    office_end_time = Column(Time, nullable=False)
+    late_grace_minutes = Column(Integer, nullable=False, default=20)
+    weekly_off_day = Column(String(20), default="Sunday")
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class DeviceRequest(Base):
+    __tablename__ = "device_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    device_token = Column(String(255), nullable=True)
+    device_name = Column(String(255), nullable=True)
+    browser_name = Column(String(100), nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="device_req_status"), default="Pending")
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    approver = relationship("User", foreign_keys=[approved_by])
+
+
+class Holiday(Base):
+    __tablename__ = "holidays"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    holiday_date = Column(Date, nullable=False, unique=True)
+    holiday_name = Column(String(100), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class LeaveType(Base):
+    __tablename__ = "leave_types"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(50), nullable=False, unique=True)
+    total_days = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    leave_type_id = Column(Integer, ForeignKey("leave_types.id"), nullable=True)
+    from_date = Column(Date, nullable=False)
+    to_date = Column(Date, nullable=False)
+    total_days = Column(Integer, nullable=True)
+    reason = Column(Text, nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="leave_status"), default="Pending")
+    leave_category = Column(
+        Enum("Paid", "Carried", "Privilege", "Unpaid", "Emergency", "Sick", name="leave_category"),
+        default="Paid",
+    )
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    notify_emails = Column(Text, nullable=True)
+
+    user = relationship("User", back_populates="leave_requests", foreign_keys=[user_id])
+    leave_type = relationship("LeaveType")
+    approver = relationship("User", foreign_keys=[approved_by])
+    notification_links = relationship("LeaveNotificationEmail", back_populates="leave_request")
+
+
+class NotificationEmail(Base):
+    __tablename__ = "notification_emails"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=True)
+    email = Column(String(150), nullable=True)
+    is_active = Column(SmallInteger, default=1)
+
+
+class LeaveNotificationEmail(Base):
+    __tablename__ = "leave_notification_emails"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    leave_request_id = Column(Integer, ForeignKey("leave_requests.id"), nullable=True)
+    notification_email_id = Column(Integer, ForeignKey("notification_emails.id"), nullable=True)
+
+    leave_request = relationship("LeaveRequest", back_populates="notification_links")
+    notification_email = relationship("NotificationEmail")
+
+
+class OfficeIP(Base):
+    __tablename__ = "office_ips"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    ip_address = Column(String(45), nullable=False, unique=True)
+    network_name = Column(String(100), nullable=True)
+    status = Column(Enum("active", "inactive", name="office_ip_status"), default="active")
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String(255), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class LeaveEncashmentRequest(Base):
+    __tablename__ = "leave_encashment_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    days = Column(Integer, nullable=False)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="encashment_status"), default="Pending")
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    approver = relationship("User", foreign_keys=[approved_by])
+
+
+class HalfDayRequest(Base):
+    __tablename__ = "half_day_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    slot = Column(Enum("morning", "afternoon", name="half_day_slot"), nullable=False)
+    reason = Column(String(255), nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="half_day_status"), default="Pending")
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    approver = relationship("User", foreign_keys=[approved_by])
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    activity = Column(String(255), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="activity_logs")
+
+
+# ============================================================
+# REPORT SYSTEM MODELS
+# ============================================================
+
+class ReportDepartment(Base):
+    __tablename__ = "report_departments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class ReportType(Base):
+    __tablename__ = "report_types"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    department_id = Column(Integer, ForeignKey("report_departments.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    department = relationship("ReportDepartment", foreign_keys=[department_id])
+    subtypes = relationship("ReportSubtype", back_populates="report_type")
+
+
+class ReportSubtype(Base):
+    __tablename__ = "report_subtypes"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    type_id = Column(Integer, ForeignKey("report_types.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    has_quantity = Column(Boolean, default=True)
+    has_duration = Column(Boolean, default=True)
+    has_description = Column(Boolean, default=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    report_type = relationship("ReportType", back_populates="subtypes")
+
+
+class DailyReport(Base):
+    __tablename__ = "daily_reports"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    department_id = Column(Integer, ForeignKey("report_departments.id"), nullable=False)
+    type_id = Column(Integer, ForeignKey("report_types.id"), nullable=True)
+    subtype_id = Column(Integer, ForeignKey("report_subtypes.id"), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    duration = Column(String(50), nullable=True)  # Changed from DECIMAL to String
+    description = Column(Text, nullable=True)
+    attachments = Column(Text, nullable=True)
+    status = Column(Enum("draft", "submitted", name="report_status"), default="draft")
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="daily_reports")
+    department = relationship("ReportDepartment", foreign_keys=[department_id])
+    report_type = relationship("ReportType", foreign_keys=[type_id])
+    report_subtype = relationship("ReportSubtype", foreign_keys=[subtype_id])

@@ -1,0 +1,138 @@
+# ============================================================
+# FRONTEND (Next.js)
+# ============================================================
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+
+# ============================================================
+# BACKEND (Python)
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pythonenv*
+.venv
+.venv/
+
+# Database
+*.db
+*.sqlite3
+*.sqlite
+*.db-journal
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+*.env
+*.env.local
+
+# Logs
+logs/
+*.log
+logfile.log
+access.log
+error.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.vs/
+*.code-workspace
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+._*
+
+# Uploads / Media
+uploads/
+media/
+static/
+
+# Backend Specific
+*.pid
+*.rdb
+*.rdb.lock
+alembic/versions/*.pyc
+instance/
+.eggs/
+*.egg-info/
+dist/
+build/
+.cover
+coverage/
+htmlcov/
+.pytest_cache/
+
+# Secrets & Keys
+*.pem
+*.key
+*.crt
+*.cert
+*.jwk
+.secrets
+.secret
+*.secret
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.cache/
+.temp/
+tmp/

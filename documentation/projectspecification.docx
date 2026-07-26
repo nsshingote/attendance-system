@@ -1,0 +1,251 @@
+System Requirements Specification (SRS)
+Employee Attendance Management System
+1. Introduction
+1.1 Project Overview
+The Employee Attendance Management System is a comprehensive web-based application designed to digitize and streamline attendance tracking, leave management, and daily reporting for organizations. The system replaces manual attendance registers with an automated, efficient, and user-friendly platform that reduces paperwork, minimizes errors, and provides real-time insights into workforce activity.
+
+1.2 Project Purpose
+The primary purpose of developing this system is to:
+
+Automate Attendance Tracking: Digitize the traditional way of marking attendance with check-in/out functionality 
+
+Centralize Leave Management: Streamline leave requests, approvals, and balance tracking
+
+Generate Custom Reports: Provide detailed attendance and performance reports for administrative decision-making
+
+Enhance Security: Enforce office IP-based attendance validation and role-based access control
+
+Improve User Experience: Offer responsive design for both desktop and mobile access
+
+1.3 Scope
+The system covers:
+
+Employee check-in/out with office IP validation
+
+Leave requests (Paid, Carried, Unpaid, Emergency, Sick, Privilege)
+
+Daily report submission with department-specific templates
+
+Admin/SuperAdmin dashboards with workforce analytics
+
+User management and role-based access control
+
+Holiday management and calendar views
+
+Device request management for employee devices
+
+Activity logging and audit trails
+
+2. Stakeholders 
+2.1 Primary Stakeholders
+Stakeholder	Role
+Employees	End-users who check-in/out, apply for leave, and submit daily reports
+Managers/Admins	Monitor attendance, approve leaves, manage users
+SuperAdmins	Full system control including user deletion and role changes
+2.2 Secondary Stakeholders
+Stakeholder	Role
+HR Department	Manages employee records, leave policies
+IT Department	Manages office IPs, device approvals, system maintenance
+Management	Views reports for workforce planning
+3. User Requirements 
+ID	Requirement	Description
+UR-01	User Authentication	Secure login with mobile number and password
+UR-02	Role-Based Dashboards	Customized dashboards for Employee, Admin, SuperAdmin
+UR-03	Check-in/Check-out	Mark attendance with office IP validation
+UR-04	Leave Requests	Apply for leave with category selection (Paid, Carried, Unpaid, Emergency, Sick, Privilege)
+UR-05	Daily Reports	Submit daily work reports with quantity and duration
+UR-06	View Attendance	View personal attendance history in table or calendar view
+UR-07	Request Corrections	Request corrections for incorrect attendance records
+UR-08	View Team Reports	Admins view all employee reports
+UR-09	Manage Users	Admins add, update, and view employees
+UR-10	Manage Holidays	Admins add/view holidays
+UR-11	Office IP Management	Admins manage approved IP addresses for attendance
+UR-12	Device Requests	Employees request device approval; Admins approve/reject
+UR-13	Activity Logs	Admins view system activity logs
+UR-14	Notifications	Email notifications for leave requests
+UR-15	Responsive Design	Accessible on both desktop and mobile devices
+4. System Requirements 
+ID	Requirement	Description
+SR-01	Performance	Handle multiple concurrent users with minimal latency
+SR-02	Security	JWT-based authentication; bcrypt password hashing
+SR-03	Data Integrity	SQLAlchemy ORM with MySQL database
+SR-04	Scalability	Modular architecture supporting future growth
+SR-05	Reliability	99.9% uptime target with error logging
+SR-06	Compatibility	Support Chrome, Firefox, Edge, Safari browsers
+SR-07	Maintainability	Clean, documented code with separation of concerns
+SR-08	Accessibility	WCAG-compliant UI with keyboard navigation
+SR-09	Data Backup	Automated database backups
+SR-10	Audit Trail	Complete activity logging for compliance
+5. Functional Requirements
+5.1 Authentication Module
+ID	Function	Description
+FR-AUTH-01	Login	Employee/Admin login with mobile + password
+FR-AUTH-02	JWT Session	Token-based session management
+FR-AUTH-03	Password Reset	Forgot password with email reset link
+FR-AUTH-04	Device Tracking	Track device fingerprint for security
+5.2 Attendance Module
+ID	Function	Description
+FR-ATT-01	Check-in	Employee check-in with office IP validation
+FR-ATT-02	Check-out	Employee check-out with office IP validation
+FR-ATT-03	Office IP Validation	Restrict attendance to approved office IPs
+FR-ATT-04	Late Check-in Reason	Require reason for check-in after 10:30 AM
+FR-ATT-05	Early Check-out Reason	Require reason for check-out before 6:30 PM
+FR-ATT-06	Report Validation	Require daily report before check-out
+FR-ATT-07	Attendance History	View attendance history (table/calendar)
+FR-ATT-08	Attendance Summary	Monthly summary with Present, Half Day, Absent, Holiday, Leave counts
+FR-ATT-09	Half Day Requests	Employees request half-day (morning/afternoon slots)
+FR-ATT-10	Attendance Corrections	Employees request corrections; Admins approve/reject
+5.3 Leave Module
+ID	Function	Description
+FR-LV-01	Apply Leave	Apply with category: Paid, Carried, Unpaid, Emergency, Sick, Privilege
+FR-LV-02	Leave Balance	View paid, carried, encashed leave balance
+FR-LV-03	Admin Approval	Admins approve/reject leave requests
+FR-LV-04	Leave Category Override	Admins override category to "Privilege"
+FR-LV-05	Leave Encashment	Request encashment of carried leave
+FR-LV-06	Leave Notifications	Email notifications to configured recipients
+FR-LV-07	Leave Calendar	Calendar view of leave requests
+FR-LV-08	Monthly Leave Report	Monthly leave usage summary
+5.4 Daily Report Module
+ID	Function	Description
+FR-DR-01	Submit Report	Employees submit daily reports
+FR-DR-02	Department Templates	B2B/B2C: Activity hierarchy with quantity/duration; HR/IT: Plain description
+FR-DR-03	Report Status	Track submitted/draft status
+FR-DR-04	View Reports	Employees view personal reports; Admins view team reports
+FR-DR-05	Admin Reports	Admins view all employee reports with filtering
+5.5 User Management Module
+ID	Function	Description
+FR-UM-01	Create User	Admin creates new employee
+FR-UM-02	Update User	Admin updates user details
+FR-UM-03	User List	Admin views all users
+FR-UM-04	User Detail	Admin views individual employee details
+FR-UM-05	Role Management	SuperAdmin changes user roles
+FR-UM-06	User Deletion	SuperAdmin deletes users
+5.6 Device Management Module
+ID	Function	Description
+FR-DV-01	Device Request	Employees request device registration
+FR-DV-02	Device Approval	Admins approve/reject device requests
+FR-DV-03	Device List	Admins view all registered devices
+5.7 Office IP Management Module
+ID	Function	Description
+FR-IP-01	Add IP	Admin adds approved office IP
+FR-IP-02	Toggle IP	Admin activates/deactivates IP
+FR-IP-03	Delete IP	Admin removes IP
+FR-IP-04	List IPs	Admin views all configured IPs
+5.8 Holiday Management Module
+ID	Function	Description
+FR-HOL-01	Add Holiday	Admin adds holiday (date + name)
+FR-HOL-02	List Holidays	Admin views all holidays
+FR-HOL-03	Delete Holiday	Admin removes holiday
+6. Non-Functional Requirements 
+Category	Requirement
+Usability	User-friendly interface with responsive design for mobile and desktop
+Performance	Response time < 2 seconds for standard operations
+Security	JWT tokens, bcrypt hashing, HTTPS (production), office IP validation
+Availability	99.9% uptime target
+Scalability	Modular architecture for future expansion
+Compatibility	Chrome, Edge, Firefox, Safari; iOS/Android mobile browsers
+Maintainability	Clean code structure with FastAPI backend, Next.js frontend
+Data Integrity	ACID compliance with SQLAlchemy ORM
+Audit	Complete activity logging for all actions
+Accessibility	WCAG 2.1 AA compliance
+7. Technology Stack
+Backend
+Component	Technology
+Framework	FastAPI 0.111.0
+Language	Python 3.12+
+Database	MySQL
+ORM	SQLAlchemy 2.0.30
+Authentication	JWT (python-jose), bcrypt
+Validation	Pydantic 2.7.4
+Server	Uvicorn 0.30.1
+Frontend
+Component	Technology
+Framework	Next.js 16.2.10
+Language	TypeScript 5
+UI Library	React 19.2.4
+Styling	TailwindCSS 4
+Charts	Recharts 3.9.2
+Forms	React Hook Form 7.81.0
+HTTP Client	Axios 1.18.1
+Tools
+Component	Technology
+Version Control	Git
+Package Manager (Backend)	pip
+Package Manager (Frontend)	npm
+Documentation	Draw.io, Mermaid
+8. Database Schema
+The system contains 19 tables:
+
+#	Table	Description
+1	users	All system users
+2	attendance	Daily attendance records
+3	attendance_corrections	Attendance correction requests
+4	leave_types	Leave type definitions
+5	leave_requests	Leave applications
+6	notification_emails	Email recipients for notifications
+7	leave_notification_emails	Junction table for leave-email notifications
+8	holidays	Company holiday list
+9	device_requests	Device registration requests
+10	office_ips	Approved office IP addresses
+11	half_day_requests	Half day requests
+12	leave_encashment_requests	Leave encashment requests
+13	password_reset_tokens	Password reset tokens
+14	activity_logs	User activity audit logs
+15	company_settings	Company configuration
+16	report_departments	Report departments (B2B/B2C/HR/IT)
+17	report_types	Report types per department
+18	report_subtypes	Report subtypes per type
+19	daily_reports	Employee daily reports
+9. Use Cases (Key Scenarios)
+9.1 Employee Check-in
+Employee logs in to the system
+
+Employee navigates to Dashboard
+
+Employee clicks "Check In"
+
+System validates IP address against office_ips table
+
+If IP is approved, system records check-in with timestamp
+
+If IP is not approved, system shows error message
+
+9.2 Employee Check-out with Report Validation
+Employee logs in and submits daily report
+
+Employee clicks "Check Out"
+
+System validates IP address and report submission status
+
+If both pass, system records check-out timestamp
+
+System calculates and updates attendance status
+
+9.3 Leave Application
+Employee navigates to Leave page
+
+Employee selects leave category, dates, and reason
+
+System validates leave balance (for Paid/Carried leaves)
+
+Admin approves/rejects request
+
+System updates leave balance on approval
+
+9.4 Admin Report Viewing
+Admin navigates to Admin Reports page
+
+Admin selects employee from dropdown
+
+Admin selects month/year
+
+System displays reports for selected employee
+
+10. Success Metrics 
+Metric	Target
+Attendance Accuracy Rate	≥ 99%
+System Uptime	99.9%
+User Adoption Rate	≥ 95%
+Payroll Error Reduction	90% reduction in manual errors
+Mobile Accessibility	Full functionality on mobile devices
+

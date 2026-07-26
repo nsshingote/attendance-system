@@ -1,0 +1,183 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+
+/* ==========================================================
+   Design tokens (Tailwind v4 CSS-first config)
+   ========================================================== */
+@theme {
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), monospace;
+
+  --color-ink-950: #0b1220;
+  --color-ink-900: #111827;
+  --color-ink-800: #1f2937;
+  --color-ink-700: #334155;
+  --color-ink-600: #475569;
+  --color-ink-500: #64748b;
+  --color-ink-400: #94a3b8;
+  --color-ink-300: #cbd5e1;
+  --color-ink-200: #e2e8f0;
+  --color-ink-100: #f1f5f9;
+  --color-ink-50: #f8fafc;
+
+  --color-brand-700: #3730a3;
+  --color-brand-600: #4338ca;
+  --color-brand-500: #4f46e5;
+  --color-brand-400: #6366f1;
+  --color-brand-100: #e0e7ff;
+  --color-brand-50: #eef2ff;
+
+  --color-status-present: #16a34a;
+  --color-status-late: #d97706;
+  --color-status-halfday: #0891b2;
+  --color-status-absent: #dc2626;
+  --color-status-holiday: #7c3aed;
+
+  --radius-xl: 0.875rem;
+  --shadow-card: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.06);
+}
+
+/* ==========================================================
+   BASE - FIXED FOR MOBILE SCROLLING
+   ========================================================== */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden !important;
+  width: 100%;
+  max-width: 100%;
+}
+
+body {
+  @apply bg-ink-50 text-ink-900 antialiased font-sans;
+}
+
+/* Fix for all elements - prevent horizontal overflow */
+* {
+  border-color: var(--color-ink-200);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Main app container - fixes scrolling */
+#__next,
+.app-container,
+[data-nextjs-scroll-focus-boundary] {
+  height: 100vh;
+  width: 100vw;
+  max-width: 100vw;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Content area - this scrolls vertically */
+.main-content,
+main {
+  flex: 1;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  height: 100%;
+  min-height: 0;
+  padding: 1rem;
+}
+
+@media (max-width: 768px) {
+  .main-content,
+  main {
+    padding: 0.75rem;
+  }
+}
+
+/* Sidebar fixes */
+.sidebar-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100vh;
+}
+
+/* Fix for tables on mobile */
+.table-wrapper {
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  -webkit-overflow-scrolling: touch !important;
+  margin: 0 -0.75rem;
+  padding: 0 0.75rem;
+}
+
+@media (min-width: 769px) {
+  .table-wrapper {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-300);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-400);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+/* ==========================================================
+   Status pill helpers
+   ========================================================== */
+.status-present {
+  @apply bg-green-50 text-green-700 ring-1 ring-inset ring-green-200;
+}
+.status-late {
+  @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200;
+}
+.status-half-day {
+  @apply bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200;
+}
+.status-absent {
+  @apply bg-red-50 text-red-700 ring-1 ring-inset ring-red-200;
+}
+.status-holiday {
+  @apply bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200;
+}
+.status-pending {
+  @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200;
+}
+.status-approved {
+  @apply bg-green-50 text-green-700 ring-1 ring-inset ring-green-200;
+}
+.status-rejected {
+  @apply bg-red-50 text-red-700 ring-1 ring-inset ring-red-200;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
