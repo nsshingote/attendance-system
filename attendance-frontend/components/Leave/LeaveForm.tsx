@@ -109,29 +109,36 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
 
   const onSubmit = async (values: LeaveFormValues) => {
     if (!values.leave_category) {
-      toast.error("Please select a leave category");
-      return;
+        toast.error("Please select a leave category");
+        return;
     }
 
     setSubmitting(true);
     try {
-      await api.post("/leave/", {
-        from_date: values.from_date,
-        to_date: values.to_date,
-        reason: values.reason,
-        leave_category: values.leave_category,
-        user_id: targetUserId, 
-      });
-      toast.success(
-        targetUserId ? "Leave request submitted on the employee's behalf" : "Leave request submitted"
-      );
-      onSuccess();
+        // ✅ Build payload WITHOUT user_id first
+        const payload: any = {
+            from_date: values.from_date,
+            to_date: values.to_date,
+            reason: values.reason,
+            leave_category: values.leave_category,
+        };
+        
+        // ✅ Only add user_id if a user is selected (not "Myself")
+        if (targetUserId) {
+            payload.user_id = targetUserId;
+        }
+        
+        await api.post("/leave/", payload);
+        toast.success(
+            targetUserId ? "Leave request submitted on the employee's behalf" : "Leave request submitted"
+        );
+        onSuccess();
     } catch (error) {
-      toast.error(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
     } finally {
-      setSubmitting(false);
+        setSubmitting(false);
     }
-  };
+};
 
   const handleComposeEmail = () => {
     const values = getValues();

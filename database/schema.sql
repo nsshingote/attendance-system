@@ -298,3 +298,114 @@ VALUES ('127.0.0.1', 'Localhost', 'active');
 
 -- Insert default leave types
 INSERT IGNORE INTO leave_types (name, total_days) VALUES ('Annual', 12), ('Sick', 6), ('Emergency', 3);
+
+
+
+-- ============================================================
+-- 20. DYNAMIC DEPARTMENTS TABLE (Admin can add/remove)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS departments (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    is_active SMALLINT DEFAULT 1,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 21. DYNAMIC REPORT TYPES TABLE (Admin can add/remove)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dynamic_report_types (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    department_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    sort_order INT DEFAULT 0,
+    is_active SMALLINT DEFAULT 1,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 22. DYNAMIC REPORT SUBTYPES TABLE (Admin can add/remove)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dynamic_report_subtypes (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    type_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    has_quantity BOOLEAN DEFAULT TRUE,
+    has_duration BOOLEAN DEFAULT TRUE,
+    has_description BOOLEAN DEFAULT FALSE,
+    sort_order INT DEFAULT 0,
+    is_active SMALLINT DEFAULT 1,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (type_id) REFERENCES dynamic_report_types(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 23. DYNAMIC REPORT FIELDS TABLE (Admin can add/remove)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dynamic_report_fields (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    field_type ENUM('text', 'number', 'date', 'duration', 'textarea', 'dropdown') NOT NULL,
+    is_default SMALLINT DEFAULT 0,
+    show_in_report SMALLINT DEFAULT 1,
+    is_required SMALLINT DEFAULT 0,
+    sort_order INT DEFAULT 0,
+    is_active SMALLINT DEFAULT 1,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 24. REPORT DEFAULT ROWS TABLE (Admin sets default rows per department)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS report_default_rows (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    department_id INT NOT NULL,
+    subtype_id INT NOT NULL,
+    is_default SMALLINT DEFAULT 1,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+    FOREIGN KEY (subtype_id) REFERENCES dynamic_report_subtypes(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 25. USER DAILY ROWS TABLE (User-added custom rows per day)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_daily_rows (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    attendance_date DATE NOT NULL,
+    subtype_id INT NOT NULL,
+    is_custom SMALLINT DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subtype_id) REFERENCES dynamic_report_subtypes(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 26. DAILY REPORT DATA TABLE (Actual report values per day)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS daily_report_data (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    attendance_date DATE NOT NULL,
+    subtype_id INT NOT NULL,
+    quantity INT,
+    duration VARCHAR(50),
+    description TEXT,
+    custom_fields TEXT,
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subtype_id) REFERENCES dynamic_report_subtypes(id) ON DELETE CASCADE
+);

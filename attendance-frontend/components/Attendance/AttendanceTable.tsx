@@ -6,8 +6,8 @@
  */
 
 import { parseISO } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 import Badge from "@/components/Common/Badge";
+import { parseISTDateTime } from "@/lib/date";
 
 export interface AttendanceRecord {
   id: number;
@@ -18,6 +18,7 @@ export interface AttendanceRecord {
   ip_address: string | null;
   reason?: string | null;
   report?: string | null;
+  has_report?: boolean;
   user_name?: string;
   department?: string;
 }
@@ -29,21 +30,15 @@ interface AttendanceTableProps {
   showEmployeeName?: boolean;
 }
 
-const IST_TIME_ZONE = "Asia/Kolkata";
-
 function formatTime(isoString: string): string {
   if (!isoString) return "—";
-  try {
-    const date = parseISO(isoString);
-    const zonedDate = toZonedTime(date, IST_TIME_ZONE);
-    return zonedDate.toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-  } catch {
-    return "—";
-  }
+  const date = parseISTDateTime(isoString);
+  if (!date) return "—";
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function formatDateOnly(dateString: string): string {
@@ -57,8 +52,9 @@ function formatDateOnly(dateString: string): string {
 function formatHoursWorked(checkIn: string | null, checkOut: string | null): string {
   if (!checkIn || !checkOut) return "—";
   try {
-    const inDate = parseISO(checkIn);
-    const outDate = parseISO(checkOut);
+    const inDate = parseISTDateTime(checkIn);
+    const outDate = parseISTDateTime(checkOut);
+    if (!inDate || !outDate) return "—";
     const minutes = Math.round((outDate.getTime() - inDate.getTime()) / 60000);
     if (minutes <= 0) return "—";
     const hours = Math.floor(minutes / 60);
@@ -69,25 +65,28 @@ function formatHoursWorked(checkIn: string | null, checkOut: string | null): str
   }
 }
 
-function parseReason(reason: string | null | undefined, status: string): { lateReason: string; earlyReason: string } {
-  if (!reason) return { lateReason: "", earlyReason: "" };
+function parseReason(reason: string | null | undefined, status: string): { lateReason: string; earlyReason: string; remark: string } {
+  if (!reason) return { lateReason: "", earlyReason: "", remark: "" };
   
   if (reason.includes(";")) {
     const parts = reason.split(";").map(s => s.trim());
     return {
       lateReason: parts[0] || "",
       earlyReason: parts[1] || "",
+      remark: "",
     };
   }
   
   if (status === "Late") {
-    return { lateReason: reason, earlyReason: "" };
+    return { lateReason: reason, earlyReason: "", remark: "" };
   }
   
-  return { lateReason: "", earlyReason: reason };
+  return { lateReason: "", earlyReason: reason, remark: reason };
 }
 
-function getReportStatus(report: string | null | undefined): string {
+function getReportStatus(report: string | null | undefined, has_report?: boolean): string {
+  if (has_report === true) return "✅";
+  if (has_report === false) return "❌";
   if (!report || report === "Not Submitted") {
     return "❌";
   }
@@ -129,8 +128,8 @@ export default function AttendanceTable({
         </thead>
         <tbody className="divide-y divide-ink-100">
           {records.map((r) => {
-            const { lateReason, earlyReason } = parseReason(r.reason, r.status);
-            const reportStatus = getReportStatus(r.report);
+            const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
+            const reportStatus = getReportStatus(r.report, r.has_report);
             
             return (
               <tr key={r.id} className="hover:bg-ink-50/60">
@@ -155,10 +154,10 @@ export default function AttendanceTable({
                   <Badge status={r.status} />
                 </td>
                 <td className="px-2 py-2 text-[10px] text-ink-500 whitespace-nowrap max-w-60px truncate">
-                  {lateReason || "—"}
+                  {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
                 </td>
                 <td className="px-2 py-2 text-[10px] text-ink-500 whitespace-nowrap max-w-60px truncate">
-                  {earlyReason || "—"}
+                  {earlyReason || (!lateReason ? remark : "") || "—"}
                 </td>
                 <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">
                   <span className={reportStatus === "✅" ? "text-green-600" : "text-red-500"}>

@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus, Check, X } from "lucide-react";
+import { Plus, Check, X, Calendar as CalendarIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
 import { useSession, isAdmin } from "@/lib/auth";
@@ -29,10 +29,12 @@ import HalfDayForm from "@/components/Attendance/HalfDayForm";
 import MonthSelector from "@/components/Calendar/MonthSelector";
 
 interface LeaveBalance {
-  paid_leave_available_this_month: boolean;
+  user_id: number;
+  user_name: string;
+  paid_leave_available_this_month: number;
   carried_leave: number;
   leave_encashed: number;
-  remaining_leave: number;
+  total_leave_balance: number;
 }
 
 interface EncashmentRequest {
@@ -88,6 +90,8 @@ export default function LeavePage() {
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(undefined);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [myRequests, setMyRequests] = useState<LeaveRow[]>([]);
   const [myHalfDayRequests, setMyHalfDayRequests] = useState<HalfDayRequestRow[]>([]);
@@ -113,19 +117,22 @@ export default function LeavePage() {
     }
   }, [admin]);
 
-const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
   if (!session) return;
   setLoading(true);
   try {
+    const params: any = { year, month };
+    if (selectedDate) params.date_value = selectedDate;
+
     if (admin && selectedUserId) {
       // Admin viewing a specific user - get ALL their requests with month filter
       const [leaveRes, balanceRes, halfDayRes, encashmentRes] = await Promise.all([
-        api.get<LeaveRow[]>(`/leave/user/${selectedUserId}`, { params: { year, month } }),
+        api.get<LeaveRow[]>(`/leave/user/${selectedUserId}`, { params }),
         api.get<LeaveBalance>(`/leave/balance/${selectedUserId}`),
-        api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${selectedUserId}`, { params: { year, month } }),
-        api.get<EncashmentRequest[]>(`/leave/encashment/user/${selectedUserId}`).catch(() => ({ data: [] })),
+        api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${selectedUserId}`, { params }),
+        api.get<EncashmentRequest[]>(`/leave/encash/user/${selectedUserId}`).catch(() => ({ data: [] })),
       ]);
-      
+
       setMyRequests(leaveRes.data || []);
       setBalance(balanceRes.data || null);
       setMyHalfDayRequests(halfDayRes.data || []);
@@ -136,8 +143,8 @@ const fetchAll = useCallback(async () => {
     } else if (admin) {
       // Admin viewing all employees - show approval tabs with month filter
       const [allLeaveRes, halfDayRes, encashmentRes] = await Promise.all([
-        api.get<LeaveRow[]>("/leave/", { params: { year, month } }),
-        api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params: { year, month } }),
+        api.get<LeaveRow[]>("/leave/", { params }),
+        api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
         api.get<EncashmentRequest[]>("/leave/encashment-requests", { params: { status_filter: "Pending" } }),
       ]);
       
@@ -151,10 +158,10 @@ const fetchAll = useCallback(async () => {
     } else {
       // Employee view - only their own with month filter
       const [leaveRes, balanceRes, halfDayRes, encashmentRes] = await Promise.all([
-        api.get<LeaveRow[]>("/leave/me", { params: { year, month } }),
+        api.get<LeaveRow[]>("/leave/me", { params }),
         api.get<LeaveBalance>(`/leave/balance/${session.userId}`),
-        api.get<HalfDayRequestRow[]>("/attendance/half-day-requests/me", { params: { year, month } }),
-        api.get<EncashmentRequest[]>(`/leave/encashment/user/${session.userId}`).catch(() => ({ data: [] })),
+        api.get<HalfDayRequestRow[]>("/attendance/half-day-requests/me", { params }),
+        api.get<EncashmentRequest[]>("/leave/encashment-requests/me", { params }).catch(() => ({ data: [] })),
       ]);
       
       setMyRequests(leaveRes.data || []);
@@ -167,7 +174,7 @@ const fetchAll = useCallback(async () => {
   } finally {
     setLoading(false);
   }
-}, [session?.userId, admin, selectedUserId, year, month]);
+ }, [session?.userId, admin, selectedUserId, year, month, selectedDate]);
 
   useEffect(() => {
     fetchAll();
@@ -202,7 +209,7 @@ const fetchAll = useCallback(async () => {
 
   const handleDecideEncashment = async (id: number, status: "Approved" | "Rejected") => {
     try {
-      await api.put(`/leave/encashment-requests/${id}`, { status });
+      await api.put(`/leave/encash/${id}/decide`, { status });
       toast.success(`Encashment request ${status.toLowerCase()}`);
       fetchAll();
     } catch (error) {
@@ -242,6 +249,11 @@ const fetchAll = useCallback(async () => {
     })),
   ].sort((a, b) => (a.from_date < b.from_date ? 1 : -1));
 
+  const clearDateFilter = () => {
+    setSelectedDate("");
+    setShowDatePicker(false);
+  };
+
   const isViewingSpecificUser = admin && selectedUserId;
   const isViewingAllEmployees = admin && !selectedUserId;
   const isEmployee = !admin;
@@ -275,6 +287,28 @@ const fetchAll = useCallback(async () => {
                 ))}
               </select>
             )}
+            <div className="relative">
+              <button
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-sm ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}
+              >
+                <CalendarIcon size={16} />
+                {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
+                {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
+              </button>
+              {showDatePicker && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                    <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="rounded border border-ink-200 px-3 py-2 text-sm" />
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="rounded bg-brand-500 px-3 py-1 text-xs text-white hover:bg-brand-600">Today</button>
+                      <button onClick={clearDateFilter} className="rounded border border-ink-200 px-3 py-1 text-xs text-ink-600 hover:bg-ink-50">Clear</button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             <MonthSelector
               year={year}
               month={month}
@@ -295,6 +329,14 @@ const fetchAll = useCallback(async () => {
           </div>
         </div>
 
+        {selectedDate && (
+          <div className="flex items-center gap-2 text-sm text-ink-600">
+            <span className="font-medium">Filtering by date:</span>
+            <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
+            <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
+          </div>
+        )}
+
         {loading ? (
           <Loading />
         ) : (
@@ -302,12 +344,12 @@ const fetchAll = useCallback(async () => {
             {/* Show balance for employees or admin viewing specific user */}
             {(isEmployee || isViewingSpecificUser) && balance && (
               <LeaveSummary
-                paidLeaveAvailableThisMonth={balance.paid_leave_available_this_month}
-                carriedLeave={balance.carried_leave}
-                leaveEncashed={balance.leave_encashed}
+               paidLeaveAvailableThisMonth={balance.paid_leave_available_this_month}
+               carriedLeave={balance.carried_leave}
+               leaveEncashed={balance.leave_encashed}
+               totalLeaveBalance={balance.total_leave_balance}
               />
             )}
-
             {/* Show encashment for employees or admin viewing specific user */}
             {(isEmployee || isViewingSpecificUser) && balance && (
               <LeaveEncashment carriedLeave={balance.carried_leave} onSuccess={fetchAll} />

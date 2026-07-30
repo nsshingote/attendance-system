@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment
+.env
+*.env
+
+# VS Code
+.vscode/
+
+# Database backups
+*.sql
+!database/schema.sql
+
+# Node
+node_modules/
+.next/
+out/
+
+# Temp files
+tmp_*
+*.tmp

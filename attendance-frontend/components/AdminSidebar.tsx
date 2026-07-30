@@ -24,6 +24,7 @@ import {
   FileText,
   FileSearch,
   X,
+  Layers,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 
@@ -53,8 +54,8 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
   const pathname = usePathname();
   const session = getSession();
 
-  return (
-    <aside className="flex h-full w-full lg:w-60 flex-col border-r border-ink-200 bg-white">
+  const sidebarContent = (
+    <>
       <div className="flex h-16 items-center justify-between border-b border-ink-200 px-5">
         <div className="flex items-center gap-2">
           <img src="/logo.jpg" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
@@ -62,7 +63,6 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
             {isSuperAdmin(session?.role) ? "Super Admin" : "Admin Panel"}
           </span>
         </div>
-        {/* Close button - only on mobile */}
         {isMobile && onClose && (
           <button 
             onClick={onClose}
@@ -92,7 +92,40 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
             </Link>
           );
         })}
+
+        {/* ============================================================
+            REPORT STRUCTURE - Added after Settings
+            ============================================================ */}
+        <Link
+          href="/admin/report-structure"
+          onClick={onClose}
+          className={clsx(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors mt-4 border-t border-ink-200 pt-4",
+            pathname === "/admin/report-structure"
+              ? "bg-brand-50 text-brand-700"
+              : "text-ink-600 hover:bg-ink-50 hover:text-ink-900"
+          )}
+        >
+          <Layers size={17} strokeWidth={pathname === "/admin/report-structure" ? 2.4 : 2} />
+          Report Structure
+        </Link>
       </nav>
+    </>
+  );
+
+  // Mobile: render with overlay
+  if (isMobile) {
+    return (
+      <div className="h-full w-72 bg-white shadow-xl">
+        {sidebarContent}
+      </div>
+    );
+  }
+
+  // Desktop: render as sidebar
+  return (
+    <aside className="hidden lg:flex h-full w-60 shrink-0 flex-col border-r border-ink-200 bg-white">
+      {sidebarContent}
     </aside>
   );
 }

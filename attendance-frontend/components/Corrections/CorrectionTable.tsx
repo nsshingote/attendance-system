@@ -12,6 +12,7 @@
 
 import { Check, X } from "lucide-react";
 import Badge from "@/components/Common/Badge";
+import { parseISTDateTime } from "@/lib/date";
 
 export interface CorrectionRow {
   id: number;
@@ -36,22 +37,18 @@ interface CorrectionTableProps {
 
 function formatISTDateTime(isoString: string | null): string {
   if (!isoString) return "—";
-  try {
-    // Parse the ISO string as-is (no timezone conversion needed)
-    const date = new Date(isoString);
-    const datePart = date.toLocaleDateString("en-IN", { 
-      day: "2-digit", 
-      month: "short"
-    });
-    const timePart = date.toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-    return `${datePart}, ${timePart}`;
-  } catch {
-    return isoString;
-  }
+  const date = parseISTDateTime(isoString);
+  if (!date) return isoString || "—";
+  const datePart = date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+  });
+  const timePart = date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `${datePart}, ${timePart}`;
 }
 
 export default function CorrectionTable({ corrections, canDecide, onDecide }: CorrectionTableProps) {

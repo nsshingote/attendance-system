@@ -90,6 +90,7 @@ export default function DailyReportPage() {
 
         <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
           <ReportForm
+            userId={session?.userId}  // ← ADDED THIS
             onSuccess={handleSuccess}
             onCancel={handleCancel}
           />

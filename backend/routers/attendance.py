@@ -8,6 +8,7 @@ require a reason.
 
 from datetime import date, datetime, time
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
@@ -15,10 +16,11 @@ from sqlalchemy import func
 
 from auth import get_current_user, require_roles, require_admin
 from database import get_db
-from models import Attendance, OfficeIP, User, ActivityLog, Holiday, HalfDayRequest as HalfDayRequestModel, LeaveRequest, DailyReport
+from models import Attendance, OfficeIP, User, ActivityLog, Holiday, HalfDayRequest as HalfDayRequestModel, LeaveRequest, DailyReportData, DailyReport
 from schemas import AttendanceOut, AttendanceManualUpdate, HalfDayCreate, HalfDayDecision, HalfDayOut, CheckInRequest, CheckOutRequest
 from utils.attendance_status import calculate_status, calculate_half_day, is_weekly_off
 from utils.calender import build_month_calendar
+from utils.date_helpers import iso_with_offset
 
 router = APIRouter()
 
@@ -43,7 +45,6 @@ def _get_client_ip(request: Request, override: Optional[str] = None) -> str:
 
 
 def _validate_office_ip(ip_address: str, db: Session) -> bool:
-    # ADD THESE DEBUG PRINTS
     print(f"🔵 ========================================")
     print(f"🔵 VALIDATING IP: {ip_address}")
     
@@ -66,12 +67,19 @@ def _validate_office_ip(ip_address: str, db: Session) -> bool:
 
 def _has_report_for_date(db: Session, user_id: int, target_date: date) -> bool:
     """Check if a user has submitted a report for a specific date."""
-    report = db.query(DailyReport).filter(
+    data_report = db.query(DailyReportData).filter(
+        DailyReportData.user_id == user_id,
+        DailyReportData.attendance_date == target_date
+    ).first()
+    if data_report:
+        return True
+
+    legacy_report = db.query(DailyReport).filter(
         DailyReport.user_id == user_id,
         DailyReport.attendance_date == target_date,
         DailyReport.status == "submitted"
     ).first()
-    return report is not None
+    return legacy_report is not None
 
 
 @router.post("/check-in", response_model=AttendanceOut)
@@ -81,7 +89,10 @@ def check_in(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    today = date.today()
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    # keep tz-aware datetime
+    today = ist_now.date()
+    print(f"[CHECK-IN] user={getattr(current_user,'id',None)} ist_now={ist_now.isoformat()}")
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
     
     # Validate office IP - applies to ALL users (including admins)
@@ -99,11 +110,10 @@ def check_in(
     if existing and existing.check_in:
         raise HTTPException(status_code=400, detail="You have already checked in today")
 
-    now = datetime.now()
     reason = payload.reason if payload else None
 
-    # Require reason for late check-in (after 10:30 AM)
-    if now.time() > LATE_CHECKIN_REASON_CUTOFF and not reason:
+    # Require reason for late check-in (after 10:30 AM IST)
+    if ist_now.time() > LATE_CHECKIN_REASON_CUTOFF and not reason:
         raise HTTPException(
             status_code=400,
             detail="REASON_REQUIRED: Please provide a reason for checking in after 10:30 AM.",
@@ -115,10 +125,10 @@ def check_in(
     elif db.query(Holiday).filter(Holiday.holiday_date == today).first():
         status_value = "Holiday"
     else:
-        status_value = calculate_status(now, db)
+        status_value = calculate_status(ist_now, db)
 
     if existing:
-        existing.check_in = now
+        existing.check_in = ist_now
         existing.ip_address = ip_address
         existing.status = status_value
         existing.reason = reason
@@ -127,7 +137,7 @@ def check_in(
         record = Attendance(
             user_id=current_user.id,
             attendance_date=today,
-            check_in=now,
+            check_in=ist_now,
             ip_address=ip_address,
             status=status_value,
             reason=reason,
@@ -138,7 +148,129 @@ def check_in(
     db.add(ActivityLog(user_id=current_user.id, activity=f"Checked in from {ip_address}"))
     db.commit()
     db.refresh(record)
-    return record
+    print(f"[CHECK-IN-STORED] id={record.id} user={record.user_id} check_in={record.check_in!r} check_out={record.check_out!r} reason={record.reason!r}")
+
+    return {
+        "id": record.id,
+        "user_id": record.user_id,
+        "attendance_date": record.attendance_date.isoformat(),
+        "check_in": iso_with_offset(record.check_in),
+        "check_out": iso_with_offset(record.check_out),
+        "status": record.status,
+        "ip_address": record.ip_address,
+        "reason": record.reason,
+        "created_at": iso_with_offset(record.created_at),
+        "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
+    }
+
+
+@router.get("/debug-time")
+def debug_time():
+    """Return server UTC and Asia/Kolkata times for debugging."""
+    now_utc = datetime.utcnow()
+    ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    return {
+        "server_utc": now_utc.isoformat(),
+        "ist": ist.isoformat(),
+        "ist_naive": ist.replace(tzinfo=None).isoformat()
+    }
+
+
+@router.get("/debug-latest")
+def debug_latest_attendance(limit: int = 20, db: Session = Depends(get_db)):
+    """Return the latest attendance rows with raw stored values for debugging."""
+    records = db.query(Attendance).order_by(Attendance.id.desc()).limit(limit).all()
+    out = []
+    for r in records:
+        out.append({
+            "id": r.id,
+            "user_id": r.user_id,
+            "attendance_date": r.attendance_date.isoformat(),
+            "check_in_raw": str(r.check_in),
+            "check_out_raw": str(r.check_out),
+            "check_in_iso": iso_with_offset(r.check_in),
+            "check_out_iso": iso_with_offset(r.check_out),
+            "created_at_raw": str(r.created_at),
+            "created_at_iso": iso_with_offset(r.created_at),
+            "reason": r.reason,
+        })
+    return out
+
+
+@router.post("/normalize-naive")
+def normalize_naive_datetimes(db: Session = Depends(get_db)):
+    """One-time utility: convert naive check_in/check_out datetimes to tz-aware Asia/Kolkata datetimes."""
+    updated = 0
+    records = db.query(Attendance).all()
+    for r in records:
+        changed = False
+        if r.check_in and r.check_in.tzinfo is None:
+            r.check_in = r.check_in.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+            changed = True
+        if r.check_out and r.check_out.tzinfo is None:
+            r.check_out = r.check_out.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+            changed = True
+        if changed:
+            updated += 1
+            db.add(r)
+    db.commit()
+    return {"updated_rows": updated}
+
+
+@router.post("/test-checkin")
+def test_checkin(user_id: int, reason: Optional[str] = None, db: Session = Depends(get_db)):
+    """Temporary test endpoint: create a check-in for given user_id using server IST time."""
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    today = ist_now.date()
+
+    existing = db.query(Attendance).filter(Attendance.user_id == user_id, Attendance.attendance_date == today).first()
+    status_value = calculate_status(ist_now, db)
+    if existing:
+        existing.check_in = ist_now
+        existing.status = status_value
+        existing.reason = reason
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+        return {"created": False, "record": {
+            "id": existing.id,
+            "user_id": existing.user_id,
+            "check_in": iso_with_offset(existing.check_in),
+            "created_at": iso_with_offset(existing.created_at),
+            "reason": existing.reason
+        }}
+
+    record = Attendance(
+        user_id=user_id,
+        attendance_date=today,
+        check_in=ist_now,
+        status=status_value,
+        reason=reason,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"created": True, "record": {
+        "id": record.id,
+        "user_id": record.user_id,
+        "check_in": iso_with_offset(record.check_in),
+        "created_at": iso_with_offset(record.created_at),
+        "reason": record.reason
+    }}
+
+
+@router.post("/test-set-reason")
+def test_set_reason(user_id: int, reason: str, db: Session = Depends(get_db)):
+    """Temporary: set today's attendance reason for a user (test only)."""
+    today = date.today()
+    rec = db.query(Attendance).filter(Attendance.user_id == user_id, Attendance.attendance_date == today).first()
+    if not rec:
+        return {"error": "no record for today"}
+    rec.reason = reason
+    db.add(rec)
+    db.commit()
+    db.refresh(rec)
+    return {"id": rec.id, "user_id": rec.user_id, "check_in": iso_with_offset(rec.check_in), "reason": rec.reason}
 
 
 @router.post("/check-out", response_model=AttendanceOut)
@@ -148,7 +280,9 @@ def check_out(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    today = date.today()
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    today = ist_now.date()
+    print(f"[CHECK-OUT] user={getattr(current_user,'id',None)} ist_now={ist_now.isoformat()}")
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
     
     # Validate office IP - applies to ALL users (including admins)
@@ -168,11 +302,10 @@ def check_out(
     if record.check_out:
         raise HTTPException(status_code=400, detail="You have already checked out today")
 
-    now = datetime.now()
     reason = payload.reason if payload else None
 
-    # Require reason for early check-out (before 6:30 PM)
-    if now.time() < EARLY_CHECKOUT_REASON_CUTOFF and not reason:
+    # Require reason for early check-out (before 6:30 PM IST)
+    if ist_now.time() < EARLY_CHECKOUT_REASON_CUTOFF and not reason:
         raise HTTPException(
             status_code=400,
             detail="REASON_REQUIRED: Please provide a reason for checking out before 6:30 PM.",
@@ -183,8 +316,9 @@ def check_out(
     # =============================================
     # SuperAdmin is exempt from writing reports
     if current_user.role != "superadmin":
-        # Check if user has submitted a report for today
-        has_report = _has_report_for_date(db, current_user.id, today)
+        # Use the attendance record date rather than server local today
+        attendance_date = record.attendance_date
+        has_report = _has_report_for_date(db, current_user.id, attendance_date)
         if not has_report:
             raise HTTPException(
                 status_code=400,
@@ -192,24 +326,47 @@ def check_out(
             )
     # =============================================
 
-    record.check_out = now
+    record.check_out = ist_now
     if reason:
         record.reason = f"{record.reason}; {reason}" if record.reason else reason
 
-    # Check if it qualifies as a half day
-    if record.status != "Holiday" and calculate_half_day(record.check_in, now, db):
-        record.status = "Half Day"
+        # ✅ FIXED: Only mark Half Day if worked less than 4 hours
+    if record.check_in and record.check_out:
+        check_in_val = record.check_in
+        check_out_val = record.check_out
+        if check_in_val.tzinfo is None:
+            check_in_val = check_in_val.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+        if check_out_val.tzinfo is None:
+            check_out_val = check_out_val.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+        hours_worked = (check_out_val - check_in_val).total_seconds() / 3600
+        if hours_worked < 4 and record.status != "Holiday":
+            record.status = "Half Day"
+    
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Checked out from {ip_address}"))
     db.commit()
     db.refresh(record)
-    return record
+    print(f"[CHECK-OUT-STORED] id={record.id} user={record.user_id} check_in={record.check_in!r} check_out={record.check_out!r} reason={record.reason!r}")
+
+    return {
+        "id": record.id,
+        "user_id": record.user_id,
+        "attendance_date": record.attendance_date.isoformat(),
+        "check_in": iso_with_offset(record.check_in),
+        "check_out": iso_with_offset(record.check_out),
+        "status": record.status,
+        "ip_address": record.ip_address,
+        "reason": record.reason,
+        "created_at": iso_with_offset(record.created_at),
+        "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
+    }
 
 
 @router.get("/me", response_model=List[AttendanceOut])
 def my_attendance(
     month: Optional[int] = None,
     year: Optional[int] = None,
+    date_value: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -224,7 +381,28 @@ def my_attendance(
             Attendance.attendance_date >= start_date,
             Attendance.attendance_date < end_date
         )
-    return query.order_by(Attendance.attendance_date.desc()).all()
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+        query = query.filter(Attendance.attendance_date == target_date)
+
+    results = []
+    for attendance in query.order_by(Attendance.attendance_date.desc()).all():
+        results.append({
+            "id": attendance.id,
+            "user_id": attendance.user_id,
+            "attendance_date": attendance.attendance_date.isoformat(),
+            "check_in": iso_with_offset(attendance.check_in),
+            "check_out": iso_with_offset(attendance.check_out),
+            "status": attendance.status,
+            "ip_address": attendance.ip_address,
+            "reason": attendance.reason,
+            "created_at": iso_with_offset(attendance.created_at),
+            "has_report": _has_report_for_date(db, attendance.user_id, attendance.attendance_date),
+        })
+    return results
 
 
 @router.get("/user/{user_id}", response_model=List[AttendanceOut])
@@ -232,6 +410,7 @@ def user_attendance(
     user_id: int,
     month: Optional[int] = None,
     year: Optional[int] = None,
+    date_value: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "superadmin")),
 ):
@@ -251,7 +430,28 @@ def user_attendance(
             Attendance.attendance_date >= start_date,
             Attendance.attendance_date < end_date
         )
-    return query.order_by(Attendance.attendance_date.desc()).all()
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+        query = query.filter(Attendance.attendance_date == target_date)
+
+    results = []
+    for attendance in query.order_by(Attendance.attendance_date.desc()).all():
+        results.append({
+            "id": attendance.id,
+            "user_id": attendance.user_id,
+            "attendance_date": attendance.attendance_date.isoformat(),
+            "check_in": iso_with_offset(attendance.check_in),
+            "check_out": iso_with_offset(attendance.check_out),
+            "status": attendance.status,
+            "ip_address": attendance.ip_address,
+            "reason": attendance.reason,
+            "created_at": iso_with_offset(attendance.created_at),
+            "has_report": _has_report_for_date(db, attendance.user_id, attendance.attendance_date),
+        })
+    return results
 
 
 # ============================================================
@@ -261,7 +461,7 @@ def user_attendance(
 def get_all_attendance(
     year: int,
     month: int,
-    date: Optional[str] = None,
+    date_value: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -275,8 +475,8 @@ def get_all_attendance(
         func.extract('month', Attendance.attendance_date) == month
     )
     
-    if date:
-        query = query.filter(func.date(Attendance.attendance_date) == date)
+    if date_value is not None:
+        query = query.filter(Attendance.attendance_date == date_value)
     
     query = query.order_by(User.name, Attendance.attendance_date)
     
@@ -285,17 +485,29 @@ def get_all_attendance(
     # Format the response with user details
     formatted_results = []
     for attendance, user_name, department in results:
+        report_data_exists = db.query(DailyReportData).filter(
+            DailyReportData.user_id == attendance.user_id,
+            DailyReportData.attendance_date == attendance.attendance_date
+        ).first() is not None
+        legacy_report_exists = db.query(DailyReport).filter(
+            DailyReport.user_id == attendance.user_id,
+            DailyReport.attendance_date == attendance.attendance_date,
+            DailyReport.status == "submitted"
+        ).first() is not None
+        has_report = report_data_exists or legacy_report_exists
+
         formatted_results.append({
             "id": attendance.id,
             "user_id": attendance.user_id,
             "user_name": user_name,
             "department": department,
             "attendance_date": attendance.attendance_date.isoformat(),
-            "check_in": attendance.check_in.isoformat() if attendance.check_in else None,
-            "check_out": attendance.check_out.isoformat() if attendance.check_out else None,
+            "check_in": iso_with_offset(attendance.check_in),
+            "check_out": iso_with_offset(attendance.check_out),
             "status": attendance.status,
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
+            "has_report": has_report,
         })
     
     return formatted_results
@@ -349,8 +561,8 @@ def attendance_calendar(
         record = records_by_date.get(day["date"])
         if record:
             day["status"] = record.status
-            day["check_in"] = record.check_in.isoformat() if record.check_in else None
-            day["check_out"] = record.check_out.isoformat() if record.check_out else None
+            day["check_in"] = iso_with_offset(record.check_in)
+            day["check_out"] = iso_with_offset(record.check_out)
         else:
             # No attendance record for this day
             if day["day_type"] == "holiday":
@@ -466,8 +678,9 @@ def _apply_half_day(
         raise HTTPException(status_code=400, detail="Slot must be 'morning' or 'afternoon'")
 
     start_time, end_time = HALF_DAY_SLOTS[slot]
-    check_in = datetime.combine(attendance_date, start_time)
-    check_out = datetime.combine(attendance_date, end_time)
+    # create tz-aware datetimes in Asia/Kolkata
+    check_in = datetime.combine(attendance_date, start_time).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    check_out = datetime.combine(attendance_date, end_time).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
 
     record = (
         db.query(Attendance)
@@ -547,6 +760,7 @@ def request_half_day(
 def my_half_day_requests(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
+    date_value: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -562,6 +776,12 @@ def my_half_day_requests(
             HalfDayRequestModel.attendance_date >= start_date,
             HalfDayRequestModel.attendance_date < end_date
         )
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+        query = query.filter(HalfDayRequestModel.attendance_date == target_date)
     return query.order_by(HalfDayRequestModel.requested_at.desc()).all()
 
 
@@ -570,6 +790,7 @@ def all_half_day_requests(
     status_filter: Optional[str] = None,
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
+    date_value: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "superadmin")),
 ):
@@ -587,6 +808,12 @@ def all_half_day_requests(
             HalfDayRequestModel.attendance_date >= start_date,
             HalfDayRequestModel.attendance_date < end_date
         )
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+        query = query.filter(HalfDayRequestModel.attendance_date == target_date)
     return query.order_by(HalfDayRequestModel.requested_at.desc()).all()
 
 
@@ -595,6 +822,7 @@ def get_user_half_day_requests(
     user_id: int,
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
+    date_value: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
@@ -614,6 +842,12 @@ def get_user_half_day_requests(
             HalfDayRequestModel.attendance_date >= start_date,
             HalfDayRequestModel.attendance_date < end_date
         )
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+        query = query.filter(HalfDayRequestModel.attendance_date == target_date)
     return query.order_by(HalfDayRequestModel.requested_at.desc()).all()
 
 
@@ -695,7 +929,7 @@ def admin_request_half_day_for_user(
     # Create request with AUTO-APPROVED status
     half_day_request = HalfDayRequestModel(
         user_id=user_id,
-        attendance_date=payload.attendance_date,
+        attendance_date=payload.attendance_date, 
         slot=payload.slot,
         reason=payload.reason,
         status="Approved",

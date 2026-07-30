@@ -244,7 +244,7 @@ class ActivityLog(Base):
 
 
 # ============================================================
-# REPORT SYSTEM MODELS
+# REPORT SYSTEM MODELS (EXISTING)
 # ============================================================
 
 class ReportDepartment(Base):
@@ -293,7 +293,7 @@ class DailyReport(Base):
     type_id = Column(Integer, ForeignKey("report_types.id"), nullable=True)
     subtype_id = Column(Integer, ForeignKey("report_subtypes.id"), nullable=True)
     quantity = Column(Integer, nullable=True)
-    duration = Column(String(50), nullable=True)  # Changed from DECIMAL to String
+    duration = Column(String(50), nullable=True)
     description = Column(Text, nullable=True)
     attachments = Column(Text, nullable=True)
     status = Column(Enum("draft", "submitted", name="report_status"), default="draft")
@@ -304,3 +304,127 @@ class DailyReport(Base):
     department = relationship("ReportDepartment", foreign_keys=[department_id])
     report_type = relationship("ReportType", foreign_keys=[type_id])
     report_subtype = relationship("ReportSubtype", foreign_keys=[subtype_id])
+
+
+# ============================================================
+# DYNAMIC REPORT SYSTEM - NEW MODELS
+# ============================================================
+
+class Department(Base):
+    """Dynamic departments (admin can add/remove)"""
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    is_active = Column(SmallInteger, default=1)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class DynamicReportType(Base):
+    """Report types (Document, Schedule, Leads, etc.) - Admin can add"""
+    __tablename__ = "dynamic_report_types"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(SmallInteger, default=1)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    department = relationship("Department", foreign_keys=[department_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    subtypes = relationship("DynamicReportSubtype", back_populates="report_type")
+
+
+class DynamicReportSubtype(Base):
+    """Report subtypes (Quotation, Invoice, Report, etc.) - Admin can add"""
+    __tablename__ = "dynamic_report_subtypes"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    type_id = Column(Integer, ForeignKey("dynamic_report_types.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    has_quantity = Column(Boolean, default=True)
+    has_duration = Column(Boolean, default=True)
+    has_description = Column(Boolean, default=False)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(SmallInteger, default=1)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    report_type = relationship("DynamicReportType", back_populates="subtypes")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class DynamicReportField(Base):
+    """Report fields (Quantity, Duration, Budget, etc.) - Admin can add"""
+    __tablename__ = "dynamic_report_fields"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    field_type = Column(
+        Enum("text", "number", "date", "duration", "textarea", "dropdown", name="dynamic_field_type"),
+        nullable=False
+    )
+    is_default = Column(SmallInteger, default=0)
+    show_in_report = Column(SmallInteger, default=1)
+    is_required = Column(SmallInteger, default=0)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(SmallInteger, default=1)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class ReportDefaultRow(Base):
+    """Default rows per department (admin sets which rows appear by default)"""
+    __tablename__ = "report_default_rows"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    subtype_id = Column(Integer, ForeignKey("dynamic_report_subtypes.id"), nullable=False)
+    is_default = Column(SmallInteger, default=1)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    department = relationship("Department", foreign_keys=[department_id])
+    subtype = relationship("DynamicReportSubtype", foreign_keys=[subtype_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class UserDailyRow(Base):
+    """User-added custom rows per day"""
+    __tablename__ = "user_daily_rows"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    subtype_id = Column(Integer, ForeignKey("dynamic_report_subtypes.id"), nullable=False)
+    is_custom = Column(SmallInteger, default=1)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    subtype = relationship("DynamicReportSubtype", foreign_keys=[subtype_id])
+
+
+class DailyReportData(Base):
+    """Actual report data values per day"""
+    __tablename__ = "daily_report_data"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    subtype_id = Column(Integer, ForeignKey("dynamic_report_subtypes.id"), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    duration = Column(String(50), nullable=True)
+    description = Column(Text, nullable=True)
+    custom_fields = Column(Text, nullable=True)  # JSON string for custom fields
+    submitted_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    subtype = relationship("DynamicReportSubtype", foreign_keys=[subtype_id])

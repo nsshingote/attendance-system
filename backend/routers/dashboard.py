@@ -12,7 +12,7 @@ from typing import List, Optional
 from database import get_db
 from models import (
     User, Attendance, LeaveRequest, AttendanceCorrection, Holiday,
-    DailyReport, ReportDepartment, ReportType, ReportSubtype, DeviceRequest
+    DailyReportData, DailyReport, DeviceRequest
 )
 from schemas import (
     AdminDashboardStats,
@@ -22,65 +22,39 @@ from schemas import (
 from auth import get_current_user, require_roles
 from utils.attendance_status import get_today_attendance_status, determine_attendance_status_for_date
 from utils.logger import log_activity
+from utils.date_helpers import iso_with_offset
 
 router = APIRouter()
 
 
-def _get_report_for_date(db: Session, user_id: int, target_date: date) -> Optional[DailyReport]:
-    """Get the report for a specific user and date."""
-    return db.query(DailyReport).filter(
-        DailyReport.user_id == user_id,
-        DailyReport.attendance_date == target_date,
-        DailyReport.status == "submitted"
-    ).first()
+def _has_report_for_date(db: Session, user_id: int, target_date: date) -> bool:
+    """Return whether the user has any saved report data for the given date."""
+    data_report = (
+        db.query(DailyReportData)
+        .filter(
+            DailyReportData.user_id == user_id,
+            DailyReportData.attendance_date == target_date,
+        )
+        .first()
+    )
+    if data_report:
+        return True
+
+    legacy_report = (
+        db.query(DailyReport)
+        .filter(
+            DailyReport.user_id == user_id,
+            DailyReport.attendance_date == target_date,
+            DailyReport.status == "submitted",
+        )
+        .first()
+    )
+    return legacy_report is not None
 
 
-def _format_report_display(report: Optional[DailyReport], db: Session) -> str:
-    """
-    Format the report for display in the attendance table.
-    Returns formatted string based on department type.
-    """
-    if not report:
-        return "❌ Not Submitted"
-    
-    # Get department name
-    dept = db.query(ReportDepartment).filter(ReportDepartment.id == report.department_id).first()
-    dept_name = dept.name if dept else "Unknown"
-    
-    # HR and IT - plain description
-    if dept_name in ["HR", "IT"]:
-        return f"{dept_name}\n{report.description or 'No description'}"
-    
-    # B2B and B2C - hierarchy with quantity/duration
-    type_name = ""
-    subtype_name = ""
-    
-    if report.type_id:
-        report_type = db.query(ReportType).filter(ReportType.id == report.type_id).first()
-        if report_type:
-            type_name = report_type.name
-    
-    if report.subtype_id:
-        report_subtype = db.query(ReportSubtype).filter(ReportSubtype.id == report.subtype_id).first()
-        if report_subtype:
-            subtype_name = report_subtype.name
-    
-    result = dept_name
-    if type_name:
-        result += f" → {type_name}"
-    if subtype_name:
-        result += f" → {subtype_name}"
-    
-    details = []
-    if report.quantity is not None:
-        details.append(f"Qty: {report.quantity}")
-    if report.duration is not None:
-        details.append(f"Duration: {report.duration}hrs")
-    
-    if details:
-        result += f"\n{', '.join(details)}"
-    
-    return result
+def _format_report_display(has_report: bool) -> str:
+    """Return a simple display value for the attendance table."""
+    return "Submitted" if has_report else "Not Submitted"
 
 
 @router.get("/me", response_model=EmployeeDashboardStats)
@@ -116,8 +90,8 @@ def get_employee_dashboard(
         user_id=current_user.id,
         user_name=current_user.name,
         today_status=status,
-        check_in=today_attendance.check_in if today_attendance else None,
-        check_out=today_attendance.check_out if today_attendance else None,
+        check_in=iso_with_offset(today_attendance.check_in) if today_attendance and today_attendance.check_in else None,
+        check_out=iso_with_offset(today_attendance.check_out) if today_attendance and today_attendance.check_out else None,
         pending_leave_requests=pending_leave,
         pending_corrections=pending_corrections
     )
@@ -190,8 +164,8 @@ def get_admin_dashboard(
         att = next((a for a in today_attendance if a.user_id == emp.id), None)
         
         # Check if user has submitted a report for today
-        report = _get_report_for_date(db, emp.id, today)
-        report_display = _format_report_display(report, db)
+        has_report = _has_report_for_date(db, emp.id, today)
+        report_display = _format_report_display(has_report)
         
         # Determine status
         status = att.status if att else ("Holiday" if is_holiday else "Absent")
@@ -201,8 +175,8 @@ def get_admin_dashboard(
                 user_id=emp.id,
                 user_name=emp.name,
                 department=emp.department,
-                check_in=att.check_in if att else None,
-                check_out=att.check_out if att else None,
+                check_in=iso_with_offset(att.check_in) if att and att.check_in else None,
+                check_out=iso_with_offset(att.check_out) if att and att.check_out else None,
                 status=status,
                 reason=att.reason if att else None,
                 report=report_display

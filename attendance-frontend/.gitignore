@@ -32,8 +32,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -53,36 +54,61 @@ __pycache__/
 *$py.class
 *.so
 .Python
+
+# Virtual environments
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
 pythonenv*
-.venv
 .venv/
+.venv
 
-# Database
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+# Database files
 *.db
 *.sqlite3
 *.sqlite
 *.db-journal
 
-# Environment Variables
+# MySQL backups (ignore real data backups)
+*.sql
+
+# Keep database structure
+!database/schema.sql
+
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+
 .env
 .env.local
 .env.*.local
 *.env
 *.env.local
 
-# Logs
+
+# ============================================================
+# LOGS
+# ============================================================
+
 logs/
 *.log
 logfile.log
 access.log
 error.log
 
+
+# ============================================================
 # IDE
+# ============================================================
+
 .vscode/
 .idea/
 *.swp
@@ -93,18 +119,20 @@ error.log
 .vs/
 *.code-workspace
 
-# OS Files
-.DS_Store
-Thumbs.db
-desktop.ini
-._*
 
-# Uploads / Media
+# ============================================================
+# FILE UPLOADS / MEDIA
+# ============================================================
+
 uploads/
 media/
 static/
 
-# Backend Specific
+
+# ============================================================
+# BACKEND SPECIFIC
+# ============================================================
+
 *.pid
 *.rdb
 *.rdb.lock
@@ -119,7 +147,11 @@ coverage/
 htmlcov/
 .pytest_cache/
 
-# Secrets & Keys
+
+# ============================================================
+# SECRETS
+# ============================================================
+
 *.pem
 *.key
 *.crt
@@ -129,7 +161,11 @@ htmlcov/
 .secret
 *.secret
 
-# Misc
+
+# ============================================================
+# TEMP FILES
+# ============================================================
+
 *.bak
 *.tmp
 *.temp

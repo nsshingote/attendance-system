@@ -31,7 +31,13 @@ api.interceptors.response.use(
     if (error.response?.data?.detail && Array.isArray(error.response.data.detail)) {
       // Pydantic validation error
       const validationErrors = error.response.data.detail;
-      const messages = validationErrors.map((err: any) => err.msg || JSON.stringify(err));
+      const messages = validationErrors.map((err: any) => {
+        // Always return string
+        if (typeof err === 'string') return err;
+        if (err && typeof err === 'object' && err.msg) return String(err.msg);
+        if (err && typeof err === 'object') return JSON.stringify(err);
+        return String(err);
+      });
       const errorMessage = messages.join(", ");
       console.error("Validation Error:", errorMessage);
       // Don't show toast here, let the component handle it
@@ -53,14 +59,25 @@ api.interceptors.response.use(
     // Check if it's a 422 validation error with the detail format
     if (error.response?.status === 422 && error.response?.data?.detail) {
       const detail = error.response.data.detail;
+      let errorMessage = '';
+      
       if (Array.isArray(detail)) {
-        const messages = detail.map((err: any) => err.msg || JSON.stringify(err));
-        const errorMessage = messages.join(", ");
-        // Store the custom message in the error object
-        error.customMessage = errorMessage;
+        const messages = detail.map((err: any) => {
+          if (typeof err === 'string') return err;
+          if (err && typeof err === 'object' && err.msg) return String(err.msg);
+          if (err && typeof err === 'object') return JSON.stringify(err);
+          return String(err);
+        });
+        errorMessage = messages.join(", ");
       } else if (typeof detail === "string") {
-        error.customMessage = detail;
+        errorMessage = detail;
+      } else {
+        errorMessage = "Validation error";
       }
+      
+      // Store the custom message in the error object
+      error.customMessage = errorMessage;
+      return Promise.reject(error);
     }
     
     // If we have a custom message, use it
@@ -74,7 +91,13 @@ api.interceptors.response.use(
       if (typeof error.response.data.detail === "string") {
         errorMessage = error.response.data.detail;
       } else if (Array.isArray(error.response.data.detail)) {
-        errorMessage = error.response.data.detail.map((e: any) => e.msg || JSON.stringify(e)).join(", ");
+        const messages = error.response.data.detail.map((e: any) => {
+          if (typeof e === 'string') return e;
+          if (e && typeof e === 'object' && e.msg) return String(e.msg);
+          if (e && typeof e === 'object') return JSON.stringify(e);
+          return String(e);
+        });
+        errorMessage = messages.join(", ");
       } else {
         errorMessage = JSON.stringify(error.response.data.detail);
       }
@@ -100,8 +123,9 @@ export const getErrorMessage = (error: any): string => {
     if (Array.isArray(error.response.data.detail)) {
       const messages = error.response.data.detail.map((e: any) => {
         if (typeof e === "string") return e;
-        if (e.msg) return e.msg;
-        return JSON.stringify(e);
+        if (e && typeof e === 'object' && e.msg) return String(e.msg);
+        if (e && typeof e === 'object') return JSON.stringify(e);
+        return String(e);
       });
       return messages.join(", ");
     }

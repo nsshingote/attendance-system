@@ -6,7 +6,7 @@ Pydantic models used for request validation and response serialization.
 from datetime import date, datetime, time
 from typing import Optional, List
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict,field_validator
 
 
 # =========================================================
@@ -111,6 +111,7 @@ class AttendanceOut(ORMBase):
     ip_address: Optional[str] = None
     reason: Optional[str] = None
     created_at: datetime
+    has_report: Optional[bool] = None
 
 
 class AttendanceManualUpdate(BaseModel):
@@ -377,6 +378,8 @@ class TodayAttendanceOut(BaseModel):
     check_out: Optional[datetime] = None
     status: str
     reason: Optional[str] = None
+    report: Optional[str] = None
+    has_report: Optional[bool] = None
 
 
 class AdminDashboardStats(BaseModel):
@@ -444,7 +447,6 @@ class MonthlySummaryResponse(BaseModel):
     late: int
     holiday: int
 
-
 # =========================================================
 # REPORT SYSTEM SCHEMAS
 # =========================================================
@@ -494,7 +496,7 @@ class ReportCreate(BaseModel):
     type_id: Optional[int] = None
     subtype_id: Optional[int] = None
     quantity: Optional[int] = None
-    duration: Optional[str] = None  # Changed from float to string
+    duration: Optional[str] = None
     description: Optional[str] = None
 
 # Report Out
@@ -527,3 +529,219 @@ class ReportStatusResponse(BaseModel):
     has_report: bool
     report_id: Optional[int] = None
     status: Optional[str] = None
+
+
+# ============================================================
+# DYNAMIC REPORT SYSTEM SCHEMAS
+# ============================================================
+
+# Department Schemas
+class DepartmentBase(BaseModel):
+    name: str
+    is_active: bool = True
+
+
+class DepartmentCreate(DepartmentBase):
+    pass
+
+
+class DepartmentOut(ORMBase):
+    id: int
+    name: str
+    is_active: bool
+    created_by: int
+    created_at: datetime
+
+
+# Dynamic Report Type Schemas
+class DynamicReportTypeBase(BaseModel):
+    department_id: int
+    name: str
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class DynamicReportTypeCreate(DynamicReportTypeBase):
+    pass
+
+
+class DynamicReportTypeOut(ORMBase):
+    id: int
+    department_id: int
+    name: str
+    sort_order: int
+    is_active: bool
+    created_by: int
+    created_at: datetime
+    subtypes: List["DynamicReportSubtypeOut"] = []
+
+
+# Dynamic Report Subtype Schemas
+class DynamicReportSubtypeBase(BaseModel):
+    type_id: int
+    name: str
+    has_quantity: bool = True
+    has_duration: bool = True
+    has_description: bool = False
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class DynamicReportSubtypeCreate(DynamicReportSubtypeBase):
+    pass
+
+
+class DynamicReportSubtypeOut(ORMBase):
+    id: int
+    type_id: int
+    name: str
+    has_quantity: bool
+    has_duration: bool
+    has_description: bool
+    sort_order: int
+    is_active: bool
+    created_by: int
+    created_at: datetime
+
+
+# Dynamic Report Field Schemas
+class DynamicReportFieldBase(BaseModel):
+    name: str
+    field_type: str
+    is_default: bool = False
+    show_in_report: bool = True
+    is_required: bool = False
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class DynamicReportFieldCreate(DynamicReportFieldBase):
+    pass
+
+
+class DynamicReportFieldOut(ORMBase):
+    id: int
+    name: str
+    field_type: str
+    is_default: bool
+    show_in_report: bool
+    is_required: bool
+    sort_order: int
+    is_active: bool
+    created_by: int
+    created_at: datetime
+
+
+# Report Default Row Schemas
+class ReportDefaultRowBase(BaseModel):
+    department_id: int
+    subtype_id: int
+    is_default: bool = True
+
+
+class ReportDefaultRowCreate(ReportDefaultRowBase):
+    pass
+
+
+class ReportDefaultRowOut(ORMBase):
+    id: int
+    department_id: int
+    subtype_id: int
+    is_default: bool
+    created_by: int
+    created_at: datetime
+
+
+# User Daily Row Schemas
+class UserDailyRowBase(BaseModel):
+    attendance_date: date
+    subtype_id: int
+    is_custom: bool = True
+
+
+class UserDailyRowCreate(UserDailyRowBase):
+    pass
+
+
+class UserDailyRowOut(ORMBase):
+    id: int
+    user_id: int
+    attendance_date: date
+    subtype_id: int
+    is_custom: bool
+    created_at: datetime
+
+# Daily Report Data Schemas
+class DailyReportDataBase(BaseModel):
+    attendance_date: date
+    subtype_id: Optional[int] = None
+    quantity: Optional[int] = None
+    duration: Optional[str] = None
+    description: Optional[str] = None
+    custom_fields: Optional[str] = None
+    
+    @field_validator('attendance_date', mode='before')
+    @classmethod
+    def validate_attendance_date(cls, v):
+        """Convert string date to date object"""
+        if isinstance(v, str):
+            try:
+                return datetime.strptime(v, '%Y-%m-%d').date()
+            except ValueError:
+                raise ValueError(f'Invalid date format: {v}. Expected YYYY-MM-DD')
+        return v
+    
+    @field_validator('subtype_id', mode='before')
+    @classmethod
+    def validate_subtype_id(cls, v):
+        if v is None or v == "" or v == "null":
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
+    
+    @field_validator('quantity', mode='before')
+    @classmethod
+    def validate_quantity(cls, v):
+        if v is None or v == "" or v == "null":
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
+
+class DailyReportDataCreate(DailyReportDataBase):
+    pass
+
+
+class DailyReportDataOut(ORMBase):
+    id: int
+    user_id: int
+    attendance_date: date
+    subtype_id: Optional[int] = None
+    quantity: Optional[int] = None
+    duration: Optional[str] = None
+    description: Optional[str] = None
+    custom_fields: Optional[str] = None
+    submitted_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+# Complete Report Structure for Frontend
+class ReportStructureResponse(BaseModel):
+    departments: List[DepartmentOut]
+    types: List[DynamicReportTypeOut]
+    subtypes: List[DynamicReportSubtypeOut]
+    fields: List[DynamicReportFieldOut]
+    default_rows: List[ReportDefaultRowOut]
+
+
+# User's Daily Report Response
+class UserDailyReportResponse(BaseModel):
+    date: date
+    department_id: int
+    department_name: str
+    default_rows: List[DailyReportDataOut]
+    custom_rows: List[DailyReportDataOut]
+    all_subtypes: List[DynamicReportSubtypeOut]

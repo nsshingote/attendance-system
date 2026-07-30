@@ -1,15 +1,15 @@
+
+
 "use client";
 
 /**
- * app/admin-reports/page.tsx
  * Admin/SuperAdmin view to see all employee daily reports.
- * Department-specific activity display.
  */
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { format, parseISO } from "date-fns";
-import { Download, FileSpreadsheet } from "lucide-react";
+import { Download, FileSpreadsheet, Calendar as CalendarIcon } from "lucide-react";
 import * as XLSX from "xlsx";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
@@ -23,6 +23,11 @@ interface UserOption {
   department: string;
 }
 
+interface DepartmentOption {
+  id: number;
+  name: string;
+}
+
 interface ReportRow {
   id: number;
   user_id: number;
@@ -32,6 +37,8 @@ interface ReportRow {
   department_id: number;
   type_id: number | null;
   subtype_id: number | null;
+  type_name: string | null;
+  subtype_name: string | null;
   quantity: number | null;
   duration: string | null;
   description: string | null;
@@ -40,187 +47,148 @@ interface ReportRow {
   created_at: string;
 }
 
+interface ReportGroup {
+  key: string;
+  user_id: number;
+  user_name: string;
+  user_department: string;
+  attendance_date: string;
+  status: string;
+  activities: ReportRow[];
+}
+
+function uniqueById<T extends { id: number }>(items: T[]): T[] {
+  return Array.from(new Map(items.map((item) => [item.id, item])).values());
+}
+
 export default function AdminReportsPage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | "">("");
-  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [reports, setReports] = useState<ReportGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const latestRequestId = useRef(0);
 
   useEffect(() => {
-    api
-      .get<UserOption[]>("/users/")
-      .then(({ data }) => setUsers(data))
-      .catch(() => toast.error("Failed to load users"));
+    Promise.all([
+      api.get<UserOption[]>("/users/"),
+      api.get<DepartmentOption[]>("/reports/departments"),
+    ])
+      .then(([usersRes, departmentsRes]) => {
+        // A duplicate option ID makes React reuse the wrong option and can
+        // cause the selected employee/department to appear not to change.
+        setUsers(uniqueById(usersRes.data || []));
+        setDepartments(uniqueById(departmentsRes.data || []));
+      })
+      .catch(() => toast.error("Failed to load report filters"));
   }, []);
 
   const fetchReports = async () => {
+    const requestId = ++latestRequestId.current;
     setLoading(true);
     try {
-      const params: any = { year, month };
-      if (selectedUserId) {
-        params.user_id = selectedUserId;
-      }
+      const params: { year: number; month: number; user_id?: number; department_id?: number; date_value?: string } = { year, month };
+      if (selectedUserId) params.user_id = selectedUserId;
+      if (selectedDepartmentId) params.department_id = selectedDepartmentId;
+      if (selectedDate) params.date_value = selectedDate;
+
       const { data } = await api.get<ReportRow[]>("/reports/all", { params });
-      
-      const seen = new Set();
-      const uniqueReports = data.filter((report) => {
-        const key = `${report.user_id}-${report.attendance_date}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
+      // Requests can finish out of order when filters are changed quickly.  Do
+      // not let an earlier, unfiltered response replace the newest result.
+      if (requestId !== latestRequestId.current) return;
+
+      const selectedDepartment = departments.find(
+        (department) => department.id === selectedDepartmentId
+      )?.name;
+      const filteredData = data.filter((report) => {
+        const reportMonth = Number(report.attendance_date.slice(5, 7));
+        const reportYear = Number(report.attendance_date.slice(0, 4));
+        return (
+          reportYear === year &&
+          reportMonth === month &&
+          (!selectedUserId || report.user_id === selectedUserId) &&
+          (!selectedDepartment || report.user_department.trim().toLowerCase() === selectedDepartment.trim().toLowerCase()) &&
+          (!selectedDate || report.attendance_date === selectedDate)
+        );
       });
-      
-      setReports(uniqueReports);
+      const groups = new Map<string, ReportGroup>();
+
+      filteredData.forEach((report) => {
+        const key = `${report.user_id}-${report.attendance_date}`;
+        const group = groups.get(key);
+
+        if (group) {
+          group.activities.push(report);
+          return;
+        }
+
+        groups.set(key, {
+          key,
+          user_id: report.user_id,
+          user_name: report.user_name,
+          user_department: report.user_department,
+          attendance_date: report.attendance_date,
+          status: report.status,
+          activities: [report],
+        });
+      });
+
+      setReports(
+        Array.from(groups.values()).sort(
+          (a, b) => new Date(b.attendance_date).getTime() - new Date(a.attendance_date).getTime()
+        )
+      );
     } catch (error) {
+      if (requestId !== latestRequestId.current) return;
       toast.error(getErrorMessage(error));
       setReports([]);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestId.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchReports();
-  }, [selectedUserId, year, month]);
+  }, [selectedUserId, selectedDepartmentId, selectedDate, year, month]);
 
-  const selectedUserName = users.find((u) => u.id === selectedUserId)?.name || "";
-
-  // Format report based on department
-  const formatReport = (display: string, department: string) => {
-    if (!display) return "—";
-    
-    // For HR and IT - show simple description
-    if (department === "HR" || department === "IT") {
-      return display.replace(/\n/g, " | ");
-    }
-    
-    // Split by newlines and filter out empty lines
-    const lines = display.split("\n").filter(line => line.trim() !== "");
-    
-    // Define which activities to show based on department
-    let activityOrder: string[] = [];
-    
-    if (department === "B2C") {
-      activityOrder = [
-        "quotation",
-        "invoice",
-        "report",
-        "schedule confirmation",
-        "calendar update",
-        "leadupdate",
-        "followup"
-      ];
-    } else if (department === "B2B") {
-      activityOrder = [
-        "quotation",
-        "invoice",
-        "report",
-        "schedule confirmation",
-        "calendar update"
-      ];
-    } else {
-      // Default - show all
-      activityOrder = [
-        "quotation",
-        "invoice",
-        "report",
-        "schedule confirmation",
-        "calendar update",
-        "leadupdate",
-        "followup"
-      ];
-    }
-    
-    // Group activities and sum quantities
-    const activityMap = new Map();
-    
-    lines.forEach(line => {
-      // Remove department prefix if present
-      let cleanedLine = line.replace(/^[A-Z0-9]+\s*→\s*/, "");
-      
-      // Extract activity name and details
-      let activity = cleanedLine;
-      let quantity = 0;
-      let duration = "";
-      
-      const quantityMatch = cleanedLine.match(/\(Qty:\s*(\d+),?\s*Duration:\s*([^)]+)\)/i);
-      if (quantityMatch) {
-        activity = cleanedLine.replace(/\s*\(Qty:.*$/, "").trim().toLowerCase();
-        quantity = parseInt(quantityMatch[1]);
-        duration = quantityMatch[2].trim();
-      } else {
-        activity = cleanedLine.trim().toLowerCase();
-      }
-      
-      // Normalize activity names
-      let normalizedActivity = activity;
-      if (activity.includes("quotation") || activity.includes("quote")) {
-        normalizedActivity = "quotation";
-      } else if (activity.includes("invoice")) {
-        normalizedActivity = "invoice";
-      } else if (activity.includes("report")) {
-        normalizedActivity = "report";
-      } else if (activity.includes("schedule confirmation")) {
-        normalizedActivity = "schedule confirmation";
-      } else if (activity.includes("calendar update")) {
-        normalizedActivity = "calendar update";
-      } else if (activity.includes("lead update")) {
-        normalizedActivity = "leadupdate";
-      } else if (activity.includes("follow up") || activity.includes("followup")) {
-        normalizedActivity = "followup";
-      }
-      
-      // Group by activity
-      if (!activityMap.has(normalizedActivity)) {
-        activityMap.set(normalizedActivity, { totalQty: 0, durations: [] });
-      }
-      const entry = activityMap.get(normalizedActivity);
-      entry.totalQty += quantity;
-      if (duration) {
-        entry.durations.push(duration);
-      }
-    });
-    
-    // Format in specified order
-    const formattedLines = [];
-    
-    // Process activities in the defined order
-    for (const activity of activityOrder) {
-      if (activityMap.has(activity)) {
-        const data = activityMap.get(activity);
-        
-        if (data.totalQty > 0 && data.durations.length > 0) {
-          const durationStr = data.durations.join('/');
-          formattedLines.push(`${activity}-${data.totalQty}-${durationStr}`);
-        } else if (data.totalQty > 0) {
-          formattedLines.push(`${activity}-${data.totalQty}`);
-        } else if (data.durations.length > 0) {
-          const durationStr = data.durations.join('/');
-          formattedLines.push(`${activity}-${durationStr}`);
-        }
-        activityMap.delete(activity);
-      }
-    }
-    
-    // Second pass: any remaining activities not in the order list
-    for (const [activity, data] of activityMap) {
-      if (data.totalQty > 0 && data.durations.length > 0) {
-        const durationStr = data.durations.join('/');
-        formattedLines.push(`${activity}-${data.totalQty}-${durationStr}`);
-      } else if (data.totalQty > 0) {
-        formattedLines.push(`${activity}-${data.totalQty}`);
-      } else if (data.durations.length > 0) {
-        const durationStr = data.durations.join('/');
-        formattedLines.push(`${activity}-${durationStr}`);
-      }
-    }
-    
-    return formattedLines.join("\n");
+  const clearDateFilter = () => {
+    setSelectedDate("");
+    setShowDatePicker(false);
   };
+
+  const selectedUserName = users.find((user) => user.id === selectedUserId)?.name || "";
+
+  const getTotalDuration = (activities: ReportRow[]) => {
+    const durations = activities
+      .map((activity) => Number(activity.duration))
+      .filter((duration) => Number.isFinite(duration));
+
+    return durations.length > 0
+      ? durations.reduce((total, duration) => total + duration, 0)
+      : "—";
+  };
+
+  // Export rows use empty strings (not "—") for missing values so Excel/CSV
+  // cells are truly blank and can be summed/averaged without errors.
+  const exportRows = reports.flatMap((group) =>
+    group.activities.map((activity) => ({
+      Employee: group.user_name,
+      Department: group.user_department,
+      Date: format(parseISO(group.attendance_date), "dd MMM yyyy"),
+      Type: activity.type_name || "",
+      Subtype: activity.subtype_name || "",
+      Quantity: activity.quantity ?? "",
+      Duration: activity.duration || "",
+      Description: activity.description || "",
+      Status: group.status,
+    }))
+  );
 
   const handleExportCSV = () => {
     if (reports.length === 0) {
@@ -228,21 +196,14 @@ export default function AdminReportsPage() {
       return;
     }
 
-    const headers = ["Employee", "Department", "Date", "Report", "Status"];
-    const rows = reports.map((r) => [
-      r.user_name,
-      r.user_department,
-      format(parseISO(r.attendance_date), "dd MMM yyyy"),
-      formatReport(r.report_display, r.user_department).replace(/\n/g, " | "),
-      r.status,
-    ]);
+    const headers = Object.keys(exportRows[0]);
+    const csvContent = [headers.join(","), ...exportRows.map((row) =>
+      headers.map((header) => `"${String(row[header as keyof typeof row]).replace(/"/g, '""')}"`).join(",")
+    )].join("\n");
 
-    let csvContent = headers.join(",") + "\n";
-    rows.forEach((row) => {
-      csvContent += row.map((cell) => `"${cell}"`).join(",") + "\n";
-    });
-
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    // Prefix with UTF-8 BOM so Excel renders special characters correctly
+    // instead of showing garbled text like "â€"".
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -258,15 +219,7 @@ export default function AdminReportsPage() {
       return;
     }
 
-    const data = reports.map((r) => ({
-      Employee: r.user_name,
-      Department: r.user_department,
-      Date: format(parseISO(r.attendance_date), "dd MMM yyyy"),
-      Report: formatReport(r.report_display, r.user_department).replace(/\n/g, " | "),
-      Status: r.status,
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Daily Reports");
     XLSX.writeFile(workbook, `daily_reports_${year}_${month}_${selectedUserName || "all"}.xlsx`);
@@ -276,61 +229,72 @@ export default function AdminReportsPage() {
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-3">
-        {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-base font-semibold text-ink-900">Team Reports</h1>
             <p className="text-xs text-ink-500">
-              {selectedUserId
-                ? `Reports for ${selectedUserName}`
-                : "All employees"}
+              {selectedUserId ? `Reports for ${selectedUserName}` : "All employees"}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
             <select
               value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : "")}
+              onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : "")}
               className="rounded border border-ink-200 bg-white px-2 py-1 text-xs"
             >
               <option value="">All Employees</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
+              {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
             </select>
-
-            <MonthSelector
-              year={year}
-              month={month}
-              onChange={(y, m) => {
-                setYear(y);
-                setMonth(m);
-              }}
-            />
-
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50"
+            <select
+              value={selectedDepartmentId}
+              onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
+              className="rounded border border-ink-200 bg-white px-2 py-1 text-xs"
             >
-              <Download size={13} />
-              CSV
+              <option value="">All Departments</option>
+              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+            </select>
+            <div className="relative">
+              <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
+                <CalendarIcon size={13} />
+                {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
+                {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
+              </button>
+              {showDatePicker && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                    <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="rounded border border-ink-200 px-3 py-2 text-sm" />
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="rounded bg-brand-500 px-3 py-1 text-xs text-white hover:bg-brand-600">Today</button>
+                      <button onClick={clearDateFilter} className="rounded border border-ink-200 px-3 py-1 text-xs text-ink-600 hover:bg-ink-50">Clear</button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <MonthSelector year={year} month={month} onChange={(nextYear, nextMonth) => {
+              setYear(nextYear);
+              setMonth(nextMonth);
+            }} />
+            <button onClick={handleExportCSV} className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+              <Download size={13} /> CSV
             </button>
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50"
-            >
-              <FileSpreadsheet size={13} />
-              Excel
+            <button onClick={handleExportExcel} className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+              <FileSpreadsheet size={13} /> Excel
             </button>
           </div>
         </div>
 
-        {/* Reports Table */}
-        {loading ? (
-          <Loading />
-        ) : reports.length === 0 ? (
+        {selectedDate && (
+          <div className="flex items-center gap-2 text-sm text-ink-600">
+            <span className="font-medium">Filtering by date:</span>
+            <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
+            <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
+          </div>
+        )}
+
+        {loading ? <Loading /> : reports.length === 0 ? (
           <div className="rounded-lg border border-dashed border-ink-300 bg-white py-8 text-center">
             <p className="text-sm text-ink-500">No reports found.</p>
           </div>
@@ -342,41 +306,39 @@ export default function AdminReportsPage() {
                   <th className="px-3 py-2 font-medium">Employee</th>
                   <th className="px-3 py-2 font-medium">Dept</th>
                   <th className="px-3 py-2 font-medium">Date</th>
-                  <th className="px-3 py-2 font-medium">Activities</th>
+                  <th className="px-3 py-2 font-medium">Type</th>
+                  <th className="px-3 py-2 font-medium">Subtype</th>
+                  <th className="px-3 py-2 font-medium">Quantity</th>
+                  <th className="px-3 py-2 font-medium">Duration</th>
+                  <th className="px-3 py-2 font-medium">Description</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-ink-100">
-                {reports.map((r) => (
-                  <tr key={`${r.user_id}-${r.attendance_date}`} className="hover:bg-ink-50/60">
-                    <td className="px-3 py-2 font-medium text-ink-900 whitespace-nowrap">
-                      {r.user_name}
-                    </td>
-                    <td className="px-3 py-2 text-ink-600 whitespace-nowrap">
-                      {r.user_department}
-                    </td>
-                    <td className="px-3 py-2 text-ink-600 whitespace-nowrap">
-                      {format(parseISO(r.attendance_date), "dd MMM yyyy")}
-                    </td>
-                    <td 
-                      className="px-3 py-2 text-[11px] text-ink-700 leading-relaxed"
-                      style={{ wordBreak: 'break-word' }}
-                    >
-                      <div className="space-y-0.5">
-                        {formatReport(r.report_display, r.user_department)
-                          .split('\n')
-                          .map((line, idx) => (
-                            <div key={idx} className="whitespace-nowrap">
-                              {line}
-                            </div>
-                          ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <Badge status={r.status} />
-                    </td>
-                  </tr>
-                ))}
+              <tbody>
+               {reports.map((group) => (
+                  <Fragment key={group.key}>
+                    {group.activities.map((activity, index) => (
+                      <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
+                        {index === 0 && <>
+                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top font-medium text-ink-900 whitespace-nowrap">{group.user_name}</td>
+                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.user_department}</td>
+                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
+                        </>}
+                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.type_name || "—"}</td>
+                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.subtype_name || "—"}</td>
+                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.quantity ?? "—"}</td>
+                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.duration || "—"}</td>
+                        <td className="px-3 py-2 text-ink-700" style={{ wordBreak: "break-word" }}>{activity.description || "—"}</td>
+                        {index === 0 && <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={group.status} /></td>}
+                      </tr>
+                    ))}
+                    <tr className="border-t border-ink-200 bg-ink-50/40">
+                      <td colSpan={3} />
+                      <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(group.activities)}</td>
+                      <td />
+                    </tr>
+                  </Fragment>
+                ))} 
               </tbody>
             </table>
           </div>
