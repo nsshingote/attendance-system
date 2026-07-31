@@ -39,7 +39,7 @@ export default function UserTable({ users, onEdit, onResetDevice, onToggleStatus
 
   return (
     <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full text-left text-sm">
+      <table className="w-full min-w-720px text-left text-sm">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
             <th className="px-4 py-3 font-medium">Name</th>
@@ -47,7 +47,7 @@ export default function UserTable({ users, onEdit, onResetDevice, onToggleStatus
             <th className="px-4 py-3 font-medium">Department</th>
             <th className="px-4 py-3 font-medium">Role</th>
             <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3 font-medium text-right">Actions</th>
+            <th className="px-4 py-3 font-medium text-right whitespace-nowrap min-w-130px">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
@@ -69,8 +69,8 @@ export default function UserTable({ users, onEdit, onResetDevice, onToggleStatus
                   <Badge status={u.status} />
                 </button>
               </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center justify-end gap-2">
+              <td className="px-4 py-3 whitespace-nowrap">
+                <div className="flex items-center justify-end gap-2 min-w-100px">
                   <Link
                     href={`/users/${u.id}`}
                     className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800"
