@@ -18,9 +18,11 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[NotificationEmailOut])
-def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    """Admin can view all notification emails."""
-    return db.query(NotificationEmail).order_by(NotificationEmail.id.desc()).all()
+def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Authenticated users can view notification emails for composing leave emails."""
+    return db.query(NotificationEmail).filter(
+        NotificationEmail.is_active == 1
+    ).order_by(NotificationEmail.id.desc()).all()
 
 
 @router.post("/", response_model=NotificationEmailOut, status_code=201)
