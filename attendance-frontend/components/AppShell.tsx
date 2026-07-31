@@ -77,7 +77,7 @@ export default function AppShell({ children, allowedRoles }: AppShellProps) {
   };
 
   return (
-    <div className="flex h-screen w-full bg-ink-50 overflow-hidden">
+    <div className="flex h-dvh w-full bg-ink-50 overflow-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block h-full shrink-0">
         <SidebarComponent isMobile={false} />

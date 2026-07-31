@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
@@ -20,6 +20,13 @@ export const metadata: Metadata = {
   description: "Employee attendance, leave, and workforce management",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -29,7 +36,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body suppressHydrationWarning>
         {children}
-        <Toaster/>
+        <Toaster />
       </body>
     </html>
   );
