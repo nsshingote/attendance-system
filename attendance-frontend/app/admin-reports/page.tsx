@@ -164,15 +164,38 @@ export default function AdminReportsPage() {
 
   const selectedUserName = users.find((user) => user.id === selectedUserId)?.name || "";
 
-  const getTotalDuration = (activities: ReportRow[]) => {
-    const durations = activities
-      .map((activity) => Number(activity.duration))
-      .filter((duration) => Number.isFinite(duration));
+  // const getTotalDuration = (activities: ReportRow[]) => {
+  //   const durations = activities
+  //     .map((activity) => Number(activity.duration))
+  //     .filter((duration) => Number.isFinite(duration));
 
-    return durations.length > 0
-      ? durations.reduce((total, duration) => total + duration, 0)
-      : "—";
-  };
+  //   return durations.length > 0
+  //     ? durations.reduce((total, duration) => total + duration, 0)
+  //     : "—";
+  // };
+
+  const durationToMinutes = (value: string | null) => {
+  if (!value) return 0;
+
+  const [hours, minutes] = value.split(".");
+
+  return (Number(hours || 0) * 60) + Number(minutes || 0);
+};
+
+const minutesToDuration = (totalMinutes: number) => {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}.${String(minutes).padStart(2, "0")}`;
+};
+
+const getTotalDuration = (activities: ReportRow[]) => {
+  const totalMinutes = activities.reduce((sum, activity) => {
+    return sum + durationToMinutes(activity.duration);
+  }, 0);
+
+  return totalMinutes > 0 ? minutesToDuration(totalMinutes) : "—";
+};
 
   // Export rows use empty strings (not "—") for missing values so Excel/CSV
   // cells are truly blank and can be summed/averaged without errors.
