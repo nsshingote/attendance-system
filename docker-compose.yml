@@ -25,11 +25,13 @@ services:
       dockerfile: Dockerfile
     container_name: attendance_backend
     restart: always
+    env_file:
+      - .env
     environment:
       DATABASE_URL: mysql+pymysql://root:root@mysql:3306/attendance_system
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
-      FRONTEND_ORIGIN: http://YOUR_EC2_PUBLIC_IP:3000
+      FRONTEND_ORIGIN: http://13.235.91.178:3000
     ports:
       - "8000:8000"
     depends_on:
