@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, User as UserIcon, Menu } from "lucide-react";
 import toast from "react-hot-toast";
 import { getSession, clearSession } from "@/lib/auth";
+import api from "@/lib/api";
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -19,8 +20,12 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
   const router = useRouter();
   const session = getSession();
 
-  const handleLogout = () => {
-    clearSession();
+  const handleLogout = async () => {
+    try {
+      await api.post("/auth/logout");
+    } finally {
+      clearSession();
+    }
     toast.success("Logged out successfully");
     router.push("/login");
   };

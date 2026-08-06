@@ -453,6 +453,7 @@ class DailyReportData(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     attendance_date = Column(Date, nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    department_name = Column(String(100), nullable=True)
     subtype_id = Column(Integer, ForeignKey("dynamic_report_subtypes.id"), nullable=True)
     quantity = Column(Integer, nullable=True)
     duration = Column(String(50), nullable=True)
@@ -482,3 +483,16 @@ class PastReportSubmissionRequest(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     reviewer = relationship("User", foreign_keys=[reviewed_by])
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])

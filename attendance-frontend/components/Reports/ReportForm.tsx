@@ -72,6 +72,8 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   const [historyReports, setHistoryReports] = useState<any[]>([]);
   const [historyMonth, setHistoryMonth] = useState<number | "">("");
   const [historyDate, setHistoryDate] = useState<string>("");
+  const [pastRequestDate, setPastRequestDate] = useState("");
+  const [pastRequestReason, setPastRequestReason] = useState("");
   
   const [departments, setDepartments] = useState<any[]>([]);
   const [assignedDepartments, setAssignedDepartments] = useState<any[]>([]);
@@ -275,13 +277,11 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   // EDIT REPORT - Load data for editing (within 7 days)
   // ============================================================
-  const handleEditReport = async (date: string) => {
+  const handleEditReport = async (date: string, departmentId: number) => {
     try {
+      setSelectedDept(departmentId);
       setSelectedDate(date);
       setShowHistory(false);
-      
-      // Load the report data for this date
-      await loadDailyReport();
       
       // Find the report for this date and populate the description
       const reportForDate = historyReports.find(r => r.attendance_date === date);
@@ -470,16 +470,44 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   };
 
   const requestPastDatePermission = async () => {
-    if (selectedDate >= new Date().toISOString().slice(0, 10)) return;
-    const reason = window.prompt("Why do you need to submit this past-day report?");
-    if (reason === null) return;
+    if (!pastRequestDate || pastRequestDate >= getLocalDateString()) {
+      toast.error("Select a previous attendance date");
+      return;
+    }
+    if (!pastRequestReason.trim()) {
+      toast.error("Please provide a reason for this request");
+      return;
+    }
     try {
-      await api.post("/reports/past-submission-requests", { attendance_date: selectedDate, reason });
+      await api.post("/reports/past-submission-requests", { attendance_date: pastRequestDate, reason: pastRequestReason.trim() });
       toast.success("Permission request sent to the admin");
+      setPastRequestReason("");
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
   };
+
+  const renderPastReportRequestCard = () => (
+    <section className="relative z-10 rounded-xl border border-brand-100 bg-brand-50/50 p-4 sm:p-5">
+      <div className="mb-4">
+        <h3 className="text-base font-semibold text-ink-900">Past Report Submission Request</h3>
+        <p className="mt-1 text-sm text-ink-600">Request approval to submit a report for a previous attendance date.</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,14rem)_1fr] sm:items-end">
+        <div>
+          <label htmlFor="past-request-date" className="mb-1.5 block text-sm font-medium text-ink-700">Attendance Date</label>
+          <input id="past-request-date" type="date" value={pastRequestDate} max={getLocalDateString(new Date(Date.now() - 86400000))} onChange={(e) => setPastRequestDate(e.target.value)} className="ios-date-input w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-base text-ink-900" />
+        </div>
+        <div>
+          <label htmlFor="past-request-reason" className="mb-1.5 block text-sm font-medium text-ink-700">Reason <span className="text-status-absent">(required)</span></label>
+          <textarea id="past-request-reason" value={pastRequestReason} onChange={(e) => setPastRequestReason(e.target.value)} required rows={3} className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-base text-ink-900" placeholder="Explain why this report needs to be submitted late..." />
+        </div>
+      </div>
+      <div className="mt-4 flex justify-end">
+        <button type="button" onClick={requestPastDatePermission} className="touch-action-manipulation min-h-11 w-full rounded-lg bg-brand-500 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-600 active:bg-brand-700 sm:w-auto">Request Approval</button>
+      </div>
+    </section>
+  );
 
   // ============================================================
   // RENDER ROW (table row)
@@ -640,7 +668,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
           <select
             value={historyMonth}
             onChange={(e) => setHistoryMonth(e.target.value ? Number(e.target.value) : "")}
-            className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+            className="ios-date-input relative z-10 rounded-lg border border-ink-200 bg-white px-3 py-2 text-base"
           >
             <option value="">All Months</option>
             {monthNames.map((name, index) => (
@@ -657,7 +685,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             type="date"
             value={historyDate}
             onChange={(e) => setHistoryDate(e.target.value)}
-            className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+            className="ios-date-input relative z-10 rounded-lg border border-ink-200 bg-white px-3 py-2 text-base"
           />
         </div>
 
@@ -675,21 +703,22 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
       {groupedHistory.map((group: any) => (
         <div
-          key={group.date}
+          key={group.key}
           className="rounded-lg border border-ink-200 bg-white"
         >
-          <div className="flex flex-col gap-2 border-b border-ink-100 bg-ink-50 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-semibold text-ink-700">
-              {new Date(group.date).toLocaleDateString()} · {group.department}
-            </span>
-            <span className="text-xs text-ink-500">
-              Total Duration: {getTotalDuration(group.items)}
-            </span>
+          <div className="flex flex-col gap-3 border-b border-ink-100 bg-ink-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <span className="block text-sm font-semibold text-ink-700">{new Date(group.date).toLocaleDateString()} · {group.department}</span>
+              <span className="text-xs text-ink-500">Total Duration: {getTotalDuration(group.items)}</span>
+            </div>
+            {isWithin7Days(group.date) ? (
+              <button type="button" onClick={() => handleEditReport(group.date, group.items[0].department_id)} className="touch-action-manipulation min-h-11 rounded-lg border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50">Edit report</button>
+            ) : <span className="text-sm text-ink-400">Expired</span>}
           </div>
 
           {/* Horizontal Scroll */}
           <div className="overflow-x-auto">
-            <table className="min-w-900px w-full text-left text-sm">
+            <table className="min-w-[700px] w-full text-left text-sm">
               <thead className="bg-white">
                 <tr>
                   {hasDynamicStructureForHistory && (
@@ -718,16 +747,11 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
                     </th>
                   )}
 
-                  <th className="px-4 py-2 text-xs font-medium text-ink-500 uppercase whitespace-nowrap">
-                    Action
-                  </th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-ink-100">
                 {group.items.map((report: any) => {
-                  const canEdit = isWithin7Days(report.attendance_date);
-
                   return (
                     <tr key={report.id} className="hover:bg-ink-50/60">
                       {hasDynamicStructureForHistory ? (
@@ -758,22 +782,6 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
                         </td>
                       )}
 
-                      <td className="px-4 py-2 whitespace-nowrap">
-                        {canEdit ? (
-                          <button
-                            onClick={() =>
-                              handleEditReport(report.attendance_date)
-                            }
-                            className="text-sm font-medium text-brand-600 hover:text-brand-700"
-                          >
-                            ✏️ Edit
-                          </button>
-                        ) : (
-                          <span className="text-sm text-ink-400">
-                            🔒 Expired
-                          </span>
-                        )}
-                      </td>
                     </tr>
                   );
                 })}
@@ -870,11 +878,6 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm"
             placeholder="Enter your daily report details..."
           />
-          {selectedDate < new Date().toISOString().slice(0, 10) && (
-            <button type="button" onClick={requestPastDatePermission} className="mt-2 text-sm font-medium text-brand-600 hover:text-brand-700">
-              Request permission to submit this past-day report
-            </button>
-          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-4 border-t border-ink-200">
@@ -889,6 +892,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             {submitting ? "Submitting..." : "Submit Report"}
           </button>
         </div>
+        {renderPastReportRequestCard()}
       </div>
     );
   }
@@ -907,11 +911,6 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             onChange={(e) => setSelectedDate(e.target.value)}
             className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm"
           />
-          {selectedDate < new Date().toISOString().slice(0, 10) && (
-            <button type="button" onClick={requestPastDatePermission} className="mt-2 text-sm font-medium text-brand-600 hover:text-brand-700">
-              Request permission to submit this past-day report
-            </button>
-          )}
         </div>
         <button
           onClick={() => setShowHistory(true)}
@@ -1088,6 +1087,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
           {submitting ? "Submitting..." : "Submit Report"}
         </button>
       </div>
+      {renderPastReportRequestCard()}
     </div>
   );
 }

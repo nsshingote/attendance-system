@@ -227,9 +227,9 @@ export default function ReportStructurePage() {
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold text-ink-900">Report Structure</h1>
+          <h1 className="text-xl font-semibold text-ink-900">Department Management</h1>
           <p className="text-sm text-ink-500">
-            Select which report rows appear by default for each department.
+            View department assignments, manage report defaults, and transfer users without changing historical reports.
           </p>
         </div>
 

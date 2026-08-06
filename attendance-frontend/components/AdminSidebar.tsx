@@ -97,17 +97,17 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
             REPORT STRUCTURE - Added after Settings
             ============================================================ */}
         <Link
-          href="/admin/report-structure"
+          href="/departments"
           onClick={onClose}
           className={clsx(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors mt-4 border-t border-ink-200 pt-4",
-            pathname === "/admin/report-structure"
+            pathname === "/departments" || pathname === "/admin/report-structure"
               ? "bg-brand-50 text-brand-700"
               : "text-ink-600 hover:bg-ink-50 hover:text-ink-900"
           )}
         >
-          <Layers size={17} strokeWidth={pathname === "/admin/report-structure" ? 2.4 : 2} />
-          Report Structure
+          <Layers size={17} strokeWidth={pathname === "/departments" || pathname === "/admin/report-structure" ? 2.4 : 2} />
+          Department Management
         </Link>
       </nav>
     </>

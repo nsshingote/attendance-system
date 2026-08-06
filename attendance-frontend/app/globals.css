@@ -144,6 +144,22 @@ main {
   outline-offset: 2px;
 }
 
+/* Native date controls must remain above scroll/table layers on mobile Safari. */
+.ios-date-input {
+  position: relative;
+  z-index: 10;
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 /* ==========================================================
    Status pill helpers
    ========================================================== */

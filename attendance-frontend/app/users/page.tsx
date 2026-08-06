@@ -176,16 +176,6 @@ export default function UsersPage() {
     }
   };
   
-   const handleDeleteUser = async (user: UserRow) => {
-  try {
-    await api.delete(`/users/${user.id}/permanent`);
-    toast.success(`${user.name} deleted successfully`);
-    fetchUsers();
-  } catch (error) {
-    toast.error(getErrorMessage(error));
-  }
-  };
-  
   const paginatedUsers = users.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const pageCount = Math.ceil(users.length / PAGE_SIZE);
 
@@ -218,7 +208,6 @@ export default function UsersPage() {
               onEdit={openEditModal}
               onResetDevice={handleResetDevice}
               onToggleStatus={handleToggleStatus}
-              onDeleteUser={handleDeleteUser}
             />
             <div className="flex justify-end">
               <Pagination pageCount={pageCount} currentPage={page} onPageChange={setPage} />

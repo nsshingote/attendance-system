@@ -60,6 +60,11 @@ export function clearSession(): void {
   localStorage.removeItem(ROLE_KEY);
 }
 
+export function updateAccessToken(token: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
 /** Returns true if the stored JWT is missing, malformed, or past its expiry. */
 export function isTokenExpired(): boolean {
   const token = getToken();
@@ -75,12 +80,9 @@ export function isTokenExpired(): boolean {
 }
 
 export function isAuthenticated(): boolean {
-  if (getToken() === null) return false;
-  if (isTokenExpired()) {
-    clearSession();
-    return false;
-  }
-  return true;
+  // Let the Axios interceptor renew an expired access token using the
+  // HttpOnly refresh cookie instead of clearing a persistent session.
+  return getSession() !== null;
 }
 
 export function isAdmin(role?: Role | null): boolean {

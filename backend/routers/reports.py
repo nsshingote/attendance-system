@@ -379,7 +379,7 @@ def employee_wise_summary(
     for user in users:
         accrue_monthly_leave(db, user)
 
-        records = (
+        raw_records = (
             db.query(Attendance)
             .filter(
                 Attendance.user_id == user.id,
@@ -388,6 +388,18 @@ def employee_wise_summary(
             )
             .all()
         )
+        # Legacy duplicate Absent rows must not inflate monthly totals. Count
+        # exactly one best record for each user/date, preferring a real
+        # check-in/out over a synthetic absence and then the newest row.
+        records_by_date = {}
+        for record in raw_records:
+            existing = records_by_date.get(record.attendance_date)
+            if existing is None or (
+                (record.check_in is not None, record.check_out is not None, record.id)
+                > (existing.check_in is not None, existing.check_out is not None, existing.id)
+            ):
+                records_by_date[record.attendance_date] = record
+        records = records_by_date.values()
         summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0}
         for r in records:
             status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
@@ -839,6 +851,7 @@ def save_report_data(
             raise HTTPException(status_code=403, detail="Approval is required before submitting a past-day report")
 
     department_id = _get_user_department_id(db, current_user.id, payload.department_id)
+    department = db.query(Department).filter(Department.id == department_id).first()
 
     # Build query based on whether subtype_id is provided
     query = db.query(DailyReportData).filter(
@@ -861,6 +874,8 @@ def save_report_data(
         existing.duration = payload.duration
         existing.description = payload.description
         existing.custom_fields = payload.custom_fields
+        if not existing.department_name and department:
+            existing.department_name = department.name
         existing.updated_at = datetime.now(IST)
         db.commit()
         db.refresh(existing)
@@ -871,6 +886,7 @@ def save_report_data(
             user_id=current_user.id,
             attendance_date=payload.attendance_date,
             department_id=department_id,
+            department_name=department.name if department else None,
             subtype_id=payload.subtype_id,
             quantity=payload.quantity,
             duration=payload.duration,
@@ -927,7 +943,7 @@ def get_report_history(
             "id": report.id,
             "user_id": report.user_id,
             "department_id": report.department_id,
-            "department_name": department.name if department else "Deleted department",
+            "department_name": report.department_name or (department.name if department else "Unknown Department"),
             "attendance_date": report.attendance_date.isoformat(),
             "subtype_id": report.subtype_id,
             "type_name": report_type.name if report_type else None,
@@ -953,6 +969,9 @@ def request_past_report_submission(
         raise HTTPException(status_code=400, detail="attendance_date must be YYYY-MM-DD")
     if attendance_date >= date.today():
         raise HTTPException(status_code=400, detail="A past date is required")
+    reason = (payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="A reason is required")
 
     request = db.query(PastReportSubmissionRequest).filter(
         PastReportSubmissionRequest.user_id == current_user.id,
@@ -963,7 +982,7 @@ def request_past_report_submission(
     if request is None:
         request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date)
         db.add(request)
-    request.reason = (payload.get("reason") or "").strip() or None
+    request.reason = reason
     request.status = "Pending"
     request.reviewed_by = None
     request.reviewed_at = None

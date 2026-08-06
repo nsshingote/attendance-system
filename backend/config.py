@@ -38,6 +38,7 @@ class Settings:
     JWT_ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+    REFRESH_COOKIE_SECURE: bool = os.getenv("REFRESH_COOKIE_SECURE", "true" if os.getenv("APP_ENV") == "production" else "false").lower() == "true"
 
     # ---- CORS ----
     FRONTEND_ORIGINS: list[str] = [

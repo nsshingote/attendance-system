@@ -413,6 +413,7 @@ CREATE TABLE IF NOT EXISTS daily_report_data (
     user_id INT NOT NULL,
     attendance_date DATE NOT NULL,
     department_id INT NOT NULL,
+    department_name VARCHAR(100) NULL,
     subtype_id INT NULL,
     quantity INT,
     duration VARCHAR(50),
@@ -453,4 +454,14 @@ CREATE TABLE IF NOT EXISTS past_report_submission_requests (
     UNIQUE KEY uq_past_report_request (user_id, attendance_date),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

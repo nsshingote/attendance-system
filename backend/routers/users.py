@@ -375,7 +375,8 @@ def permanently_delete_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_superadmin),
 ):
-    """Permanently delete a user."""
+    """Disabled: user records are retained for audit/history."""
+    raise HTTPException(status_code=410, detail="Permanent user deletion is disabled. Mark the user inactive instead.")
 
     user = db.query(User).filter(User.id == user_id).first()
 

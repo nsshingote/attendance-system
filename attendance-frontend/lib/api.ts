@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getSession, clearSession } from "@/lib/auth";
+import { getSession, clearSession, updateAccessToken } from "@/lib/auth";
 import toast from "react-hot-toast";
 
 const api = axios.create({
@@ -7,7 +7,21 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  withCredentials: true,
 });
+
+let refreshPromise: Promise<string> | null = null;
+const refreshAccessToken = async (): Promise<string> => {
+  if (!refreshPromise) {
+    refreshPromise = axios.post(`${api.defaults.baseURL}/auth/refresh`, {}, { withCredentials: true })
+      .then(({ data }) => {
+        updateAccessToken(data.access_token);
+        return data.access_token as string;
+      })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+};
 
 // Request interceptor - add token
 api.interceptors.request.use(
@@ -18,7 +32,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
+  async (error) => {
     return Promise.reject(error);
   }
 );
@@ -26,7 +40,7 @@ api.interceptors.request.use(
 // Response interceptor - handle errors
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     // Check if it's a validation error with details
     if (error.response?.data?.detail && Array.isArray(error.response.data.detail)) {
       // Pydantic validation error
@@ -45,13 +59,22 @@ api.interceptors.response.use(
     }
     
     // Handle 401 - unauthorized
-    if (error.response?.status === 401) {
+    const originalRequest = error.config as typeof error.config & { _retry?: boolean };
+    if (error.response?.status === 401 && !originalRequest?._retry && !String(originalRequest?.url || "").includes("/auth/refresh")) {
       const session = getSession();
       if (session?.token) {
-        clearSession();
-        toast.error("Session expired. Please login again.");
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
+        originalRequest._retry = true;
+        try {
+          const token = await refreshAccessToken();
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        } catch {
+          clearSession();
+          toast.error("Your session has ended. Please login again.");
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
         }
       }
     }

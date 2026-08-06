@@ -6,7 +6,7 @@
  */
 
 import Link from "next/link";
-import { Eye, Pencil, SmartphoneNfc, Trash2 } from "lucide-react";
+import { Eye, Pencil, SmartphoneNfc } from "lucide-react";
 import Badge from "@/components/Common/Badge";
 
 export interface UserRow {
@@ -25,7 +25,6 @@ interface UserTableProps {
   onEdit: (user: UserRow) => void;
   onResetDevice: (user: UserRow) => void;
   onToggleStatus: (user: UserRow) => void;
-  onDeleteUser: (user: UserRow) => void;
 }
 
 export default function UserTable({
@@ -33,7 +32,6 @@ export default function UserTable({
   onEdit,
   onResetDevice,
   onToggleStatus,
-  onDeleteUser,
 }: UserTableProps) {
   if (users.length === 0) {
     return (
@@ -118,22 +116,6 @@ export default function UserTable({
                     <SmartphoneNfc size={15} />
                   </button>
 
-                  <button
-                    onClick={() => {
-                      const confirmed = window.confirm(
-                        `Are you sure you want to permanently delete "${u.name}"?\n\nThis action cannot be undone.`
-                      );
-
-                      if (confirmed) {
-                        onDeleteUser(u);
-                      }
-                    }}
-                    className="shrink-0 rounded-md p-1.5 text-red-600 hover:bg-red-50 hover:text-red-700"
-                    aria-label="Delete user"
-                    title="Delete Permanently"
-                  >
-                    <Trash2 size={15} />
-                  </button>
                 </div>
               </td>
             </tr>
