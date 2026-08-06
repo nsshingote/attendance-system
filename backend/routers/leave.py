@@ -170,12 +170,7 @@ def apply_leave(
     total_days = calculate_total_days(payload.from_date, payload.to_date)
     
     # Validate leave category
-    valid_categories = ["Paid", "Carried", "Unpaid", "Emergency", "Sick", "Privilege"]
-    if payload.leave_category not in valid_categories:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid leave category. Must be one of: {', '.join(valid_categories)}"
-        )
+    requested_category = "Unpaid"
     
     # Check if leave type exists (if provided)
     if payload.leave_type_id:
@@ -224,9 +219,6 @@ def apply_leave(
             detail=f"Overlapping leave request already exists (ID: {overlapping.id})"
         )
     
-    # Auto-approve if current user is admin (applying for ANYONE, including self)
-    is_admin_applying = current_user.role in ["superadmin", "admin"]
-    
     # Create leave request
     leave_request = LeaveRequest(
         user_id=target_user_id,
@@ -235,15 +227,15 @@ def apply_leave(
         to_date=payload.to_date,
         total_days=total_days,
         reason=payload.reason,
-        leave_category=payload.leave_category,
-        status="Approved" if is_admin_applying else "Pending",
-        approved_by=current_user.id if is_admin_applying else None,
-        approved_at=datetime.now() if is_admin_applying else None,
+        leave_category=requested_category,
+        status="Pending",
+        approved_by=None,
+        approved_at=None,
     )
     db.add(leave_request)
 
     # If admin applied and auto-approved, deduct from balance immediately
-    if is_admin_applying and payload.leave_category == "Carried":
+    if False:
         # ✅ FIXED: Use the accrual-aware helper
         carried_balance = get_carried_leave_balance(db, target_user)
         if carried_balance < total_days:
@@ -254,7 +246,7 @@ def apply_leave(
         target_user.carried_leave -= total_days
     
     # If admin applied and auto-approved, mark attendance as "On Leave"
-    if is_admin_applying:
+    if False:
         mark_leave_in_attendance(db, target_user_id, payload.from_date, payload.to_date)
     
     db.commit()
@@ -264,7 +256,7 @@ def apply_leave(
     log_activity(
         db,
         current_user.id,
-        f"Applied for {payload.leave_category} leave for {target_user.name} "
+        f"Applied for leave for {target_user.name} "
         f"({payload.from_date} to {payload.to_date}) - {leave_request.status}"
     )
     
@@ -441,13 +433,9 @@ def decide_leave(
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
 
-    valid_categories = ["Paid", "Carried", "Unpaid", "Emergency", "Sick", "Privilege"]
-    if payload.leave_category:
-        if payload.leave_category not in valid_categories:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid leave category. Must be one of: {', '.join(valid_categories)}"
-            )
+    if payload.status == "Approved":
+        if payload.leave_category not in ("Paid", "Unpaid"):
+            raise HTTPException(status_code=400, detail="Choose Paid or Unpaid Leave when approving")
         leave_request.leave_category = payload.leave_category
     
     leave_request.status = payload.status
@@ -458,9 +446,22 @@ def decide_leave(
         total_days = leave_request.total_days or 1
         
         if leave_request.leave_category == "Paid":
-            # No direct model field is decremented here. The remaining leave
-            # is derived from approved Paid + Carried usage in get_remaining_leave().
-            pass
+            # Paid Leave is one available day in a month. Requests are never
+            # split or automatically converted to Unpaid.
+            available_paid_days = 1 if paid_leave_available_this_month(
+                db, target_user, leave_request.from_date
+            ) else 0
+            if available_paid_days == 0:
+                raise HTTPException(status_code=400, detail="No Paid Leave balance is available.")
+            if total_days > available_paid_days:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Only {available_paid_days} Paid Leave day is available. "
+                        "This request cannot be approved as Paid Leave. "
+                        "Approve it as Unpaid Leave or Reject."
+                    ),
+                )
         elif leave_request.leave_category == "Carried":
             # Carried leave is a separate pool and still needs explicit decrement.
             carried_balance = get_carried_leave_balance(db, target_user)

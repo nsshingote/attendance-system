@@ -163,7 +163,7 @@ class LeaveRequestCreate(BaseModel):
     from_date: date
     to_date: date
     reason: Optional[str] = None
-    leave_category: str  # "Paid", "Carried", "Unpaid", "Emergency", "Sick", "Privilege"
+    leave_category: Optional[str] = None
     notify_email_ids: Optional[List[int]] = None
     user_id: Optional[int] = None  # Admin/SuperAdmin only: submit on behalf of this employee instead of self
 

@@ -28,7 +28,6 @@ interface EmployeeSummaryRow {
   "Paid Leave": number;
   "Carried Leave Used": number;
   LWP: number;
-  "Privilege Leave": number;
   "Carry Forward Balance": number;
   "Used Paid Leave This Month": boolean;
   Encashed: number;
@@ -97,7 +96,6 @@ export default function ReportsPage() {
         "Paid Leave": r["Paid Leave"],
         "Carried Leave Used": r["Carried Leave Used"],
         LWP: r.LWP,
-        "Privilege Leave": r["Privilege Leave"],
         "Carry Forward Balance": r["Carry Forward Balance"],
         "Used Paid Leave This Month": r["Used Paid Leave This Month"] ? "Yes" : "No",
         Encashed: r.Encashed,
@@ -126,7 +124,7 @@ export default function ReportsPage() {
     if (tab === "attendance") {
       autoTable(doc, {
         startY: 22,
-        head: [["Name", "Dept", "Present", "Absent", "Half Day", "Late", "Paid", "Carried", "LWP", "Privilege", "Carry Fwd", "Encashed"]],
+        head: [["Name", "Dept", "Present", "Absent", "Half Day", "Late", "Paid", "Carried", "LWP", "Carry Fwd", "Encashed"]],
         body: employeeSummary.map((r) => [
           r.name,
           r.department,
@@ -137,7 +135,6 @@ export default function ReportsPage() {
           r["Paid Leave"],
           r["Carried Leave Used"],
           r.LWP,
-          r["Privilege Leave"],
           r["Carry Forward Balance"],
           r.Encashed,
         ]),
@@ -222,7 +219,6 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
                   <th className="px-4 py-3 font-medium">Carried Used</th>
                   <th className="px-4 py-3 font-medium">LWP</th>
-                  <th className="px-4 py-3 font-medium">Privilege</th>
                   <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
                   <th className="px-4 py-3 font-medium">Encashed</th>
                 </tr>
@@ -238,7 +234,6 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Carried Leave Used"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
-                    <td className="px-4 py-3 text-ink-700">{r["Privilege Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Encashed}</td>
                   </tr>

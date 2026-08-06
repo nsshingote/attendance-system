@@ -405,7 +405,13 @@ def employee_wise_summary(
             status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
             if status == "Holiday":
                 continue
-            summary[status] = summary.get(status, 0) + 1
+            # Late is a property of an office-attendance day, not a mutually
+            # exclusive attendance bucket. Count it in both statistics.
+            if status == "Late":
+                summary["Present"] += 1
+                summary["Late"] += 1
+            else:
+                summary[status] = summary.get(status, 0) + 1
 
         leave_requests_this_month = (
             db.query(LeaveRequest)
@@ -425,9 +431,6 @@ def employee_wise_summary(
         )
         lwp_days = sum(
             (lr.total_days or 0) for lr in leave_requests_this_month if lr.leave_category == "Unpaid"
-        )
-        privilege_leave_days = sum(
-            (lr.total_days or 0) for lr in leave_requests_this_month if lr.leave_category == "Privilege"
         )
 
         used_paid_this_month = paid_leave_days > 0
@@ -450,7 +453,6 @@ def employee_wise_summary(
                 "Paid Leave": paid_leave_days,
                 "Carried Leave Used": carried_leave_used_days,
                 "LWP": lwp_days,
-                "Privilege Leave": privilege_leave_days,
                 "Carry Forward Balance": user.carried_leave or 0,
                 "Used Paid Leave This Month": used_paid_this_month,
                 "Encashed": 1 if has_encashment_on_record else 0,
@@ -1387,6 +1389,55 @@ def add_report_subtype(
     log_activity(db, current_user.id, f"Added report subtype: {payload.name}")
     
     return new_subtype
+
+
+# ---------- Admin: Delete Type ----------
+@router.delete("/admin/types/{type_id}")
+def delete_report_type(
+    type_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin"))
+):
+    """Soft-delete a report type so it is no longer used for future reporting."""
+    report_type = db.query(DynamicReportType).filter(DynamicReportType.id == type_id).first()
+    if not report_type:
+        raise HTTPException(status_code=404, detail="Report type not found")
+
+    report_type.is_active = 0
+    db.query(DynamicReportSubtype).filter(
+        DynamicReportSubtype.type_id == type_id,
+        DynamicReportSubtype.is_active == 1
+    ).update({DynamicReportSubtype.is_active: 0}, synchronize_session=False)
+
+    db.query(ReportDefaultRow).filter(
+        ReportDefaultRow.subtype_id.in_(
+            db.query(DynamicReportSubtype.id).filter(DynamicReportSubtype.type_id == type_id)
+        )
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    log_activity(db, current_user.id, f"Deleted report type: {report_type.name}")
+    return {"message": "Report type deleted successfully"}
+
+
+# ---------- Admin: Delete Subtype ----------
+@router.delete("/admin/subtypes/{subtype_id}")
+def delete_report_subtype(
+    subtype_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin"))
+):
+    """Soft-delete a report subtype so it is no longer used for future reporting."""
+    subtype = db.query(DynamicReportSubtype).filter(DynamicReportSubtype.id == subtype_id).first()
+    if not subtype:
+        raise HTTPException(status_code=404, detail="Report subtype not found")
+
+    subtype.is_active = 0
+    db.query(ReportDefaultRow).filter(ReportDefaultRow.subtype_id == subtype_id).delete(synchronize_session=False)
+
+    db.commit()
+    log_activity(db, current_user.id, f"Deleted report subtype: {subtype.name}")
+    return {"message": "Report subtype deleted successfully"}
 
 
 # ---------- Admin: Add Field ----------

@@ -52,7 +52,6 @@ interface LeaveFormValues {
   from_date: string;
   to_date: string;
   reason: string;
-  leave_category: string;
 }
 
 interface LeaveFormProps {
@@ -76,7 +75,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
     handleSubmit,
     getValues,
     formState: { errors },
-  } = useForm<LeaveFormValues>({ defaultValues: { leave_category: "" } });
+  } = useForm<LeaveFormValues>();
 
   const fetchBalance = useCallback(async () => {
     const userIdToCheck = targetUserId ?? session?.userId;
@@ -108,11 +107,6 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   }, [fetchBalance]);
 
   const onSubmit = async (values: LeaveFormValues) => {
-    if (!values.leave_category) {
-        toast.error("Please select a leave category");
-        return;
-    }
-
     setSubmitting(true);
     try {
         // ✅ Build payload WITHOUT user_id first
@@ -120,7 +114,6 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
             from_date: values.from_date,
             to_date: values.to_date,
             reason: values.reason,
-            leave_category: values.leave_category,
         };
         
         // ✅ Only add user_id if a user is selected (not "Myself")
@@ -143,8 +136,8 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   const handleComposeEmail = () => {
     const values = getValues();
 
-    if (!values.leave_category || !values.from_date || !values.to_date) {
-      toast.error("Fill in category and dates first, then compose the email");
+    if (!values.from_date || !values.to_date) {
+      toast.error("Fill in dates first, then compose the email");
       return;
     }
 
@@ -160,7 +153,6 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
 
     const body = [
       `Employee: ${applicantName}`,
-      `Category: ${values.leave_category}`,
       `From: ${values.from_date}`,
       `To: ${values.to_date}`,
       `Reason: ${values.reason || "-"}`,
@@ -216,25 +208,6 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
         </div>
       )}
 
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink-700">Leave Category</label>
-        <select
-          {...register("leave_category", { required: true })}
-          className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-        >
-          <option value="">Select category</option>
-          <option value="Paid" disabled={balance ? !balance.paid_leave_available_this_month : false}>
-            Paid {balance && !balance.paid_leave_available_this_month ? "(already used this month)" : ""}
-          </option>
-          <option value="Carried" disabled={balance ? balance.carried_leave <= 0 : false}>
-            Carried {balance ? `(${balance.carried_leave} day(s) available)` : ""}
-          </option>
-          <option value="Unpaid">Unpaid (LWP)</option>
-          <option value="Emergency">Emergency Leave</option>
-          <option value="Sick">Sick Leave</option>
-        </select>
-        {errors.leave_category && <p className="mt-1 text-xs text-red-600">Please select a category</p>}
-      </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>

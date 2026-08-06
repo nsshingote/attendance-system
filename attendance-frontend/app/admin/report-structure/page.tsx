@@ -51,9 +51,6 @@ export default function ReportStructurePage() {
   const [reportSubtypeCount, setReportSubtypeCount] = useState<number | null>(null);
   const [defaultRowCount, setDefaultRowCount] = useState<number | null>(null);
   const [reportDataCount, setReportDataCount] = useState<number | null>(null);
-  const [departmentToDeleteId, setDepartmentToDeleteId] = useState<number | null>(null);
-  const [reassignDepartmentId, setReassignDepartmentId] = useState<number | null>(null);
-  const [reassignmentCompleted, setReassignmentCompleted] = useState(false);
   const [showAddType, setShowAddType] = useState(false);
   const [showAddSubtype, setShowAddSubtype] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
@@ -110,6 +107,42 @@ export default function ReportStructurePage() {
     }
   };
 
+  const handleDeleteType = async (typeId: number) => {
+    const typeName = allTypes.find((type) => type.id === typeId)?.name || "this type";
+    if (!confirm(`Delete report type ${typeName}? It will no longer be available for future use, but historical reports remain unchanged.`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/reports/admin/types/${typeId}`);
+      toast.success("Report type deleted");
+      await fetchData();
+      if (selectedDept) {
+        await handleDepartmentChange(selectedDept);
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const handleDeleteSubtype = async (subtypeId: number) => {
+    const subtypeName = allSubtypes.find((subtype) => subtype.id === subtypeId)?.name || "this subtype";
+    if (!confirm(`Delete report subtype ${subtypeName}? It will no longer be available for future use, but historical reports remain unchanged.`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/reports/admin/subtypes/${subtypeId}`);
+      toast.success("Report subtype deleted");
+      await fetchData();
+      if (selectedDept) {
+        await handleDepartmentChange(selectedDept);
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   const handleDepartmentChange = async (deptId: number) => {
     setSelectedDept(deptId);
     setReassignDepartmentId(null);
@@ -129,14 +162,6 @@ export default function ReportStructurePage() {
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
-  };
-
-  const handleDeleteDepartmentChange = async (deptId: number | null) => {
-    setDepartmentToDeleteId(deptId);
-    setReassignDepartmentId(null);
-    setReassignmentCompleted(false);
-    if (deptId) await loadDepartmentAssignments(deptId);
-    else setAssignmentCount(null);
   };
 
   const handleAddType = async () => {
@@ -236,9 +261,9 @@ export default function ReportStructurePage() {
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold text-ink-900">Department Management</h1>
+          <h1 className="text-xl font-semibold text-ink-900">Report Structure</h1>
           <p className="text-sm text-ink-500">
-            View department assignments, manage report defaults, and transfer users without changing historical reports.
+            Manage report structure defaults for each department without affecting historical report data.
           </p>
         </div>
 
@@ -325,94 +350,44 @@ export default function ReportStructurePage() {
               </div>
               </section>
 
-              <section className="mt-6 space-y-4 rounded-xl border border-red-200 bg-white p-5 shadow-card">
-                <div>
-                  <h3 className="text-base font-semibold text-ink-900">Delete Department</h3>
-                  <p className="mt-1 text-sm text-ink-600">Reassign users and future report setup first. Historical reports are preserved.</p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
+              <section className="mt-6 rounded-xl border border-ink-200 bg-white p-5 shadow-card">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-ink-700">Department to Delete</label>
-                    <select value={departmentToDeleteId || ""} onChange={(e) => handleDeleteDepartmentChange(e.target.value ? Number(e.target.value) : null)} className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm">
-                      <option value="">Select a department</option>
-                      {departments.map((dept) => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-ink-700">Reassign Users To</label>
-                    <select value={reassignDepartmentId || ""} onChange={(e) => { setReassignDepartmentId(e.target.value ? Number(e.target.value) : null); setReassignmentCompleted(false); }} disabled={!departmentToDeleteId} className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm disabled:cursor-not-allowed disabled:bg-ink-50">
-                      <option value="">Select a department</option>
-                      {departments.filter((dept) => dept.id !== departmentToDeleteId).map((dept) => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
-                    </select>
+                    <h3 className="text-base font-semibold text-ink-900">Report Types and Subtypes</h3>
+                    <p className="mt-1 text-sm text-ink-600">Delete entries for future use only. Historical reports remain unchanged.</p>
                   </div>
                 </div>
 
-                {departmentToDeleteId && assignmentCount !== null && (
-                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900">
-                    <p className="font-medium">This department has {assignmentCount} assigned user{assignmentCount === 1 ? "" : "s"}.</p>
-                    <div className="mt-2 space-y-1 text-xs text-yellow-800">
-                      <p>{reportTypeCount !== null ? `${reportTypeCount} report type${reportTypeCount === 1 ? "" : "s"}` : "Loading report type count..."}</p>
-                      <p>{reportSubtypeCount !== null ? `${reportSubtypeCount} report subtype${reportSubtypeCount === 1 ? "" : "s"}` : "Loading report subtype count..."}</p>
-                      <p>{defaultRowCount !== null ? `${defaultRowCount} default row${defaultRowCount === 1 ? "" : "s"}` : "Loading default row count..."}</p>
-                      <p>{reportDataCount !== null ? `${reportDataCount} report data row${reportDataCount === 1 ? "" : "s"}` : "Loading report data count..."}</p>
+                <div className="space-y-4">
+                  {allTypes.filter((type) => type.department_id === selectedDept).map((type) => (
+                    <div key={type.id} className="rounded-lg border border-ink-200 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-ink-900">{type.name}</p>
+                          <p className="text-xs text-ink-500">Report type</p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteType(type.id)}
+                          className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                        >
+                          Delete Type
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {allSubtypes.filter((subtype) => subtype.type_id === type.id && subtype.is_active).map((subtype) => (
+                          <div key={subtype.id} className="flex items-center justify-between rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
+                            <span className="text-sm text-ink-700">{subtype.name}</span>
+                            <button
+                              onClick={() => handleDeleteSubtype(subtype.id)}
+                              className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                            >
+                              Delete Subtype
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={async () => {
-                      if (!departmentToDeleteId || !reassignDepartmentId) {
-                        toast.error("Select another department before reassignment.");
-                        return;
-                      }
-                      try {
-                        await api.post(`/reports/admin/departments/${departmentToDeleteId}/reassign-users`, {
-                          target_department_id: reassignDepartmentId,
-                        });
-                        toast.success("Users reassigned successfully.");
-                        setReassignmentCompleted(true);
-                        await loadDepartmentAssignments(departmentToDeleteId);
-                      } catch (error) {
-                        toast.error(getErrorMessage(error));
-                      }
-                    }}
-                    disabled={!departmentToDeleteId || !reassignDepartmentId || reassignmentCompleted || assignmentCount === 0}
-                    className="min-h-11 rounded-lg bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {reassignmentCompleted ? "Reassignment Complete" : "Reassign Users"}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!departmentToDeleteId || (assignmentCount !== 0 && !reassignmentCompleted)) {
-                        toast.error("Reassign users before deleting this department.");
-                        return;
-                      }
-
-                      const departmentName = departments.find((dept) => dept.id === departmentToDeleteId)?.name || "this department";
-                      if (!confirm(`Delete department ${departmentName}? This cannot be undone.`)) return;
-
-                      try {
-                        await api.delete(`/reports/admin/departments/${departmentToDeleteId}`);
-                        toast.success("Department deleted successfully");
-                        if (selectedDept === departmentToDeleteId) {
-                          setSelectedDept(null);
-                          setSelectedDefaults([]);
-                        }
-                        setAssignmentCount(null);
-                        setDepartmentToDeleteId(null);
-                        setReassignDepartmentId(null);
-                        setReassignmentCompleted(false);
-                        await fetchData();
-                      } catch (error) {
-                        toast.error(getErrorMessage(error));
-                      }
-                    }}
-                    disabled={!departmentToDeleteId || (assignmentCount !== 0 && !reassignmentCompleted)}
-                    className="min-h-11 rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Delete Department
-                  </button>
+                  ))}
                 </div>
               </section>
             </>

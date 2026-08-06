@@ -116,6 +116,8 @@ export default function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("mine");
   const [categoryModalLeaveId, setCategoryModalLeaveId] = useState<number | null>(null);
+  const [approvalLeaveId, setApprovalLeaveId] = useState<number | null>(null);
+  const [approvalCategory, setApprovalCategory] = useState<"Paid" | "Unpaid">("Paid");
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
@@ -206,12 +208,29 @@ export default function LeavePage() {
       toast.error("Invalid leave request ID");
       return;
     }
+    if (status === "Approved") {
+      setApprovalLeaveId(id);
+      setApprovalCategory("Paid");
+      return;
+    }
     try {
       await api.put(`/leave/${id}/decide`, { status });
       toast.success(`Leave request ${status.toLowerCase()}`);
       fetchAll();
     } catch (error) {
       console.error("Error approving leave:", error);
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const confirmLeaveApproval = async () => {
+    if (!approvalLeaveId) return;
+    try {
+      await api.put(`/leave/${approvalLeaveId}/decide`, { status: "Approved", leave_category: approvalCategory });
+      toast.success(`Leave request approved as ${approvalCategory} Leave`);
+      setApprovalLeaveId(null);
+      fetchAll();
+    } catch (error) {
       toast.error(getErrorMessage(error));
     }
   };
@@ -783,6 +802,17 @@ export default function LeavePage() {
             onCancel={() => setNewRequestOpen(false)}
           />
         )}
+      </Modal>
+
+      <Modal
+        isOpen={approvalLeaveId !== null}
+        onClose={() => setApprovalLeaveId(null)}
+        title="Approve Leave Request"
+        footer={<><button onClick={() => setApprovalLeaveId(null)} className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600">Cancel</button><button onClick={confirmLeaveApproval} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white">Confirm</button></>}
+      >
+        <p className="mb-4 text-sm text-ink-600">Approve as:</p>
+        <label className="mb-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3"><input type="radio" checked={approvalCategory === "Paid"} onChange={() => setApprovalCategory("Paid")} /> Paid Leave</label>
+        <label className="flex items-center gap-2 rounded-lg border border-ink-200 p-3"><input type="radio" checked={approvalCategory === "Unpaid"} onChange={() => setApprovalCategory("Unpaid")} /> Unpaid Leave</label>
       </Modal>
 
       <Modal

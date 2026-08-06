@@ -45,8 +45,6 @@ export default function UsersPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
-  const [showAddDept, setShowAddDept] = useState(false);
-  const [newDeptName, setNewDeptName] = useState("");
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<UserFormValues>();
 
@@ -134,23 +132,6 @@ export default function UsersPage() {
       toast.error(getErrorMessage(error));
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleAddDepartment = async () => {
-    if (!newDeptName.trim()) {
-      toast.error("Enter a department name");
-      return;
-    }
-    try {
-      const { data } = await api.post("/reports/admin/departments", { name: newDeptName.trim() });
-      toast.success("Department added");
-      setDepartments((prev) => [...prev, data]);
-      setNewDeptName("");
-      setShowAddDept(false);
-      reset((prev) => ({ ...prev, department: data.name }));
-    } catch (error) {
-      toast.error(getErrorMessage(error));
     }
   };
 
@@ -270,13 +251,6 @@ export default function UsersPage() {
                     <option key={dept.id} value={dept.name}>{dept.name}</option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  onClick={() => setShowAddDept(true)}
-                  className="whitespace-nowrap rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
-                >
-                  + New
-                </button>
               </div>
             </div>
             <div>
@@ -304,34 +278,6 @@ export default function UsersPage() {
           )}
         </form>
       </Modal>
-
-      {showAddDept && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold text-ink-900">Add New Department</h3>
-            <input
-              value={newDeptName}
-              onChange={(e) => setNewDeptName(e.target.value)}
-              placeholder="Department name"
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-            />
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setShowAddDept(false)}
-                className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddDepartment}
-                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </AppShell>
   );
 }

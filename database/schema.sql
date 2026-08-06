@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     total_days INT,
     reason TEXT,
     status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
-    leave_category ENUM('Paid', 'Carried', 'Privilege', 'Unpaid', 'Emergency', 'Sick') DEFAULT 'Paid',
+    leave_category ENUM('Paid', 'Carried', 'Unpaid') DEFAULT 'Unpaid',
     approved_by INT,
     approved_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

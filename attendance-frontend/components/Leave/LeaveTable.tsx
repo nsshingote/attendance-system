@@ -9,7 +9,7 @@
  */
 
 import { format, parseISO } from "date-fns";
-import { Check, X, Star } from "lucide-react";
+import { Check, X } from "lucide-react";
 import Badge from "@/components/Common/Badge";
 
 export interface LeaveRow {
@@ -35,10 +35,7 @@ interface LeaveTableProps {
 const CATEGORY_CLASS: Record<string, string> = {
   Paid: "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200",
   Carried: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200",
-  Privilege: "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200",
   Unpaid: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200",
-  Emergency: "bg-red-50 text-red-700 ring-1 ring-inset ring-red-200",
-  Sick: "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200",
 };
 
 function LeaveCard({ request, canDecide, onDecide, onChangeCategory }: any) {
@@ -194,16 +191,6 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                             <X size={15} />
                           </button>
                         </>
-                      )}
-                      {r.leave_category !== "Privilege" && (
-                        <button
-                          onClick={() => onChangeCategory?.(r.id)}
-                          className="rounded-md bg-violet-50 p-1.5 text-violet-700 hover:bg-violet-100"
-                          aria-label="Grant Privilege Leave"
-                          title="Change to Privilege Leave"
-                        >
-                          <Star size={15} />
-                        </button>
                       )}
                     </div>
                   </td>
