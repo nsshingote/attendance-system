@@ -50,7 +50,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
     # Recognized device -> allow login.
     if user.device_token == payload.device_token:
-        return _issue_token(user, db)
+        return _issue_token(user, db, response)
 
     # Unrecognized device -> create/reuse a pending device request, deny login.
     existing_request = (
