@@ -26,6 +26,7 @@ interface UserCalendarProps {
   userId: number;
   year: number;
   month: number;
+  selectedDate?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -35,10 +36,11 @@ const STATUS_COLORS: Record<string, string> = {
   Absent: "bg-red-400 text-white",
   Holiday: "bg-blue-400 text-white",
   "On Leave": "bg-amber-400 text-white",
+  WFH: "bg-cyan-500 text-white",
   "Weekly Off": "bg-gray-300 text-ink-500",
 };
 
-export default function UserCalendar({ userId, year, month }: UserCalendarProps) {
+export default function UserCalendar({ userId, year, month, selectedDate }: UserCalendarProps) {
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -151,11 +153,12 @@ export default function UserCalendar({ userId, year, month }: UserCalendarProps)
           week.map((day, dayIndex) => {
             const dayNum = getDayText(day);
             const className = getDayClassName(day);
+            const isSelected = selectedDate === day.date;
 
             return (
               <div
                 key={`${weekIndex}-${dayIndex}`}
-                className={`aspect-square flex items-center justify-center text-sm rounded-lg ${className}`}
+                className={`aspect-square flex items-center justify-center text-sm rounded-lg ${className} ${isSelected ? "ring-2 ring-brand-500 ring-offset-1" : ""}`}
               >
                 {dayNum || ""}
               </div>

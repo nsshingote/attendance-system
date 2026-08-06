@@ -3,7 +3,7 @@ routers/attendance_corrections.py
 Attendance correction requests and approvals.
 """
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -27,7 +27,7 @@ router = APIRouter()
 @router.get("/", response_model=List[CorrectionOut])
 def get_all_corrections(
     status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
-    date_value: Optional[str] = None,
+    date_value: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
@@ -35,13 +35,9 @@ def get_all_corrections(
     query = db.query(AttendanceCorrection)
     if status:
         query = query.filter(AttendanceCorrection.status == status)
-    if date_value:
-        try:
-            target_date = date.fromisoformat(date_value)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format")
-        query = query.filter(AttendanceCorrection.created_at >= datetime.combine(target_date, time.min))
-        query = query.filter(AttendanceCorrection.created_at < datetime.combine(target_date + timedelta(days=1), time.min))
+    if date_value is not None:
+        query = query.filter(AttendanceCorrection.created_at >= datetime.combine(date_value, time.min))
+        query = query.filter(AttendanceCorrection.created_at < datetime.combine(date_value + timedelta(days=1), time.min))
     return query.order_by(AttendanceCorrection.created_at.desc()).all()
 
 
@@ -142,19 +138,15 @@ def request_correction(
 
 @router.get("/me", response_model=List[CorrectionOut])
 def get_my_corrections(
-    date_value: Optional[str] = None,
+    date_value: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get current user's correction requests."""
     query = db.query(AttendanceCorrection).filter(AttendanceCorrection.requested_by == current_user.id)
-    if date_value:
-        try:
-            target_date = date.fromisoformat(date_value)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format")
-        query = query.filter(AttendanceCorrection.created_at >= datetime.combine(target_date, time.min))
-        query = query.filter(AttendanceCorrection.created_at < datetime.combine(target_date + timedelta(days=1), time.min))
+    if date_value is not None:
+        query = query.filter(AttendanceCorrection.created_at >= datetime.combine(date_value, time.min))
+        query = query.filter(AttendanceCorrection.created_at < datetime.combine(date_value + timedelta(days=1), time.min))
     return query.order_by(AttendanceCorrection.created_at.desc()).all()
 
 

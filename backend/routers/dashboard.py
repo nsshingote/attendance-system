@@ -117,20 +117,22 @@ def get_admin_dashboard(
     total_employees = len(employees)
     
     # 2. Today's attendance breakdown
-    today_attendance = db.query(Attendance).filter(
-        Attendance.attendance_date == today
-    ).all()
-    
-    present_count = sum(1 for a in today_attendance if a.status == "Present")
-    half_day_count = sum(1 for a in today_attendance if a.status == "Half Day")
-    late_count = sum(1 for a in today_attendance if a.status == "Late")
-    
+    today_status_map = {
+        emp.id: determine_attendance_status_for_date(db, emp.id, today)
+        for emp in employees
+    }
+    present_count = sum(1 for status in today_status_map.values() if status in ["Present", "Late", "Half Day", "WFH"])
+    half_day_count = sum(1 for status in today_status_map.values() if status == "Half Day")
+    late_count = sum(1 for status in today_status_map.values() if status == "Late")
+    wfh_count = sum(1 for status in today_status_map.values() if status == "WFH")
+
     # Check if today is a holiday
     is_holiday = db.query(Holiday).filter(Holiday.holiday_date == today).first() is not None
-    
-    # Count employees who have checked in
-    checked_in_ids = {a.user_id for a in today_attendance if a.status in ["Present", "Half Day", "Late"]}
-    absent_count = total_employees - len(checked_in_ids) - (total_employees if is_holiday else 0)
+
+    absent_count = sum(
+        1 for status in today_status_map.values()
+        if status == "Absent"
+    )
     
     # 3. Pending approvals
     pending_leave = db.query(LeaveRequest).filter(
@@ -158,7 +160,13 @@ def get_admin_dashboard(
         Holiday.holiday_date < end_of_month
     ).count()
     
-    # 7. Today's attendance table with reports
+    # 7. Today's attendance records and table with reports
+    today_attendance = (
+        db.query(Attendance)
+        .filter(Attendance.attendance_date == today)
+        .all()
+    )
+
     today_records = []
     for emp in employees:
         att = next((a for a in today_attendance if a.user_id == emp.id), None)
@@ -168,7 +176,7 @@ def get_admin_dashboard(
         report_display = _format_report_display(has_report)
         
         # Determine status
-        status = att.status if att else ("Holiday" if is_holiday else "Absent")
+        status = determine_attendance_status_for_date(db, emp.id, today)
         
         today_records.append(
             TodayAttendanceOut(
@@ -189,6 +197,7 @@ def get_admin_dashboard(
         absent_today=absent_count,
         half_day_today=half_day_count,
         late_today=late_count,
+        wfh_today=wfh_count,
         holiday_today=monthly_holidays,
         pending_leave_requests=pending_leave,
         pending_corrections=pending_corrections,

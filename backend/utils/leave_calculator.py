@@ -137,14 +137,17 @@ def get_carried_leave_balance(db: Session, user: User) -> int:
     return user.carried_leave or 0
 
 
-def paid_leave_available_this_month(db: Session, user: User) -> bool:
-    """True if this month's single paid slot is still unused (no Pending
-    or Approved Paid request exists yet for the current month). Always
-    False before the leave year has actually started."""
-    if date.today() < LEAVE_TRACKING_START_DATE:
+def paid_leave_available_this_month(db: Session, user: User, on_date: date | None = None) -> bool:
+    """True if the paid slot for the given month is unused.
+
+    If no date is provided, the current month is used.
+    Always returns False before the leave year has started.
+    """
+    on_date = on_date or date.today()
+    if on_date < LEAVE_TRACKING_START_DATE:
         return False
     accrue_monthly_leave(db, user)
-    return not has_approved_or_pending_paid_leave_this_month(db, user.id, date.today())
+    return not has_approved_or_pending_paid_leave_this_month(db, user.id, on_date)
 
 
 def get_used_paid_leave_days(db: Session, user_id: int) -> int:

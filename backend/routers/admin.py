@@ -6,6 +6,7 @@ import models
 import schemas
 from database import get_db
 from auth import get_current_user
+from utils.attendance_status import determine_attendance_status_for_date
 
 
 router = APIRouter(
@@ -123,7 +124,7 @@ def attendance_report(
                     if attendance.check_out
                     else None
                 ),
-                "status": attendance.status
+                "status": determine_attendance_status_for_date(db, attendance.user_id, attendance.attendance_date)
             }
         )
 
@@ -197,7 +198,7 @@ def attendance_filter(
                     if attendance.check_out
                     else None
                 ),
-                "status": attendance.status
+                "status": determine_attendance_status_for_date(db, attendance.user_id, attendance.attendance_date)
             }
         )
 

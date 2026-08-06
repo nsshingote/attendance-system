@@ -8,8 +8,9 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import toast from "react-hot-toast";
+import { parseISTDateTime } from "@/lib/date";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
@@ -103,7 +104,10 @@ export default function ActivityLogsPage() {
                     <span className="text-ink-600">{log.activity}</span>
                   </div>
                   <span className="font-mono text-xs text-ink-400">
-                    {format(parseISO(log.created_at), "dd MMM yyyy, hh:mm a")}
+                    {(() => {
+                      const date = parseISTDateTime(log.created_at);
+                      return date ? format(date, "dd MMM yyyy, hh:mm a") : log.created_at;
+                    })()}
                   </span>
                 </li>
               ))}

@@ -70,12 +70,21 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
   const [showHistory, setShowHistory] = useState(false);
   const [historyReports, setHistoryReports] = useState<any[]>([]);
+  const [historyMonth, setHistoryMonth] = useState<number | "">("");
+  const [historyDate, setHistoryDate] = useState<string>("");
   
   const [departments, setDepartments] = useState<any[]>([]);
+  const [assignedDepartments, setAssignedDepartments] = useState<any[]>([]);
   const [selectedDept, setSelectedDept] = useState<number | null>(null);
   const [allTypes, setAllTypes] = useState<any[]>([]);
   const [allSubtypesList, setAllSubtypesList] = useState<any[]>([]);
   const selectedDeptId = selectedDept !== null ? Number(selectedDept) : null;
+  const canChooseDepartment = assignedDepartments.length > 1;
+  const departmentOptions = canChooseDepartment
+    ? assignedDepartments
+    : selectedDeptId !== null
+      ? departments.filter((dept: any) => dept.id === selectedDeptId)
+      : departments;
 
   // ============================================================
   // LOAD ALL DATA
@@ -86,25 +95,15 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       const targetUserId = userId || session?.userId || 0;
       if (!targetUserId) return;
       
-      const [deptRes, typeRes, subtypeRes, userRes] = await Promise.all([
+      const [deptRes, typeRes, subtypeRes] = await Promise.all([
         api.get("/reports/departments"),
         api.get("/reports/types"),
         api.get("/reports/subtypes"),
-        api.get(`/users/${targetUserId}`)
       ]);
       
       setDepartments(deptRes.data);
       setAllTypes(typeRes.data);
       setAllSubtypesList(subtypeRes.data);
-
-      const matchedDept = findMatchingDepartment(userRes.data.department, deptRes.data);
-      if (matchedDept) {
-        setSelectedDept(matchedDept.id);
-      }
-      
-      await loadDailyReport();
-      await loadHistory();
-      
     } catch (error) {
       console.error("Error loading data:", error);
       toast.error(getErrorMessage(error));
@@ -120,10 +119,19 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     try {
       const targetUserId = userId || session?.userId || 0;
       if (!targetUserId) return;
-      
-      const res = await api.get(`/reports/user-report?date=${selectedDate}`);
-      
+
+      const queryParams = new URLSearchParams();
+      queryParams.set("date", selectedDate);
+      if (selectedDept !== null) {
+        queryParams.set("department_id", String(selectedDept));
+      }
+
+      const res = await api.get(`/reports/user-report?${queryParams.toString()}`);
+
       if (res.data) {
+        if (res.data.assigned_departments) {
+          setAssignedDepartments(res.data.assigned_departments);
+        }
         if (res.data.department_id !== undefined && res.data.department_id !== null) {
           setSelectedDept(Number(res.data.department_id));
         }
@@ -172,7 +180,17 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   const loadHistory = async () => {
     try {
-      const res = await api.get("/reports/history?days=30");
+      const params: any = { days: 30 };
+      if (selectedDept !== null) {
+        params.department_id = selectedDept;
+      }
+      if (historyMonth) {
+        params.month = historyMonth;
+      }
+      if (historyDate) {
+        params.date_value = historyDate;
+      }
+      const res = await api.get("/reports/history", { params });
       setHistoryReports(res.data || []);
     } catch (error) {
       console.error("Failed to load history:", error);
@@ -332,6 +350,30 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     return t?.name || "Unknown";
   };
 
+  const parseDurationToMinutes = (value: string | null | undefined) => {
+    if (!value) return 0;
+
+    const normalized = value.trim().replace(/:/g, ".");
+    const parts = normalized.split(".").map((part) => part.trim());
+    const hours = Number(parts[0]) || 0;
+    const minutes = parts.length > 1 ? Number(parts[1]) || 0 : 0;
+    return hours * 60 + minutes;
+  };
+
+  const formatMinutesToDuration = (totalMinutes: number) => {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}.${String(minutes).padStart(2, "0")}`;
+  };
+
+  const getTotalDuration = (reports: any[]) => {
+    const totalMinutes = reports.reduce((sum, report) => {
+      return sum + parseDurationToMinutes(report.duration);
+    }, 0);
+
+    return totalMinutes > 0 ? formatMinutesToDuration(totalMinutes) : "—";
+  };
+
   // ============================================================
   // SUBMIT REPORT - Clear form after submit
   // ============================================================
@@ -353,6 +395,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       try {
         await api.post("/reports/report-data", {
           attendance_date: selectedDate,
+          department_id: selectedDept,
           subtype_id: null,
           quantity: null,
           duration: null,
@@ -372,56 +415,56 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       return;
     }
 
-    const hasData = Object.values(reportData).some((d: any) =>
-      d.quantity !== null && d.quantity !== undefined && d.quantity !== "" ||
-      d.duration !== null && d.duration !== undefined && d.duration !== "" ||
-      d.description !== null && d.description !== undefined && d.description !== ""
+    const entries = Object.values(reportData).filter((d: any) =>
+      (d.quantity !== null && d.quantity !== undefined && d.quantity !== "") ||
+      (d.duration !== null && d.duration !== undefined && d.duration !== "") ||
+      (d.description !== null && d.description !== undefined && d.description !== "")
     );
 
-    if (!hasData) {
+    if (entries.length === 0) {
       toast.error("Please fill in at least one entry");
       return;
     }
 
     setSubmitting(true);
     try {
-      for (const data of Object.values(reportData)) {
+      for (const data of entries) {
         if (data.subtype_id) {
-          const quantity = (data.quantity !== undefined && data.quantity !== null && data.quantity !== '')
+          const quantity = (data.quantity !== undefined && data.quantity !== null && data.quantity !== "")
             ? Number(data.quantity)
             : null;
-          
-          const duration = (data.duration !== undefined && data.duration !== null && data.duration !== '')
+
+          const duration = (data.duration !== undefined && data.duration !== null && data.duration !== "")
             ? String(data.duration)
             : null;
-          
+
           await api.post("/reports/report-data", {
             attendance_date: selectedDate,
+            department_id: selectedDept,
             subtype_id: Number(data.subtype_id),
-            quantity: quantity,
-            duration: duration,
+            quantity,
+            duration,
             description: data.description || null,
-            custom_fields: null
+            custom_fields: null,
           });
         }
       }
-      
+
       toast.success("Report submitted successfully!");
-      
+
       const clearedData: Record<number, any> = {};
       Object.keys(reportData).forEach((key) => {
         clearedData[Number(key)] = {
           ...reportData[Number(key)],
           quantity: null,
           duration: null,
-          description: null
+          description: null,
         };
       });
       setReportData(clearedData);
-      
+
       await loadHistory();
       onSuccess();
-      
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -537,11 +580,26 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // RENDER HISTORY TABLE
   // ============================================================
   const renderHistory = () => {
-  if (historyReports.length === 0) {
-    return <p className="text-center py-8 text-ink-500">No past reports found.</p>;
-  }
+    const monthNames = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
 
-  const isWithin7Days = (date: string) => {
+    if (historyReports.length === 0) {
+      return <p className="text-center py-8 text-ink-500">No past reports found.</p>;
+    }
+
+    const isWithin7Days = (date: string) => {
     const reportDate = new Date(date);
     const today = new Date();
     const diffTime = today.getTime() - reportDate.getTime();
@@ -566,13 +624,57 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-ink-200 bg-white p-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink-600">Month</label>
+          <select
+            value={historyMonth}
+            onChange={(e) => setHistoryMonth(e.target.value ? Number(e.target.value) : "")}
+            className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">All Months</option>
+            {monthNames.map((name, index) => (
+              <option key={name} value={index + 1}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink-600">Date</label>
+          <input
+            type="date"
+            value={historyDate}
+            onChange={(e) => setHistoryDate(e.target.value)}
+            className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setHistoryMonth("");
+            setHistoryDate("");
+          }}
+          className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600 hover:bg-ink-50"
+        >
+          Clear
+        </button>
+      </div>
+
       {groupedHistory.map((group: any) => (
         <div
           key={group.date}
           className="rounded-lg border border-ink-200 bg-white"
         >
-          <div className="border-b border-ink-100 bg-ink-50 px-4 py-2 text-sm font-semibold text-ink-700">
-            {new Date(group.date).toLocaleDateString()}
+          <div className="flex flex-col gap-2 border-b border-ink-100 bg-ink-50 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm font-semibold text-ink-700">
+              {new Date(group.date).toLocaleDateString()}
+            </span>
+            <span className="text-xs text-ink-500">
+              Total Duration: {getTotalDuration(group.items)}
+            </span>
           </div>
 
           {/* Horizontal Scroll */}
@@ -682,13 +784,21 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   }, []);
 
   // ============================================================
-  // REFRESH WHEN DATE CHANGES
+  // REFRESH WHEN DATE OR SELECTED DEPARTMENT CHANGES
   // ============================================================
   useEffect(() => {
     if (!loading) {
       loadDailyReport();
+      loadHistory();
     }
-  }, [selectedDate]);
+  }, [selectedDate, selectedDept, historyMonth, historyDate, loading]);
+
+  useEffect(() => {
+    if (!loading && assignedDepartments.length > 0 && selectedDept === null) {
+      const primary = assignedDepartments.find((d) => d.is_primary);
+      setSelectedDept(primary ? primary.id : assignedDepartments[0].id);
+    }
+  }, [assignedDepartments, loading]);
 
   if (loading) {
     return <div className="text-center py-8 text-ink-500">Loading your report...</div>;
@@ -795,15 +905,18 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         <label className="mb-1.5 block text-sm font-medium text-ink-700">Department</label>
         <select
           value={selectedDept || ""}
-          disabled={true}
-          className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm bg-ink-50 text-ink-600 cursor-not-allowed"
+          onChange={(e) => setSelectedDept(e.target.value ? Number(e.target.value) : null)}
+          disabled={!canChooseDepartment}
+          className={`w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm ${!canChooseDepartment ? "bg-ink-50 text-ink-600 cursor-not-allowed" : "bg-white text-ink-900"}`}
         >
           <option value="">Select Department</option>
-          {departments.map((dept: any) => (
+          {departmentOptions.map((dept: any) => (
             <option key={dept.id} value={dept.id}>{dept.name}</option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-ink-400">Department is locked</p>
+        <p className="mt-1 text-xs text-ink-400">
+          {canChooseDepartment ? "Select one of your assigned departments." : "Department is set from your assignment."}
+        </p>
       </div>
 
       <button

@@ -17,6 +17,9 @@ load_dotenv()
 
 
 class Settings:
+    # Prevent unsafe development defaults from silently becoming production
+    # credentials. Set APP_ENV=production in deployed environments.
+    APP_ENV: str = os.getenv("APP_ENV", "development").lower()
     # ---- Database ----
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: str = os.getenv("DB_PORT", "3306")
@@ -37,7 +40,11 @@ class Settings:
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
     # ---- CORS ----
-    FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+    FRONTEND_ORIGINS: list[str] = [
+        origin.strip().rstrip("/")
+        for origin in os.getenv("FRONTEND_ORIGIN", "http://localhost:3000").split(",")
+        if origin.strip()
+    ]
 
     # ---- Email (SMTP) ----
     # Accepts either naming convention (SMTP_* or EMAIL_*) so it doesn't
@@ -56,6 +63,10 @@ class Settings:
     DEFAULT_OFFICE_END_TIME: str = os.getenv("DEFAULT_OFFICE_END_TIME", "18:30:00")
     DEFAULT_LATE_GRACE_MINUTES: int = int(os.getenv("DEFAULT_LATE_GRACE_MINUTES", "20"))
     DEFAULT_WEEKLY_OFF_DAY: str = os.getenv("DEFAULT_WEEKLY_OFF_DAY", "Sunday")
+
+    def __init__(self) -> None:
+        if self.APP_ENV == "production" and self.JWT_SECRET_KEY == "change-this-secret-in-production":
+            raise RuntimeError("SECRET_KEY must be set to a strong value when APP_ENV=production")
 
 
 settings = Settings()

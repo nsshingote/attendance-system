@@ -103,9 +103,6 @@ export default function AdminReportsPage() {
       // not let an earlier, unfiltered response replace the newest result.
       if (requestId !== latestRequestId.current) return;
 
-      const selectedDepartment = departments.find(
-        (department) => department.id === selectedDepartmentId
-      )?.name;
       const filteredData = data.filter((report) => {
         const reportMonth = Number(report.attendance_date.slice(5, 7));
         const reportYear = Number(report.attendance_date.slice(0, 4));
@@ -113,7 +110,7 @@ export default function AdminReportsPage() {
           reportYear === year &&
           reportMonth === month &&
           (!selectedUserId || report.user_id === selectedUserId) &&
-          (!selectedDepartment || report.user_department.trim().toLowerCase() === selectedDepartment.trim().toLowerCase()) &&
+          (!selectedDepartmentId || report.department_id === selectedDepartmentId) &&
           (!selectedDate || report.attendance_date === selectedDate)
         );
       });

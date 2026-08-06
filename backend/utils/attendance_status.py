@@ -5,7 +5,7 @@ Helper functions for determining attendance status.
 
 from datetime import date, datetime, time
 from sqlalchemy.orm import Session
-from models import Attendance, CompanySettings, Holiday
+from models import Attendance, CompanySettings, Holiday, WFHRequest
 
 
 def get_default_office_times(db: Session):
@@ -21,11 +21,25 @@ def get_company_settings(db: Session):
     return db.query(CompanySettings).first()
 
 
+def get_today_attendance_status(db: Session, user_id: int, target_date: date) -> str:
+    """Return the attendance status for a user on a specific date."""
+    return determine_attendance_status_for_date(db, user_id, target_date)
+
+
 def determine_attendance_status_for_date(db: Session, user_id: int, target_date: date) -> str:
     """
     Determine attendance status for a user on a specific date.
-    Returns: 'Present', 'Late', 'Half Day', 'Absent', or 'Holiday'
+    Returns: 'Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'WFH', or 'On Leave'
     """
+    # Check if approved WFH exists for this date
+    wfh = db.query(WFHRequest).filter(
+        WFHRequest.user_id == user_id,
+        WFHRequest.attendance_date == target_date,
+        WFHRequest.status == "Approved",
+    ).first()
+    if wfh:
+        return "WFH"
+
     # Check if it's a holiday
     holiday = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
     if holiday:
@@ -37,7 +51,12 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         Attendance.attendance_date == target_date
     ).first()
     
+    if attendance and attendance.status == "On Leave":
+        return "On Leave"
+
     if not attendance or not attendance.check_in:
+        if is_weekly_off(target_date, db):
+            return "Weekly Off"
         return "Absent"
     
     # Get company settings
@@ -66,30 +85,19 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     
     # Calculate working hours
     working_hours = (check_out_time - check_in_time).total_seconds() / 3600
-    
-    # Check if it's a half day:
-    # 1. Working hours <= 4.5 hours, OR
-    # 2. Check-out time is before or at 2:30 PM (14:30)
-    half_day_cutoff = time(14, 30)  # 2:30 PM
-    checkout_time = check_out_time.time()
-    
-    if working_hours <= 4.5 or checkout_time <= half_day_cutoff:
+
+    # Check if it's a half day based only on worked hours.
+    if working_hours < 4.5:
         return "Half Day"
-    
-    # Check if check-in is late
+
     check_in_min = check_in_time.hour * 60 + check_in_time.minute
     start_total_min = start_hour * 60 + start_min
     grace_total_min = start_total_min + grace_minutes
-    
+
     if check_in_min <= grace_total_min:
         return "Present"
     else:
         return "Late"
-
-
-def get_today_attendance_status(db: Session, user_id: int, target_date: date) -> str:
-    """Get today's attendance status for a user."""
-    return determine_attendance_status_for_date(db, user_id, target_date)
 
 
 def calculate_working_hours(check_in: datetime, check_out: datetime) -> float:
@@ -126,7 +134,7 @@ def calculate_half_day(check_in: datetime, check_out: datetime, db: Session) -> 
     if not check_in or not check_out:
         return False
     hours = calculate_working_hours(check_in, check_out)
-    return hours <= 4.5
+    return hours < 4.5
 
 
 def is_weekly_off(target_date: date, db: Session) -> bool:

@@ -22,11 +22,15 @@ from models import (
     Attendance, User, LeaveRequest, LeaveEncashmentRequest,
     DailyReport, ReportDepartment, ReportType, ReportSubtype,
     Department, DynamicReportType, DynamicReportSubtype, DynamicReportField,
-    ReportDefaultRow, UserDailyRow, DailyReportData, ActivityLog
+    ReportDefaultRow, UserDailyRow, DailyReportData, UserDepartment, ActivityLog, WFHRequest
 )
 from utils.leave_calculator import get_used_paid_leave_days, get_remaining_leave, accrue_monthly_leave
 from utils.logger import log_activity
+from utils.attendance_status import determine_attendance_status_for_date
 from utils.date_helpers import iso_with_offset
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 # ============================================================
 # SCHEMAS IMPORT - ADD THIS
@@ -110,31 +114,34 @@ def get_all_reports_for_date(db: Session, user_id: int, target_date: date) -> st
     if not reports:
         return "Not Submitted"
     
-    # Format each report
+    # Format each report. Use the department referenced by the report row
+    # (dynamic `departments` table) for logic. `User.department` is retained
+    # only as a display/cached field and not used for business decisions.
     formatted_reports = []
     for report in reports:
-        user = db.query(User).filter(User.id == user_id).first()
-        if user and user.department in ["HR", "IT"]:
+        dept = db.query(Department).filter(Department.id == report.department_id).first()
+        if dept and dept.name in ["HR", "IT"]:
             formatted_reports.append(report.description or "No description")
-        else:
-            subtype = db.query(DynamicReportSubtype).filter(DynamicReportSubtype.id == report.subtype_id).first()
-            report_type = db.query(DynamicReportType).filter(DynamicReportType.id == subtype.type_id).first() if subtype else None
-            
-            parts = []
-            if report_type and subtype:
-                parts.append(f"{report_type.name} → {subtype.name}")
-            elif subtype:
-                parts.append(subtype.name)
-            
-            details = []
-            if report.quantity is not None:
-                details.append(f"Qty: {report.quantity}")
-            if report.duration:
-                details.append(f"Duration: {report.duration}")
-            if details:
-                parts.append(f"({', '.join(details)})")
-            
-            formatted_reports.append(" | ".join(parts) if parts else "No details")
+            continue
+
+        subtype = db.query(DynamicReportSubtype).filter(DynamicReportSubtype.id == report.subtype_id).first()
+        report_type = db.query(DynamicReportType).filter(DynamicReportType.id == subtype.type_id).first() if subtype else None
+
+        parts = []
+        if report_type and subtype:
+            parts.append(f"{report_type.name} → {subtype.name}")
+        elif subtype:
+            parts.append(subtype.name)
+
+        details = []
+        if report.quantity is not None:
+            details.append(f"Qty: {report.quantity}")
+        if report.duration:
+            details.append(f"Duration: {report.duration}")
+        if details:
+            parts.append(f"({', '.join(details)})")
+
+        formatted_reports.append(" | ".join(parts) if parts else "No details")
     
     if not formatted_reports:
         return "Not Submitted"
@@ -145,41 +152,6 @@ def get_all_reports_for_date(db: Session, user_id: int, target_date: date) -> st
 def _normalize_department_name(value: Optional[str]) -> str:
     """Normalize department names for comparison."""
     return "".join(ch for ch in (value or "").lower() if ch.isalnum())
-
-
-def _get_user_department_id(db: Session, user_id: int) -> int:
-    """Get department ID for a user."""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    normalized_user_dept = _normalize_department_name(user.department)
-    if not normalized_user_dept:
-        raise HTTPException(status_code=404, detail="Department not found")
-
-    # Check if user has dynamic department mapping
-    departments = db.query(Department).filter(Department.is_active == 1).all()
-    for dept in departments:
-        normalized_dept_name = _normalize_department_name(dept.name)
-        if normalized_dept_name == normalized_user_dept:
-            return dept.id
-        if normalized_user_dept and normalized_dept_name and (
-            normalized_user_dept in normalized_dept_name or normalized_dept_name in normalized_user_dept
-        ):
-            return dept.id
-
-    # Fallback to report_departments
-    report_departments = db.query(ReportDepartment).all()
-    for report_dept in report_departments:
-        normalized_dept_name = _normalize_department_name(report_dept.name)
-        if normalized_dept_name == normalized_user_dept:
-            return report_dept.id
-        if normalized_user_dept and normalized_dept_name and (
-            normalized_user_dept in normalized_dept_name or normalized_dept_name in normalized_user_dept
-        ):
-            return report_dept.id
-
-    raise HTTPException(status_code=404, detail="Department not found")
 
 
 def _get_default_rows(db: Session, department_id: int) -> List[int]:
@@ -218,13 +190,49 @@ def _get_user_rows_for_date(db: Session, user_id: int, target_date: date) -> Lis
     ).all()
 
 
-def _get_report_data_for_date(db: Session, user_id: int, target_date: date, subtype_id: Optional[int] = None) -> List[DailyReportData]:
-    """Get report data for a specific user and date."""
+def _get_user_department_assignments(db: Session, user_id: int) -> List[UserDepartment]:
+    return db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+
+
+def _get_user_department_id(db: Session, user_id: int, requested_department_id: Optional[int] = None) -> int:
+    """Get the active department id for a user.
+
+    Prefers explicit user department assignments. If a single assignment
+    exists, it is used automatically. If multiple assignments exist, the
+    primary assignment is preferred, otherwise the first assignment is used.
+    Legacy user.department fallback is preserved for backward compatibility.
+    """
+    assignments = _get_user_department_assignments(db, user_id)
+    if assignments:
+        if requested_department_id is not None:
+            for assignment in assignments:
+                if assignment.department_id == requested_department_id:
+                    return requested_department_id
+            raise HTTPException(status_code=400, detail="Requested department is not assigned to this user")
+
+        if len(assignments) == 1:
+            return assignments[0].department_id
+
+        primary_assignment = next((a for a in assignments if a.is_primary == 1), None)
+        if primary_assignment:
+            return primary_assignment.department_id
+
+        return assignments[0].department_id
+    # No explicit assignments found: do not infer department from the
+    # legacy `User.department` string. Require explicit `UserDepartment`
+    # assignments for multi-department correctness.
+    raise HTTPException(status_code=400, detail="User has no department assignments")
+
+
+def _get_report_data_for_date(db: Session, user_id: int, target_date: date, department_id: Optional[int] = None, subtype_id: Optional[int] = None) -> List[DailyReportData]:
+    """Get report data for a specific user, date, and department."""
     query = db.query(DailyReportData).filter(
         DailyReportData.user_id == user_id,
         DailyReportData.attendance_date == target_date
     )
-    if subtype_id:
+    if department_id is not None:
+        query = query.filter(DailyReportData.department_id == department_id)
+    if subtype_id is not None:
         query = query.filter(DailyReportData.subtype_id == subtype_id)
     return query.all()
 
@@ -237,7 +245,8 @@ def _get_report_data_for_date(db: Session, user_id: int, target_date: date, subt
 def attendance_report(
     year: int,
     month: int,
-    department: Optional[str] = None,
+    department_id: Optional[int] = Query(None),
+    department: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -252,14 +261,25 @@ def attendance_report(
         Attendance.attendance_date >= start_date,
         Attendance.attendance_date < end_date,
     )
-    if department:
-        query = query.filter(User.department == department)
+    if department_id is not None:
+        query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
+            UserDepartment.department_id == department_id
+        )
+    elif department:
+        # Resolve department name to dynamic Department and filter by assignment
+        department_obj = db.query(Department).filter(func.lower(func.trim(Department.name)) == department.strip().lower(), Department.is_active == 1).first()
+        if not department_obj:
+            raise HTTPException(status_code=404, detail="Department not found")
+        query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
+            UserDepartment.department_id == department_obj.id
+        )
 
     records = query.all()
     result = []
     for r in records:
         # Get all reports for this date
         report_display = get_all_reports_for_date(db, r.user_id, r.attendance_date)
+        status = determine_attendance_status_for_date(db, r.user_id, r.attendance_date)
         result.append({
             "user_id": r.user_id,
             "user_name": r.user.name,
@@ -267,7 +287,7 @@ def attendance_report(
             "date": r.attendance_date.isoformat(),
             "check_in": iso_with_offset(r.check_in),
             "check_out": iso_with_offset(r.check_out),
-            "status": r.status,
+            "status": status,
             "reason": r.reason,
             "report": report_display,
             "has_report": report_display != "Not Submitted",
@@ -277,39 +297,6 @@ def attendance_report(
 
 
 
-@router.get("/attendance-debug")
-def attendance_report_debug(
-    db: Session = Depends(get_db),
-):
-    """Development helper: return today's attendance without auth.
-    ONLY enabled when environment variable ALLOW_DEBUG_ATTENDANCE=1.
-    """
-    import os
-    if os.getenv("ALLOW_DEBUG_ATTENDANCE", "0") != "1":
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    today = date.today()
-    records = (
-        db.query(Attendance).join(User).filter(Attendance.attendance_date == today).all()
-    )
-    result = []
-    for r in records:
-        result.append({
-            "user_id": r.user_id,
-            "user_name": r.user.name,
-            "department": r.user.department,
-            "date": r.attendance_date.isoformat(),
-            "check_in": iso_with_offset(r.check_in),
-            "check_out": iso_with_offset(r.check_out),
-            "status": r.status,
-            "reason": r.reason,
-            "report": ("Submitted" if r.user and False else "Not Submitted"),
-            "has_report": False,
-        })
-    return result
-
-
 @router.get("/attendance/export")
 def export_attendance_csv(
     year: int,
@@ -317,10 +304,16 @@ def export_attendance_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    start_date = date(year, month, 1)
+    if month == 12:
+        end_date = date(year + 1, 1, 1)
+    else:
+        end_date = date(year, month + 1, 1)
+
     records = (
         db.query(Attendance)
         .join(User)
-        .filter(Attendance.attendance_date.between(date(year, month, 1), date(year, month, 28)))
+        .filter(Attendance.attendance_date >= start_date, Attendance.attendance_date < end_date)
         .all()
     )
 
@@ -335,6 +328,7 @@ def export_attendance_csv(
         
         # Get all reports for this date
         report_display = get_all_reports_for_date(db, r.user_id, r.attendance_date)
+        status = determine_attendance_status_for_date(db, r.user_id, r.attendance_date)
 
         writer.writerow(
             [
@@ -344,7 +338,7 @@ def export_attendance_csv(
                 iso_with_offset(r.check_in) if r.check_in else "",
                 iso_with_offset(r.check_out) if r.check_out else "",
                 total_hours,
-                r.status,
+                status,
                 report_display.replace("\n", " | "),
             ]
         )
@@ -378,6 +372,9 @@ def employee_wise_summary(
     users = db.query(User).filter(User.status == "active").all()
     results = []
 
+    start_date = date(year, month, 1)
+    end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+
     for user in users:
         accrue_monthly_leave(db, user)
 
@@ -385,23 +382,25 @@ def employee_wise_summary(
             db.query(Attendance)
             .filter(
                 Attendance.user_id == user.id,
-                Attendance.attendance_date.between(date(year, month, 1), date(year, month, 28)),
+                Attendance.attendance_date >= start_date,
+                Attendance.attendance_date < end_date,
             )
             .all()
         )
-        summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0}
+        summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0}
         for r in records:
-            if r.status == "Holiday":
+            status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
+            if status == "Holiday":
                 continue
-            summary[r.status] = summary.get(r.status, 0) + 1
+            summary[status] = summary.get(status, 0) + 1
 
         leave_requests_this_month = (
             db.query(LeaveRequest)
             .filter(
                 LeaveRequest.user_id == user.id,
                 LeaveRequest.status == "Approved",
-                LeaveRequest.from_date <= date(year, month, 28),
-                LeaveRequest.to_date >= date(year, month, 1),
+                LeaveRequest.from_date < end_date,
+                LeaveRequest.to_date >= start_date,
             )
             .all()
         )
@@ -508,11 +507,11 @@ def get_all_reports(
         query = query.filter(DailyReportData.user_id == user_id)
 
     if department_id is not None:
-        department = db.query(Department).filter(Department.id == department_id).first()
+        department = db.query(Department).filter(Department.id == department_id, Department.is_active == 1).first()
         if not department:
             raise HTTPException(status_code=404, detail="Department not found")
-        query = query.filter(
-            func.lower(func.trim(User.department)) == func.lower(func.trim(department.name))
+        query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
+            UserDepartment.department_id == department_id
         )
 
     if date_value is not None:
@@ -529,7 +528,8 @@ def get_all_reports(
         # Build report_display for the frontend
         report_display = ""
         
-        if user and user.department in ["HR", "IT"]:
+        dept = db.query(Department).filter(Department.id == report.department_id).first()
+        if dept and dept.name in ["HR", "IT"]:
             # HR/IT - show description
             report_display = report.description if report.description else "—"
         else:
@@ -554,6 +554,7 @@ def get_all_reports(
             "id": report.id,
             "user_id": report.user_id,
             "user_name": user.name if user else "Unknown",
+            "department_id": report.department_id,
             "user_department": user.department if user else "Unknown",
             "attendance_date": report.attendance_date.isoformat(),
             "type_name": report_type.name if report_type else None,
@@ -695,15 +696,32 @@ def get_report_structure(
 @router.get("/user-report")
 def get_user_daily_report(
     date: date = Query(...),
+    department_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get user's daily report with default and custom rows."""
     user_id = current_user.id
     
-    # Get user's department
-    dept_id = _get_user_department_id(db, user_id)
-    
+    # Determine selected department for this user, honoring assignments when provided.
+    if department_id is not None:
+        dept_id = _get_user_department_id(db, user_id, department_id)
+    else:
+        dept_id = _get_user_department_id(db, user_id)
+
+    dept = db.query(Department).filter(Department.id == dept_id, Department.is_active == 1).first()
+    department_name = dept.name if dept else "Unknown"
+
+    assignments = _get_user_department_assignments(db, user_id)
+    assigned_departments = []
+    for assignment in assignments:
+        assigned_dept = db.query(Department).filter(Department.id == assignment.department_id).first()
+        assigned_departments.append({
+            "id": assignment.department_id,
+            "name": assigned_dept.name if assigned_dept else "Unknown",
+            "is_primary": bool(assignment.is_primary)
+        })
+
     # Get default rows for department
     default_subtype_ids = _get_default_rows(db, dept_id)
     
@@ -723,8 +741,8 @@ def get_user_daily_report(
             "is_custom": row.is_custom
         })
     
-    # Get all report data for this date
-    report_data = _get_report_data_for_date(db, user_id, date)
+    # Get all report data for this date and selected department
+    report_data = _get_report_data_for_date(db, user_id, date, dept_id)
     
     # Get all subtypes for this department
     all_subtypes = db.query(DynamicReportSubtype).filter(
@@ -734,6 +752,8 @@ def get_user_daily_report(
     return {
         "date": date.isoformat(),
         "department_id": dept_id,
+        "department_name": department_name,
+        "assigned_departments": assigned_departments,
         "default_subtype_ids": default_subtype_ids,
         "custom_subtype_ids": [row.subtype_id for row in user_rows],
         "custom_rows": custom_rows,
@@ -808,10 +828,13 @@ def save_report_data(
 ):
     """Save or update report data for a specific date and subtype."""
     
+    department_id = _get_user_department_id(db, current_user.id, payload.department_id)
+
     # Build query based on whether subtype_id is provided
     query = db.query(DailyReportData).filter(
         DailyReportData.user_id == current_user.id,
-        DailyReportData.attendance_date == payload.attendance_date
+        DailyReportData.attendance_date == payload.attendance_date,
+        DailyReportData.department_id == department_id
     )
     
     # Only filter by subtype_id if it's not None
@@ -828,7 +851,7 @@ def save_report_data(
         existing.duration = payload.duration
         existing.description = payload.description
         existing.custom_fields = payload.custom_fields
-        existing.updated_at = datetime.now()
+        existing.updated_at = datetime.now(IST)
         db.commit()
         db.refresh(existing)
         return {"message": "Report data updated successfully", "data_id": existing.id}
@@ -837,12 +860,13 @@ def save_report_data(
         new_data = DailyReportData(
             user_id=current_user.id,
             attendance_date=payload.attendance_date,
+            department_id=department_id,
             subtype_id=payload.subtype_id,
             quantity=payload.quantity,
             duration=payload.duration,
             description=payload.description,
             custom_fields=payload.custom_fields,
-            submitted_at=datetime.now()
+            submitted_at=datetime.now(IST)
         )
         db.add(new_data)
         db.commit()
@@ -853,24 +877,43 @@ def save_report_data(
 @router.get("/history")
 def get_report_history(
     days: int = Query(7, ge=1, le=30),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    date_value: Optional[date] = Query(None),
+    department_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get user's report history for the last N days (default 7)."""
-    end_date = date.today()
-    start_date = end_date - timedelta(days=days)
-    
-    reports = db.query(DailyReportData).filter(
-        DailyReportData.user_id == current_user.id,
-        DailyReportData.attendance_date >= start_date,
-        DailyReportData.attendance_date <= end_date
-    ).order_by(DailyReportData.attendance_date.desc()).all()
+    """Get user's report history with optional month/date filters."""
+    query = db.query(DailyReportData).filter(
+        DailyReportData.user_id == current_user.id
+    )
+
+    if date_value is not None:
+        query = query.filter(DailyReportData.attendance_date == date_value)
+    elif month is not None:
+        query = query.filter(func.extract("month", DailyReportData.attendance_date) == month)
+    else:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+        query = query.filter(
+            DailyReportData.attendance_date >= start_date,
+            DailyReportData.attendance_date <= end_date
+        )
+
+    if department_id is not None:
+        department = db.query(Department).filter(Department.id == department_id, Department.is_active == 1).first()
+        if not department:
+            raise HTTPException(status_code=404, detail="Department not found")
+        query = query.filter(DailyReportData.department_id == department_id)
+
+    reports = query.order_by(DailyReportData.attendance_date.desc()).all()
     
     result = []
     for report in reports:
         result.append({
             "id": report.id,
             "user_id": report.user_id,
+            "department_id": report.department_id,
             "attendance_date": report.attendance_date.isoformat(),
             "subtype_id": report.subtype_id,
             "quantity": report.quantity,
@@ -905,6 +948,196 @@ def add_department(
     log_activity(db, current_user.id, f"Added department: {payload.name}")
     
     return new_dept
+
+
+# ---------- Admin: Delete Department ----------
+@router.get("/admin/departments/{department_id}/assignments")
+def get_department_assignments(
+    department_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin"))
+):
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    assignments = db.query(UserDepartment).filter(UserDepartment.department_id == department_id).all()
+    report_types = db.query(DynamicReportType).filter(DynamicReportType.department_id == department_id).all()
+    subtype_count = db.query(DynamicReportSubtype).join(DynamicReportType).filter(DynamicReportType.department_id == department_id).count()
+    default_row_count = db.query(ReportDefaultRow).filter(ReportDefaultRow.department_id == department_id).count()
+    report_data_count = db.query(DailyReportData).filter(DailyReportData.department_id == department_id).count()
+
+    result = []
+    for assignment in assignments:
+        user = db.query(User).filter(User.id == assignment.user_id).first()
+        result.append({
+            "id": assignment.id,
+            "user_id": assignment.user_id,
+            "user_name": user.name if user else "Unknown",
+            "department_id": assignment.department_id,
+            "is_primary": bool(assignment.is_primary),
+            "created_at": assignment.created_at.isoformat() if assignment.created_at else None,
+        })
+
+    return {
+        "count": len(assignments),
+        "assignments": result,
+        "report_type_count": len(report_types),
+        "report_subtype_count": subtype_count,
+        "default_row_count": default_row_count,
+        "report_data_count": report_data_count,
+    }
+
+
+@router.delete("/admin/departments/{department_id}")
+def delete_department(
+    department_id: int,
+    reassign_department_id: Optional[int] = Query(None),
+    remove_assignments: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin"))
+):
+    """Delete a department safely by moving references or deactivating if unused."""
+    department = db.query(Department).filter(Department.id == department_id, Department.is_active == 1).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    active_depts = db.query(Department).filter(Department.is_active == 1).count()
+    if active_depts <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last active department")
+
+    if reassign_department_id == department_id:
+        raise HTTPException(status_code=400, detail="Cannot reassign to the same department")
+
+    target = None
+    if reassign_department_id is not None:
+        target = db.query(Department).filter(Department.id == reassign_department_id, Department.is_active == 1).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="Reassignment department not found")
+
+    assignments = db.query(UserDepartment).filter(UserDepartment.department_id == department_id).all()
+    report_types = db.query(DynamicReportType).filter(DynamicReportType.department_id == department_id).all()
+    default_rows = db.query(ReportDefaultRow).filter(ReportDefaultRow.department_id == department_id).all()
+    report_data_rows = db.query(DailyReportData).filter(DailyReportData.department_id == department_id).all()
+
+    non_user_usage = bool(report_types or default_rows or report_data_rows)
+    has_user_assignments = bool(assignments)
+
+    if non_user_usage and target is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Department is in use by reports. Provide reassign_department_id to move related data before deletion."
+        )
+
+    if has_user_assignments and not remove_assignments and target is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Department has assigned users. Provide reassign_department_id or set remove_assignments=true to delete it safely."
+        )
+
+    affected_user_ids = {assignment.user_id for assignment in assignments}
+
+    with db.begin():
+        if assignments:
+            if remove_assignments:
+                for assignment in assignments:
+                    db.delete(assignment)
+            else:
+                # Reassign users safely, merging duplicate target assignments and preserving primary status.
+                for assignment in assignments:
+                    existing_target_assignment = db.query(UserDepartment).filter(
+                        UserDepartment.user_id == assignment.user_id,
+                        UserDepartment.department_id == target.id
+                    ).first()
+
+                    if existing_target_assignment:
+                        if assignment.is_primary:
+                            existing_target_assignment.is_primary = 1
+                        db.delete(assignment)
+                    else:
+                        assignment.department_id = target.id
+
+                    if assignment.is_primary and not remove_assignments:
+                        user = db.query(User).filter(User.id == assignment.user_id).first()
+                        if user:
+                            user.department = target.name
+
+        if target is not None:
+            # Reassign report types and keep subtypes intact.
+            for report_type in report_types:
+                report_type.department_id = target.id
+
+            # Reassign default rows.
+            for row in default_rows:
+                row.department_id = target.id
+
+            # Reassign saved report data rows.
+            for row in report_data_rows:
+                row.department_id = target.id
+
+        if target is not None and not remove_assignments:
+            # When a user's primary assignment was moved into a department they already had,
+            # ensure one primary remains and remove duplicates if necessary.
+            for assignment in db.query(UserDepartment).filter(UserDepartment.department_id == target.id).all():
+                user_assignments = db.query(UserDepartment).filter(UserDepartment.user_id == assignment.user_id).all()
+                if len(user_assignments) > 1:
+                    primary_assignments = [a for a in user_assignments if a.is_primary == 1]
+                    if len(primary_assignments) > 1:
+                        for duplicate in primary_assignments[1:]:
+                            duplicate.is_primary = 0
+                    elif len(primary_assignments) == 0:
+                        user_assignments[0].is_primary = 1
+                        user = db.query(User).filter(User.id == user_assignments[0].user_id).first()
+                        if user:
+                            dept = db.query(Department).filter(Department.id == user_assignments[0].department_id).first()
+                            if dept:
+                                user.department = dept.name
+
+        # Ensure user.department reflects an active primary assignment or fallback.
+        for user_id in affected_user_ids:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                continue
+            primary_assignment = db.query(UserDepartment).filter(
+                UserDepartment.user_id == user_id,
+                UserDepartment.is_primary == 1
+            ).first()
+            if primary_assignment:
+                dept = db.query(Department).filter(Department.id == primary_assignment.department_id).first()
+                if dept:
+                    user.department = dept.name
+            else:
+                remaining_assignments = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+                if remaining_assignments:
+                    remaining_assignments[0].is_primary = 1
+                    dept = db.query(Department).filter(Department.id == remaining_assignments[0].department_id).first()
+                    if dept:
+                        user.department = dept.name
+                else:
+                    user.department = "Unassigned"
+
+        # Deactivate department and its dynamic report structure.
+        department.is_active = 0
+        if target is None:
+            for report_type in report_types:
+                report_type.is_active = 0
+                for subtype in report_type.subtypes:
+                    subtype.is_active = 0
+
+    log_activity(
+        db,
+        current_user.id,
+        f"Deleted department {department.name}" +
+        (f" and reassigned references to {target.name}" if target else "")
+    )
+
+    return {
+        "message": f"Department '{department.name}' deleted successfully.",
+        "reassigned_users": len(assignments) if target else 0,
+        "reassigned_report_types": len(report_types) if target else 0,
+        "reassigned_default_rows": len(default_rows) if target else 0,
+        "reassigned_report_data_rows": len(report_data_rows) if target else 0,
+    }
 
 
 # ---------- Admin: Add Type ----------

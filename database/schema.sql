@@ -314,7 +314,20 @@ CREATE TABLE IF NOT EXISTS departments (
 );
 
 -- ============================================================
--- 21. DYNAMIC REPORT TYPES TABLE (Admin can add/remove)
+-- 21. USER DEPARTMENT ASSIGNMENTS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_departments (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    department_id INT NOT NULL,
+    is_primary SMALLINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 22. DYNAMIC REPORT TYPES TABLE (Admin can add/remove)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS dynamic_report_types (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -399,7 +412,8 @@ CREATE TABLE IF NOT EXISTS daily_report_data (
     id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
     attendance_date DATE NOT NULL,
-    subtype_id INT NOT NULL,
+    department_id INT NOT NULL,
+    subtype_id INT NULL,
     quantity INT,
     duration VARCHAR(50),
     description TEXT,
@@ -407,5 +421,22 @@ CREATE TABLE IF NOT EXISTS daily_report_data (
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
     FOREIGN KEY (subtype_id) REFERENCES dynamic_report_subtypes(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 27. WFH (WORK FROM HOME) REQUESTS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wfh_requests (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    attendance_date DATE NOT NULL,
+    reason VARCHAR(255),
+    status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    approved_by INT,
+    approved_at DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
 );

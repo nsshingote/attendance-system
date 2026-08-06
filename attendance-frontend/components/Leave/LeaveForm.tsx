@@ -247,6 +247,8 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
         </div>
       </div>
 
+      <p className="text-xs text-ink-500">Employees may apply for missed leave on past dates; those requests will be submitted as pending and require admin approval.</p>
+
       <div>
         <label className="mb-1.5 block text-sm font-medium text-ink-700">Reason</label>
         <textarea {...register("reason")} rows={3} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />

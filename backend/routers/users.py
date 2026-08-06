@@ -7,14 +7,22 @@ Employee & Admin accounts. Only SuperAdmin can create/manage Admin accounts.
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, hash_password, require_admin, require_superadmin
 from database import get_db
-from models import User, ActivityLog
-from schemas import UserCreate, UserUpdate, UserOut
+from models import User, ActivityLog, Department, UserDepartment
+from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut
 
 router = APIRouter()
+
+
+def _find_department_by_name(db: Session, department_name: Optional[str]) -> Optional[Department]:
+    if not department_name:
+        return None
+    normalized = department_name.strip().lower()
+    return db.query(Department).filter(func.lower(Department.name) == normalized, Department.is_active == 1).first()
 
 
 @router.get("/", response_model=List[UserOut])
@@ -29,8 +37,24 @@ def list_users(
     if search:
         like = f"%{search}%"
         query = query.filter((User.name.like(like)) | (User.email.like(like)) | (User.mobile.like(like)))
+
     if department:
-        query = query.filter(User.department == department)
+        # Accept either numeric department ID or an existing Department name.
+        dept_ids: list[int] = []
+        if department.isdigit():
+            dept_ids.append(int(department))
+        else:
+            department_obj = _find_department_by_name(db, department)
+            if department_obj:
+                dept_ids.append(department_obj.id)
+            else:
+                # No matching department name -> return empty result set
+                return []
+
+        query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
+            UserDepartment.department_id.in_(dept_ids)
+        ).distinct()
+
     if status_filter:
         query = query.filter(User.status == status_filter)
     return query.order_by(User.name).all()
@@ -84,6 +108,18 @@ def create_user(
     db.commit()
     db.refresh(new_user)
 
+    department_obj = _find_department_by_name(db, payload.department)
+    if department_obj:
+        assignment = UserDepartment(
+            user_id=new_user.id,
+            department_id=department_obj.id,
+            is_primary=1,
+        )
+        db.add(assignment)
+        new_user.department = department_obj.name
+        db.commit()
+        db.refresh(new_user)
+
     db.add(ActivityLog(user_id=current_user.id, activity=f"Created user '{new_user.name}'"))
     db.commit()
 
@@ -112,6 +148,46 @@ def update_user(
 
     db.commit()
     db.refresh(user)
+
+    if payload.department is not None:
+        department_obj = _find_department_by_name(db, payload.department)
+        assignments = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+
+        if department_obj:
+            matching_assignment = db.query(UserDepartment).filter(
+                UserDepartment.user_id == user_id,
+                UserDepartment.department_id == department_obj.id,
+            ).first()
+
+            if matching_assignment:
+                db.query(UserDepartment).filter(UserDepartment.user_id == user_id).update({"is_primary": 0})
+                matching_assignment.is_primary = 1
+                user.department = department_obj.name
+                db.commit()
+                db.refresh(user)
+            else:
+                if assignments:
+                    db.query(UserDepartment).filter(UserDepartment.user_id == user_id).update({"is_primary": 0})
+                assignment = UserDepartment(
+                    user_id=user.id,
+                    department_id=department_obj.id,
+                    is_primary=1,
+                )
+                db.add(assignment)
+                user.department = department_obj.name
+                db.commit()
+                db.refresh(user)
+        elif assignments:
+            primary_assignment = db.query(UserDepartment).filter(
+                UserDepartment.user_id == user_id,
+                UserDepartment.is_primary == 1
+            ).first()
+            if primary_assignment:
+                department_obj = db.query(Department).filter(Department.id == primary_assignment.department_id).first()
+                if department_obj:
+                    user.department = department_obj.name
+                    db.commit()
+                    db.refresh(user)
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated user '{user.name}'"))
     db.commit()
@@ -159,3 +235,169 @@ def reset_user_device(
     db.commit()
 
     return {"message": "Device reset. The user can register a new device on next login."}  
+
+
+@router.get("/{user_id}/departments", response_model=List[UserDepartmentOut])
+def list_user_departments(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    assignments = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+    return assignments
+
+
+@router.post("/{user_id}/departments", response_model=UserDepartmentOut, status_code=201)
+def assign_user_department(
+    user_id: int,
+    payload: UserDepartmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    department = db.query(Department).filter(Department.id == payload.department_id, Department.is_active == 1).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    existing = db.query(UserDepartment).filter(
+        UserDepartment.user_id == user_id,
+        UserDepartment.department_id == payload.department_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User already assigned to this department")
+
+    user_assignments = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+    if payload.is_primary or not user_assignments:
+        db.query(UserDepartment).filter(UserDepartment.user_id == user_id).update({"is_primary": 0})
+        is_primary = 1
+    else:
+        is_primary = 0
+
+    assignment = UserDepartment(
+        user_id=user_id,
+        department_id=payload.department_id,
+        is_primary=is_primary,
+    )
+    db.add(assignment)
+
+    if is_primary:
+        user.department = department.name
+
+    db.commit()
+    db.refresh(assignment)
+
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Assigned department '{department.name}' to user '{user.name}'"))
+    db.commit()
+
+    return assignment
+
+
+@router.put("/{user_id}/departments/primary", response_model=UserDepartmentOut)
+def set_primary_department(
+    user_id: int,
+    payload: UserDepartmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    assignment = db.query(UserDepartment).filter(
+        UserDepartment.user_id == user_id,
+        UserDepartment.department_id == payload.department_id,
+    ).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Department assignment not found for this user")
+
+    db.query(UserDepartment).filter(UserDepartment.user_id == user_id).update({"is_primary": 0})
+    assignment.is_primary = 1
+
+    user = db.query(User).filter(User.id == user_id).first()
+    department = db.query(Department).filter(Department.id == payload.department_id).first()
+    if user and department:
+        user.department = department.name
+
+    db.commit()
+    db.refresh(assignment)
+
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Set primary department '{department.name}' for user '{user.name}'"))
+    db.commit()
+
+    return assignment
+
+
+@router.delete("/{user_id}/departments/{assignment_id}")
+def remove_user_department(
+    user_id: int,
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    assignment = db.query(UserDepartment).filter(
+        UserDepartment.id == assignment_id,
+        UserDepartment.user_id == user_id,
+    ).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Department assignment not found")
+
+    remaining_count = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).count()
+    if remaining_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot remove the user's last department")
+
+    is_primary_removed = bool(assignment.is_primary)
+    db.delete(assignment)
+    db.commit()
+
+    remaining = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+    if not any(a.is_primary == 1 for a in remaining):
+        remaining[0].is_primary = 1
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            department = db.query(Department).filter(Department.id == remaining[0].department_id).first()
+            if department:
+                user.department = department.name
+        db.commit()
+
+    return {"message": "Department assignment removed successfully"}
+
+
+@router.delete("/{user_id}/permanent")
+def permanently_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_superadmin),
+):
+    """Permanently delete a user."""
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.role == "superadmin":
+        raise HTTPException(
+            status_code=403,
+            detail="Super Admin cannot be deleted"
+        )
+
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot delete your own account"
+        )
+
+    db.add(
+        ActivityLog(
+            user_id=current_user.id,
+            activity=f"Permanently deleted user '{user.name}'"
+        )
+    )
+
+    db.delete(user)
+    db.commit()
+
+    return {"message": f"User '{user.name}' permanently deleted"}

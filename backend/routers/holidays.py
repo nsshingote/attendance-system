@@ -18,6 +18,7 @@ from schemas import HolidayCreate, HolidayOut
 router = APIRouter()
 
 
+@router.get("", response_model=List[HolidayOut])
 @router.get("/", response_model=List[HolidayOut])
 def list_holidays(
     year: Optional[int] = None,

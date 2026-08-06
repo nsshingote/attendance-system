@@ -3,11 +3,12 @@ main.py
 FastAPI application entrypoint. Wires up CORS, static file serving, and all routers.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
 from database import Base, engine
@@ -53,14 +54,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://frontend:3000",
-        "http://172.18.0.1:3000",
-         settings.FRONTEND_ORIGIN,
-    ],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_origins=settings.FRONTEND_ORIGINS,
+    allow_origin_regex=(r"http://(localhost|127\.0\.0\.1):\d+" if settings.APP_ENV != "production" else None),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,32 +73,29 @@ app.add_middleware(
 # token) is something else entirely. This handler guarantees every error
 # response — no matter what raised it — carries the correct CORS headers,
 # so the browser shows the real status code and message instead.
-@app.exception_handler(StarletteHTTPException)
-async def cors_safe_http_exception_handler(request: Request, exc: StarletteHTTPException):
-    response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    origin = request.headers.get("origin")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
-
-
-
 # ---------------------------------------------------------
 # Global error handler (temporary debugging)
 # ---------------------------------------------------------
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # Log internal exception details server-side and return a generic message
+    try:
+        from utils.logger import logger
+        logger.exception("Unhandled exception: %s", exc)
+    except Exception:
+        pass
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)}
+        content={"detail": "Internal server error"}
     )
 
 
 # ---------------------------------------------------------
 # Static files (uploaded profile pics, correction attachments, etc.)
 # ---------------------------------------------------------
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+upload_dir = Path(settings.UPLOAD_DIR)
+upload_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 
 # ---------------------------------------------------------
 # Routers

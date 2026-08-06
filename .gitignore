@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.db
 .venv/
 venv/
 
@@ -23,3 +24,4 @@ out/
 # Temp files
 tmp_*
 *.tmp
+.git_status_diff.txt

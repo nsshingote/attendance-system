@@ -4,9 +4,10 @@ Pydantic models used for request validation and response serialization.
 """
 
 from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 from typing import Optional, List
 
-from pydantic import BaseModel, EmailStr, ConfigDict,field_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 
 
 # =========================================================
@@ -169,6 +170,7 @@ class LeaveRequestCreate(BaseModel):
 
 class LeaveDecision(BaseModel):
     status: str  # "Approved" or "Rejected"
+    leave_category: Optional[str] = None  # Optional category override when approving
 
 
 class LeaveCategoryOverride(BaseModel):
@@ -250,6 +252,35 @@ class HalfDayOut(ORMBase):
     requested_at: datetime
     approved_at: Optional[datetime] = None
 
+
+# =========================================================
+# Work From Home
+# =========================================================
+class WFHCreate(BaseModel):
+    attendance_date: date
+    reason: Optional[str] = None
+
+    @field_validator("attendance_date")
+    def validate_attendance_date(cls, value: date) -> date:
+        ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        if value < ist_today:
+            raise ValueError("attendance_date cannot be in the past")
+        return value
+
+
+class WFHDecision(BaseModel):
+    status: str  # "Approved" or "Rejected"
+
+
+class WFHOut(ORMBase):
+    id: int
+    user_id: int
+    attendance_date: date
+    reason: Optional[str] = None
+    status: str
+    approved_by: Optional[int] = None
+    requested_at: datetime
+    approved_at: Optional[datetime] = None
 
 # =========================================================
 # Holidays
@@ -388,6 +419,7 @@ class AdminDashboardStats(BaseModel):
     absent_today: int
     half_day_today: int
     late_today: int
+    wfh_today: int
     holiday_today: int
     pending_leave_requests: int
     pending_corrections: int
@@ -553,6 +585,23 @@ class DepartmentOut(ORMBase):
     created_at: datetime
 
 
+class UserDepartmentBase(BaseModel):
+    department_id: int
+    is_primary: bool = False
+
+
+class UserDepartmentCreate(UserDepartmentBase):
+    pass
+
+
+class UserDepartmentOut(ORMBase):
+    id: int
+    user_id: int
+    department_id: int
+    is_primary: bool
+    created_at: datetime
+
+
 # Dynamic Report Type Schemas
 class DynamicReportTypeBase(BaseModel):
     department_id: int
@@ -675,6 +724,7 @@ class UserDailyRowOut(ORMBase):
 class DailyReportDataBase(BaseModel):
     attendance_date: date
     subtype_id: Optional[int] = None
+    department_id: Optional[int] = None
     quantity: Optional[int] = None
     duration: Optional[str] = None
     description: Optional[str] = None
@@ -711,6 +761,32 @@ class DailyReportDataBase(BaseModel):
         except (ValueError, TypeError):
             return None
 
+    @field_validator('department_id', mode='before')
+    @classmethod
+    def validate_department_id(cls, v):
+        if v is None or v == "" or v == "null":
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError("Department ID must be a valid integer.")
+
+    @field_validator('duration', mode='before')
+    @classmethod
+    def validate_duration(cls, v):
+        if v is None or v == "" or v == "null":
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ValueError("Duration must be a valid number.")
+        try:
+            # Accept numeric values and numeric strings only
+            float(v)
+        except (ValueError, TypeError):
+            raise ValueError("Duration must be a valid number.")
+        return str(v)
+
 class DailyReportDataCreate(DailyReportDataBase):
     pass
 
@@ -719,6 +795,7 @@ class DailyReportDataOut(ORMBase):
     id: int
     user_id: int
     attendance_date: date
+    department_id: int
     subtype_id: Optional[int] = None
     quantity: Optional[int] = None
     duration: Optional[str] = None
@@ -742,6 +819,10 @@ class UserDailyReportResponse(BaseModel):
     date: date
     department_id: int
     department_name: str
-    default_rows: List[DailyReportDataOut]
-    custom_rows: List[DailyReportDataOut]
+    assigned_departments: List[dict] = []
+    default_subtype_ids: List[int] = []
+    custom_subtype_ids: List[int] = []
+    custom_rows: List[UserDailyRowOut] = []
+    report_data: List[DailyReportDataOut] = []
+    all_subtypes: List[DynamicReportSubtypeOut] = []
     all_subtypes: List[DynamicReportSubtypeOut]

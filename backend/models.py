@@ -5,7 +5,7 @@ SQLAlchemy ORM models — one class per table, matching database/schema.sql exac
 
 from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Time, TIMESTAMP,
-    ForeignKey, Enum, SmallInteger, func, Boolean, DECIMAL
+    ForeignKey, Enum, SmallInteger, func, Boolean, DECIMAL, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 
@@ -43,6 +43,23 @@ class User(Base):
     leave_requests = relationship("LeaveRequest", back_populates="user", foreign_keys="LeaveRequest.user_id")
     activity_logs = relationship("ActivityLog", back_populates="user")
     daily_reports = relationship("DailyReport", back_populates="user", foreign_keys="DailyReport.user_id")
+    departments = relationship("UserDepartment", back_populates="user", foreign_keys="UserDepartment.user_id")
+
+
+class UserDepartment(Base):
+    __tablename__ = "user_departments"
+    __table_args__ = (
+        UniqueConstraint("user_id", "department_id", name="uq_user_department"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    is_primary = Column(SmallInteger, default=0)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="departments", foreign_keys=[user_id])
+    department = relationship("Department", foreign_keys=[department_id])
 
 
 class Attendance(Base):
@@ -231,6 +248,20 @@ class HalfDayRequest(Base):
     user = relationship("User", foreign_keys=[user_id])
     approver = relationship("User", foreign_keys=[approved_by])
 
+class WFHRequest(Base):
+    __tablename__ = "wfh_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    reason = Column(String(255), nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="wfh_status"), default="Pending")
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    approver = relationship("User", foreign_keys=[approved_by])
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
@@ -414,10 +445,14 @@ class UserDailyRow(Base):
 class DailyReportData(Base):
     """Actual report data values per day"""
     __tablename__ = "daily_report_data"
+    __table_args__ = (
+        UniqueConstraint("user_id", "attendance_date", "department_id", "subtype_id", name="uq_daily_report_data"),
+    )
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     attendance_date = Column(Date, nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
     subtype_id = Column(Integer, ForeignKey("dynamic_report_subtypes.id"), nullable=True)
     quantity = Column(Integer, nullable=True)
     duration = Column(String(50), nullable=True)
@@ -427,4 +462,5 @@ class DailyReportData(Base):
     updated_at = Column(DateTime, nullable=True)
 
     user = relationship("User", foreign_keys=[user_id])
+    department = relationship("Department", foreign_keys=[department_id])
     subtype = relationship("DynamicReportSubtype", foreign_keys=[subtype_id])

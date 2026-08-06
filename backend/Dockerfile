@@ -1,23 +1,22 @@
-# Step 1: Base image - Python 3.12
-FROM python:3.12
+FROM python:3.12-slim
 
-# Step 2: Set working directory inside container
 WORKDIR /app
 
-# Step 3: Copy requirements file first (for better caching)
-COPY requirements.txt .
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
 
-# Step 4: Install Python dependencies
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Step 5: Copy the rest of the application code
-COPY . .
+COPY . ./
 
-# Step 6: Create uploads folder
-RUN mkdir -p uploads
+RUN addgroup --system app && adduser --system --ingroup app app \
+    && mkdir -p uploads \
+    && chown -R app:app /app
 
-# Step 7: Expose port 8000
+USER app
+
 EXPOSE 8000
 
-# Step 8: Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} main:app"]

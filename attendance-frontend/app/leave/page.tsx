@@ -26,6 +26,7 @@ import LeaveTable, { LeaveRow } from "@/components/Leave/LeaveTable";
 import LeaveSummary from "@/components/Leave/LeaveSummary";
 import LeaveEncashment from "@/components/Leave/LeaveEncashment";
 import HalfDayForm from "@/components/Attendance/HalfDayForm";
+import WFHForm from "@/components/Attendance/WFHForm";
 import MonthSelector from "@/components/Calendar/MonthSelector";
 
 interface LeaveBalance {
@@ -57,6 +58,16 @@ interface HalfDayRequestRow {
   requested_at: string;
 }
 
+interface WFHRequestRow {
+  id: number;
+  user_id: number;
+  user_name?: string;
+  attendance_date: string;
+  reason: string | null;
+  status: string;
+  requested_at: string;
+}
+
 interface UserOption {
   id: number;
   name: string;
@@ -66,7 +77,7 @@ interface UserOption {
 // in one "My Requests" table with a Type column.
 interface UnifiedRequestRow {
   id: number;
-  type: "Leave" | "Half Day";
+  type: "Leave" | "Half Day" | "WFH";
   from_date: string;
   to_date: string;
   detail: string; // leave_category, or slot label for half day
@@ -74,7 +85,7 @@ interface UnifiedRequestRow {
   status: string;
 }
 
-type Tab = "mine" | "all" | "halfday" | "encashment";
+type Tab = "mine" | "all" | "halfday" | "wfh" | "encashment";
 
 const SLOT_LABELS: Record<string, string> = {
   morning: "Morning (10:00 AM - 2:30 PM)",
@@ -95,9 +106,11 @@ export default function LeavePage() {
 
   const [myRequests, setMyRequests] = useState<LeaveRow[]>([]);
   const [myHalfDayRequests, setMyHalfDayRequests] = useState<HalfDayRequestRow[]>([]);
+  const [myWfhRequests, setMyWfhRequests] = useState<WFHRequestRow[]>([]);
   const [myEncashmentRequests, setMyEncashmentRequests] = useState<EncashmentRequest[]>([]);
   const [allRequests, setAllRequests] = useState<LeaveRow[]>([]);
   const [halfDayRequests, setHalfDayRequests] = useState<HalfDayRequestRow[]>([]);
+  const [wfhRequests, setWfhRequests] = useState<WFHRequestRow[]>([]);
   const [encashmentRequests, setEncashmentRequests] = useState<EncashmentRequest[]>([]);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +118,7 @@ export default function LeavePage() {
   const [categoryModalLeaveId, setCategoryModalLeaveId] = useState<number | null>(null);
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
-  const [newRequestType, setNewRequestType] = useState<"leave" | "halfday">("leave");
+  const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
 
   // Fetch users for admin dropdown
   useEffect(() => {
@@ -118,63 +131,71 @@ export default function LeavePage() {
   }, [admin]);
 
   const fetchAll = useCallback(async () => {
-  if (!session) return;
-  setLoading(true);
-  try {
-    const params: any = { year, month };
-    if (selectedDate) params.date_value = selectedDate;
+    if (!session) return;
+    setLoading(true);
+    try {
+      const params: any = { year, month };
+      if (selectedDate) params.date_value = selectedDate;
 
-    if (admin && selectedUserId) {
-      // Admin viewing a specific user - get ALL their requests with month filter
-      const [leaveRes, balanceRes, halfDayRes, encashmentRes] = await Promise.all([
-        api.get<LeaveRow[]>(`/leave/user/${selectedUserId}`, { params }),
-        api.get<LeaveBalance>(`/leave/balance/${selectedUserId}`),
-        api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${selectedUserId}`, { params }),
-        api.get<EncashmentRequest[]>(`/leave/encash/user/${selectedUserId}`).catch(() => ({ data: [] })),
-      ]);
+      if (admin && selectedUserId) {
+        // Admin viewing a specific user - get ALL their requests with month filter
+        const [leaveRes, balanceRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
+          api.get<LeaveRow[]>(`/leave/user/${selectedUserId}`, { params }),
+          api.get<LeaveBalance>(`/leave/balance/${selectedUserId}`),
+          api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${selectedUserId}`, { params }),
+          api.get<EncashmentRequest[]>(`/leave/encash/user/${selectedUserId}`).catch(() => ({ data: [] })),
+          api.get<WFHRequestRow[]>(`/attendance/wfh/user/${selectedUserId}`, { params }).catch(() => ({ data: [] })),
+        ]);
 
-      setMyRequests(leaveRes.data || []);
-      setBalance(balanceRes.data || null);
-      setMyHalfDayRequests(halfDayRes.data || []);
-      setMyEncashmentRequests(encashmentRes.data || []);
-      setAllRequests([]);
-      setHalfDayRequests([]);
-      setEncashmentRequests([]);
-    } else if (admin) {
-      // Admin viewing all employees - show approval tabs with month filter
-      const [allLeaveRes, halfDayRes, encashmentRes] = await Promise.all([
-        api.get<LeaveRow[]>("/leave/", { params }),
-        api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
-        api.get<EncashmentRequest[]>("/leave/encashment-requests", { params: { status_filter: "Pending" } }),
-      ]);
-      
-      setAllRequests(allLeaveRes.data || []);
-      setHalfDayRequests(halfDayRes.data || []);
-      setEncashmentRequests(encashmentRes.data || []);
-      setMyRequests([]);
-      setBalance(null);
-      setMyHalfDayRequests([]);
-      setMyEncashmentRequests([]);
-    } else {
-      // Employee view - only their own with month filter
-      const [leaveRes, balanceRes, halfDayRes, encashmentRes] = await Promise.all([
-        api.get<LeaveRow[]>("/leave/me", { params }),
-        api.get<LeaveBalance>(`/leave/balance/${session.userId}`),
-        api.get<HalfDayRequestRow[]>("/attendance/half-day-requests/me", { params }),
-        api.get<EncashmentRequest[]>("/leave/encashment-requests/me", { params }).catch(() => ({ data: [] })),
-      ]);
-      
-      setMyRequests(leaveRes.data || []);
-      setBalance(balanceRes.data || null);
-      setMyHalfDayRequests(halfDayRes.data || []);
-      setMyEncashmentRequests(encashmentRes.data || []);
+        setMyRequests(leaveRes.data || []);
+        setBalance(balanceRes.data || null);
+        setMyHalfDayRequests(halfDayRes.data || []);
+        setMyEncashmentRequests(encashmentRes.data || []);
+        setMyWfhRequests(wfhRes.data || []);
+        setAllRequests([]);
+        setHalfDayRequests([]);
+        setEncashmentRequests([]);
+        setWfhRequests([]);
+      } else if (admin) {
+        // Admin viewing all employees - show approval tabs with month filter
+        const [allLeaveRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
+          api.get<LeaveRow[]>("/leave/", { params }),
+          api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
+          api.get<EncashmentRequest[]>("/leave/encashment-requests", { params: { status_filter: "Pending" } }),
+          api.get<WFHRequestRow[]>("/attendance/wfh", { params }).catch(() => ({ data: [] })),
+        ]);
+
+        setAllRequests(allLeaveRes.data || []);
+        setHalfDayRequests(halfDayRes.data || []);
+        setEncashmentRequests(encashmentRes.data || []);
+        setWfhRequests(wfhRes.data || []);
+        setMyRequests([]);
+        setBalance(null);
+        setMyHalfDayRequests([]);
+        setMyEncashmentRequests([]);
+        setMyWfhRequests([]);
+      } else {
+        // Employee view - only their own with month filter
+        const [leaveRes, balanceRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
+          api.get<LeaveRow[]>("/leave/me", { params }),
+          api.get<LeaveBalance>(`/leave/balance/${session.userId}`),
+          api.get<HalfDayRequestRow[]>("/attendance/half-day-requests/me", { params }),
+          api.get<EncashmentRequest[]>("/leave/encashment-requests/me", { params }).catch(() => ({ data: [] })),
+          api.get<WFHRequestRow[]>("/attendance/wfh/me", { params }).catch(() => ({ data: [] })),
+        ]);
+
+        setMyRequests(leaveRes.data || []);
+        setBalance(balanceRes.data || null);
+        setMyHalfDayRequests(halfDayRes.data || []);
+        setMyEncashmentRequests(encashmentRes.data || []);
+        setMyWfhRequests(wfhRes.data || []);
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    toast.error(getErrorMessage(error));
-  } finally {
-    setLoading(false);
-  }
- }, [session?.userId, admin, selectedUserId, year, month, selectedDate]);
+  }, [session?.userId, admin, selectedUserId, year, month, selectedDate]);
 
   useEffect(() => {
     fetchAll();
@@ -227,7 +248,17 @@ export default function LeavePage() {
     }
   };
 
-  // Merge my leave + half-day requests into one unified list
+  const handleDecideWfh = async (id: number, status: "Approved" | "Rejected") => {
+    try {
+      await api.put(`/attendance/wfh/${id}`, { status });
+      toast.success(`WFH request ${status.toLowerCase()}`);
+      fetchAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  // Merge my leave + half-day + WFH requests into one unified list
   const unifiedMyRequests: UnifiedRequestRow[] = [
     ...myRequests.map((r) => ({
       id: r.id,
@@ -244,6 +275,15 @@ export default function LeavePage() {
       from_date: r.attendance_date,
       to_date: r.attendance_date,
       detail: SLOT_LABELS[r.slot] ?? r.slot,
+      reason: r.reason,
+      status: r.status,
+    })),
+    ...myWfhRequests.map((r) => ({
+      id: r.id,
+      type: "WFH" as const,
+      from_date: r.attendance_date,
+      to_date: r.attendance_date,
+      detail: "Work From Home",
       reason: r.reason,
       status: r.status,
     })),
@@ -319,7 +359,10 @@ export default function LeavePage() {
             />
             {(isEmployee || isViewingSpecificUser) && (
               <button
-                onClick={() => setNewRequestOpen(true)}
+                onClick={() => {
+                  setNewRequestType("leave");
+                  setNewRequestOpen(true);
+                }}
                 className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
               >
                 <Plus size={16} />
@@ -344,10 +387,10 @@ export default function LeavePage() {
             {/* Show balance for employees or admin viewing specific user */}
             {(isEmployee || isViewingSpecificUser) && balance && (
               <LeaveSummary
-               paidLeaveAvailableThisMonth={balance.paid_leave_available_this_month}
-               carriedLeave={balance.carried_leave}
-               leaveEncashed={balance.leave_encashed}
-               totalLeaveBalance={balance.total_leave_balance}
+                paidLeaveAvailableThisMonth={balance.paid_leave_available_this_month}
+                carriedLeave={balance.carried_leave}
+                leaveEncashed={balance.leave_encashed}
+                totalLeaveBalance={balance.total_leave_balance}
               />
             )}
             {/* Show encashment for employees or admin viewing specific user */}
@@ -394,6 +437,17 @@ export default function LeavePage() {
                     )}
                   </button>
                   <button
+                    onClick={() => setTab("wfh")}
+                    className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "wfh" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+                  >
+                    WFH Requests
+                    {wfhRequests.filter(r => r.status === "Pending").length > 0 && (
+                      <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
+                        {wfhRequests.filter(r => r.status === "Pending").length}
+                      </span>
+                    )}
+                  </button>
+                  <button
                     onClick={() => setTab("encashment")}
                     className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "encashment" ? "bg-brand-500 text-white" : "text-ink-600"}`}
                   >
@@ -417,7 +471,7 @@ export default function LeavePage() {
                   </div>
                 ) : (
                   <>
-                    {/* Leave and Half Day Requests table */}
+                    {/* Leave, Half Day, and WFH Requests table */}
                     {unifiedMyRequests.length > 0 && (
                       <table className="w-full text-left text-sm">
                         <thead>
@@ -437,7 +491,9 @@ export default function LeavePage() {
                                   className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
                                     r.type === "Leave"
                                       ? "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200"
-                                      : "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200"
+                                      : r.type === "Half Day"
+                                      ? "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200"
+                                      : "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200"
                                   }`}
                                 >
                                   {r.type}
@@ -565,6 +621,65 @@ export default function LeavePage() {
               </div>
             )}
 
+            {/* WFH Requests tab - only for admin viewing all employees */}
+            {isViewingAllEmployees && tab === "wfh" && (
+              <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
+                {wfhRequests.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <p className="text-sm text-ink-500">No WFH requests found.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                        <th className="px-4 py-3 font-medium">Employee</th>
+                        <th className="px-4 py-3 font-medium">Date</th>
+                        <th className="px-4 py-3 font-medium">Reason</th>
+                        <th className="px-4 py-3 font-medium">Status</th>
+                        <th className="px-4 py-3 font-medium text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ink-100">
+                      {wfhRequests.map((r) => (
+                        <tr key={r.id} className="hover:bg-ink-50/60">
+                          <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
+                          <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
+                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                            {r.reason ?? "—"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge status={r.status} />
+                          </td>
+                          <td className="px-4 py-3">
+                            {r.status === "Pending" ? (
+                              <div className="flex justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleDecideWfh(r.id, "Approved")}
+                                  className="rounded-md bg-green-50 p-1.5 text-green-700 hover:bg-green-100"
+                                  aria-label="Approve"
+                                >
+                                  <Check size={15} />
+                                </button>
+                                <button
+                                  onClick={() => handleDecideWfh(r.id, "Rejected")}
+                                  className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
+                                  aria-label="Reject"
+                                >
+                                  <X size={15} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-ink-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
             {/* Encashment Requests tab - only for admin viewing all employees */}
             {isViewingAllEmployees && tab === "encashment" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
@@ -635,6 +750,12 @@ export default function LeavePage() {
           >
             Half Day
           </button>
+          <button
+            onClick={() => setNewRequestType("wfh")}
+            className={`flex-1 rounded-md px-3.5 py-1.5 font-medium ${newRequestType === "wfh" ? "bg-white shadow-sm text-ink-900" : "text-ink-500"}`}
+          >
+            WFH
+          </button>
         </div>
 
         {newRequestType === "leave" ? (
@@ -645,8 +766,16 @@ export default function LeavePage() {
             }}
             onCancel={() => setNewRequestOpen(false)}
           />
-        ) : (
+        ) : newRequestType === "halfday" ? (
           <HalfDayForm
+            onSuccess={() => {
+              setNewRequestOpen(false);
+              fetchAll();
+            }}
+            onCancel={() => setNewRequestOpen(false)}
+          />
+        ) : (
+          <WFHForm
             onSuccess={() => {
               setNewRequestOpen(false);
               fetchAll();

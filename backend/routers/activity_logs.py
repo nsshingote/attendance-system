@@ -14,6 +14,7 @@ from auth import require_admin
 from database import get_db
 from models import ActivityLog, User
 from schemas import ActivityLogOut
+from utils.date_helpers import iso_with_offset
 
 router = APIRouter()
 
@@ -28,4 +29,13 @@ def list_activity_logs(
     query = db.query(ActivityLog)
     if user_id:
         query = query.filter(ActivityLog.user_id == user_id)
-    return query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 500)).all()
+    logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 500)).all()
+    return [
+        {
+            "id": log.id,
+            "user_id": log.user_id,
+            "activity": log.activity,
+            "created_at": iso_with_offset(log.created_at),
+        }
+        for log in logs
+    ]

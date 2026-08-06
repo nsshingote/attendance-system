@@ -84,6 +84,16 @@ def send_correction_decision_notification(to_email: str, employee_name: str, sta
     return send_email([to_email], subject, body)
 
 
+def send_wfh_decision_notification(to_email: str, employee_name: str, status: str, attendance_date, reason: str | None = None):
+    subject = f"Your WFH request for {attendance_date} has been {status}"
+    body = f"""
+    <p>Hi {employee_name},</p>
+    <p>Your WFH request for <b>{attendance_date}</b> has been <b>{status}</b>.</p>
+    <p><b>Reason:</b> {reason or 'No reason provided'}</p>
+    """
+    return send_email([to_email], subject, body)
+
+
 def send_password_reset_email(to_email: str, reset_link: str):
     subject = "Password Reset Request"
     body = f"""

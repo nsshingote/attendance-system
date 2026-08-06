@@ -19,12 +19,11 @@ export interface CorrectionRow {
   attendance_id: number;
   requested_by: number;
   requester_name?: string;
+  reason?: string | null;
   old_check_in: string | null;
   new_check_in: string | null;
-  checkin_reason: string | null;
   old_check_out: string | null;
   new_check_out: string | null;
-  checkout_reason: string | null;
   status: string;
   created_at: string;
 }
@@ -68,6 +67,7 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
             {canDecide && <th className="px-4 py-3 font-medium">Employee</th>}
             <th className="px-4 py-3 font-medium">Check-In Change</th>
             <th className="px-4 py-3 font-medium">Check-Out Change</th>
+            <th className="px-4 py-3 font-medium">Correction Reason</th>
             <th className="px-4 py-3 font-medium">Status</th>
             {canDecide && <th className="px-4 py-3 font-medium text-right">Actions</th>}
           </tr>
@@ -88,11 +88,6 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
                       {" → "}
                       <span className="font-semibold text-ink-900">{formatISTDateTime(c.new_check_in)}</span>
                     </p>
-                    {c.checkin_reason && (
-                      <p className="italic text-ink-400" title={c.checkin_reason}>
-                        {c.checkin_reason}
-                      </p>
-                    )}
                   </div>
                 ) : (
                   "—"
@@ -106,15 +101,13 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
                       {" → "}
                       <span className="font-semibold text-ink-900">{formatISTDateTime(c.new_check_out)}</span>
                     </p>
-                    {c.checkout_reason && (
-                      <p className="italic text-ink-400" title={c.checkout_reason}>
-                        {c.checkout_reason}
-                      </p>
-                    )}
                   </div>
                 ) : (
                   "—"
                 )}
+              </td>
+              <td className="px-4 py-3 max-w-240px truncate text-xs text-ink-600">
+                {c.reason ?? "—"}
               </td>
               <td className="px-4 py-3">
                 <Badge status={c.status} />
