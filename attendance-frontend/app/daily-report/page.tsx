@@ -19,10 +19,11 @@ export default function DailyReportPage() {
   const session = getSession();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const isExemptUser = isSuperAdmin(session?.role);
 
   // Check if user is SuperAdmin (exempt from reports)
   useEffect(() => {
-    if (isSuperAdmin(session?.role)) {
+    if (isExemptUser) {
       toast.custom((t) => (
         <div
           className={`${
@@ -56,7 +57,7 @@ export default function DailyReportPage() {
       return;
     }
     setLoading(false);
-  }, [session, router]);
+  }, [isExemptUser, router]);
 
   const handleSuccess = () => {
     toast.success("Report submitted successfully!");
@@ -83,9 +84,11 @@ export default function DailyReportPage() {
           <p className="text-sm text-ink-500">
             Please submit your daily report before checking out.
           </p>
-          <p className="text-xs text-ink-400 mt-1">
-            * SuperAdmin is exempt from submitting daily reports.
-          </p>
+          {isExemptUser && (
+            <p className="text-xs text-ink-400 mt-1">
+              * SuperAdmin is exempt from submitting daily reports.
+            </p>
+          )}
         </div>
 
         <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">

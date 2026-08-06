@@ -109,7 +109,16 @@ export default function ReportsPage() {
         toast.error("No data to export");
         return;
       }
-      const worksheet = XLSX.utils.json_to_sheet(leaveSummary);
+      const rows = leaveSummary.map((r) => ({
+        Name: r.name,
+        Department: r.department,
+        "Paid Leave": r.used_leave,
+        "Unpaid Leave": 0,
+        "Carried Leave": r.carried_leave,
+        Encashed: r.leave_encashed,
+        Remaining: r.remaining_leave,
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Leave");
       XLSX.writeFile(workbook, `leave_report_${year}_${month}.xlsx`);
@@ -144,8 +153,8 @@ export default function ReportsPage() {
     } else {
       autoTable(doc, {
         startY: 22,
-        head: [["Name", "Department", "Carried", "Used", "Encashed", "Remaining"]],
-        body: leaveSummary.map((r) => [r.name, r.department, r.carried_leave, r.used_leave, r.leave_encashed, r.remaining_leave]),
+        head: [["Name", "Department", "Paid Leave", "Unpaid Leave", "Carried Leave", "Encashed", "Remaining"]],
+        body: leaveSummary.map((r) => [r.name, r.department, r.used_leave, 0, r.carried_leave, r.leave_encashed, r.remaining_leave]),
         styles: { fontSize: 9 },
         headStyles: { fillColor: [79, 70, 229] },
       });
@@ -217,7 +226,6 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">Half Day</th>
                   <th className="px-4 py-3 font-medium">Late</th>
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
-                  <th className="px-4 py-3 font-medium">Carried Used</th>
                   <th className="px-4 py-3 font-medium">LWP</th>
                   <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
                   <th className="px-4 py-3 font-medium">Encashed</th>
@@ -232,7 +240,6 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r["Half Day"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Late}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
-                    <td className="px-4 py-3 text-ink-700">{r["Carried Leave Used"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Encashed}</td>
@@ -248,8 +255,9 @@ export default function ReportsPage() {
                 <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
                   <th className="px-4 py-3 font-medium">Department</th>
-                  <th className="px-4 py-3 font-medium">Carried</th>
-                  <th className="px-4 py-3 font-medium">Used</th>
+                  <th className="px-4 py-3 font-medium">Paid Leave</th>
+                  <th className="px-4 py-3 font-medium">Unpaid Leave</th>
+                  <th className="px-4 py-3 font-medium">Carried Leave</th>
                   <th className="px-4 py-3 font-medium">Encashed</th>
                   <th className="px-4 py-3 font-medium">Remaining</th>
                 </tr>
@@ -259,8 +267,9 @@ export default function ReportsPage() {
                   <tr key={r.user_id} className="hover:bg-ink-50/60">
                     <td className="px-4 py-3 font-medium text-ink-900">{r.name}</td>
                     <td className="px-4 py-3 text-ink-700">{r.department}</td>
-                    <td className="px-4 py-3 text-ink-700">{r.carried_leave}</td>
                     <td className="px-4 py-3 text-ink-700">{r.used_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">0</td>
+                    <td className="px-4 py-3 text-ink-700">{r.carried_leave}</td>
                     <td className="px-4 py-3 text-ink-700">{r.leave_encashed}</td>
                     <td className="px-4 py-3 font-medium text-ink-900">{r.remaining_leave}</td>
                   </tr>
