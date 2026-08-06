@@ -452,7 +452,8 @@ class DailyReportData(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     attendance_date = Column(Date, nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    # Preserve submitted history when an obsolete department is removed.
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
     department_name = Column(String(100), nullable=True)
     subtype_id = Column(Integer, ForeignKey("dynamic_report_subtypes.id"), nullable=True)
     quantity = Column(Integer, nullable=True)

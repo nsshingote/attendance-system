@@ -252,6 +252,7 @@ export default function ReportStructurePage() {
 
           {selectedDept && (
             <>
+              <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h3 className="text-sm font-medium text-ink-700">
@@ -308,8 +309,18 @@ export default function ReportStructurePage() {
                   })}
                 </div>
               )}
+              <div className="mt-6 flex justify-end">
+                <button onClick={saveDefaults} className="min-h-11 rounded-lg bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-600">
+                  Save Defaults
+                </button>
+              </div>
+              </section>
 
-              <div className="space-y-4">
+              <section className="mt-6 space-y-4 rounded-xl border border-red-200 bg-white p-5 shadow-card">
+                <div>
+                  <h3 className="text-base font-semibold text-ink-900">Delete Department</h3>
+                  <p className="mt-1 text-sm text-ink-600">Reassign users and future report setup first. Historical reports are preserved.</p>
+                </div>
                 {assignmentCount !== null && (
                   <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900">
                     <p className="font-medium">This department has {assignmentCount} assigned user{assignmentCount === 1 ? "" : "s"}.</p>
@@ -396,19 +407,7 @@ export default function ReportStructurePage() {
                     Delete Department
                   </button>
                 </div>
-              </div>
-
-              <div className="mt-6 flex justify-between flex-wrap gap-2">
-                <div className="text-xs text-ink-500">
-                  Tip: Admins can add new types and subtypes for a department, then choose which subtypes become default rows.
-                </div>
-                <button
-                  onClick={saveDefaults}
-                  className="rounded-lg bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
-                >
-                  Save Defaults
-                </button>
-              </div>
+              </section>
             </>
           )}
         </div>

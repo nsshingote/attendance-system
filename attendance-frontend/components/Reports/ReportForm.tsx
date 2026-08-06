@@ -74,6 +74,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   const [historyDate, setHistoryDate] = useState<string>("");
   const [pastRequestDate, setPastRequestDate] = useState("");
   const [pastRequestReason, setPastRequestReason] = useState("");
+  const [approvedPastDates, setApprovedPastDates] = useState<{ id: number; attendance_date: string }[]>([]);
   
   const [departments, setDepartments] = useState<any[]>([]);
   const [assignedDepartments, setAssignedDepartments] = useState<any[]>([]);
@@ -402,6 +403,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
         toast.success("Report submitted successfully!");
         setPlainDescription("");
+        await completeApprovedPastDate();
         await loadHistory();
         onSuccess();
       } catch (error) {
@@ -460,6 +462,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       });
       setReportData(clearedData);
 
+      await completeApprovedPastDate();
       await loadHistory();
       onSuccess();
     } catch (error) {
@@ -487,6 +490,30 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     }
   };
 
+  const openApprovedPastReport = (attendanceDate: string) => {
+    setSelectedDate(attendanceDate);
+    setShowHistory(false);
+    setPlainDescription("");
+    setReportData({});
+  };
+
+  const completeApprovedPastDate = async () => {
+    if (selectedDate >= getLocalDateString()) return;
+    const approved = approvedPastDates.find((item) => item.attendance_date === selectedDate);
+    if (!approved) return;
+    await api.post(`/reports/past-submission-requests/${approved.id}/complete`);
+    await loadApprovedPastDates();
+  };
+
+  const loadApprovedPastDates = async () => {
+    try {
+      const res = await api.get("/reports/past-submission-requests/mine/approved");
+      setApprovedPastDates(res.data || []);
+    } catch (error) {
+      console.error("Failed to load approved past report dates:", error);
+    }
+  };
+
   const renderPastReportRequestCard = () => (
     <section className="relative z-10 rounded-xl border border-brand-100 bg-brand-50/50 p-4 sm:p-5">
       <div className="mb-4">
@@ -508,6 +535,20 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       </div>
     </section>
   );
+
+  const renderApprovedPastDates = () => approvedPastDates.length > 0 ? (
+    <section className="rounded-xl border border-green-200 bg-green-50 p-4 sm:p-5">
+      <h3 className="text-base font-semibold text-green-900">Approved Past Report Dates</h3>
+      <p className="mt-1 text-sm text-green-800">Select an approved date to complete and submit its report.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {approvedPastDates.map((item) => (
+          <button key={item.id} type="button" onClick={() => openApprovedPastReport(item.attendance_date)} className="min-h-11 rounded-lg border border-green-300 bg-white px-4 py-2 text-sm font-semibold text-green-800 hover:bg-green-100">
+            {new Date(`${item.attendance_date}T00:00:00`).toLocaleDateString()}
+          </button>
+        ))}
+      </div>
+    </section>
+  ) : null;
 
   // ============================================================
   // RENDER ROW (table row)
@@ -799,6 +840,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   useEffect(() => {
     loadAllData();
+    loadApprovedPastDates();
   }, []);
 
   // ============================================================
@@ -851,6 +893,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   if (!hasDynamicStructure) {
     return (
       <div className="space-y-5">
+        {renderApprovedPastDates()}
         <div className="flex justify-end">
           <button
             onClick={() => setShowHistory(true)}
@@ -893,6 +936,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   return (
     <div className="space-y-5">
+      {renderApprovedPastDates()}
       <div className="flex justify-end">
         <button
           onClick={() => setShowHistory(true)}

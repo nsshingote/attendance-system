@@ -32,7 +32,7 @@ interface ReportRow {
   id: number;
   user_id: number;
   user_name: string;
-  user_department: string;
+  department_name: string;
   attendance_date: string;
   department_id: number;
   type_id: number | null;
@@ -51,7 +51,7 @@ interface ReportGroup {
   key: string;
   user_id: number;
   user_name: string;
-  user_department: string;
+  department_name: string;
   attendance_date: string;
   status: string;
   activities: ReportRow[];
@@ -133,7 +133,7 @@ export default function AdminReportsPage() {
           key,
           user_id: report.user_id,
           user_name: report.user_name,
-          user_department: report.user_department,
+          department_name: report.department_name,
           attendance_date: report.attendance_date,
           status: report.status,
           activities: [report],
@@ -213,7 +213,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
   const exportRows = reports.flatMap((group) =>
     group.activities.map((activity) => ({
       Employee: group.user_name,
-      Department: group.user_department,
+      Department: group.department_name,
       Date: format(parseISO(group.attendance_date), "dd MMM yyyy"),
       Type: activity.type_name || "",
       Subtype: activity.subtype_name || "",
@@ -372,7 +372,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
                       <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
                         {index === 0 && <>
                           <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top font-medium text-ink-900 whitespace-nowrap">{group.user_name}</td>
-                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.user_department}</td>
+                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
                           <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
                         </>}
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.type_name || "—"}</td>

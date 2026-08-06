@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS dynamic_report_types (
     is_active SMALLINT DEFAULT 1,
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -412,7 +412,7 @@ CREATE TABLE IF NOT EXISTS daily_report_data (
     id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
     attendance_date DATE NOT NULL,
-    department_id INT NOT NULL,
+    department_id INT NULL,
     department_name VARCHAR(100) NULL,
     subtype_id INT NULL,
     quantity INT,
@@ -422,7 +422,7 @@ CREATE TABLE IF NOT EXISTS daily_report_data (
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
     FOREIGN KEY (subtype_id) REFERENCES dynamic_report_subtypes(id) ON DELETE CASCADE
 );
 

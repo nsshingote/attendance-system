@@ -120,7 +120,7 @@ def get_all_reports_for_date(db: Session, user_id: int, target_date: date) -> st
     # only as a display/cached field and not used for business decisions.
     formatted_reports = []
     for report in reports:
-        dept = db.query(Department).filter(Department.id == report.department_id).first()
+        dept = db.query(Department).filter(Department.id == report.department_id).first() if report.department_id else None
         if dept and dept.name in ["HR", "IT"]:
             formatted_reports.append(report.description or "No description")
             continue
@@ -568,7 +568,9 @@ def get_all_reports(
             "user_id": report.user_id,
             "user_name": user.name if user else "Unknown",
             "department_id": report.department_id,
-            "user_department": user.department if user else "Unknown",
+            # This is the department at submission time, never the user's
+            # current assignment.
+            "department_name": report.department_name or (dept.name if dept else ""),
             "attendance_date": report.attendance_date.isoformat(),
             "type_name": report_type.name if report_type else None,
             "subtype_name": subtype.name if subtype else None,
@@ -936,7 +938,7 @@ def get_report_history(
     
     result = []
     for report in reports:
-        department = db.query(Department).filter(Department.id == report.department_id).first()
+        department = db.query(Department).filter(Department.id == report.department_id).first() if report.department_id else None
         subtype = db.query(DynamicReportSubtype).filter(DynamicReportSubtype.id == report.subtype_id).first()
         report_type = db.query(DynamicReportType).filter(DynamicReportType.id == subtype.type_id).first() if subtype else None
         result.append({
@@ -999,6 +1001,39 @@ def list_past_report_submission_requests(
 ):
     rows = db.query(PastReportSubmissionRequest).order_by(PastReportSubmissionRequest.requested_at.desc()).all()
     return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]
+
+
+@router.get("/past-submission-requests/mine/approved")
+def list_my_approved_past_report_dates(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    rows = db.query(PastReportSubmissionRequest).filter(
+        PastReportSubmissionRequest.user_id == current_user.id,
+        PastReportSubmissionRequest.status == "Approved",
+    ).order_by(PastReportSubmissionRequest.attendance_date.asc()).all()
+    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat()} for row in rows]
+
+
+@router.post("/past-submission-requests/{request_id}/complete")
+def complete_past_report_submission(
+    request_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    request = db.query(PastReportSubmissionRequest).filter(
+        PastReportSubmissionRequest.id == request_id,
+        PastReportSubmissionRequest.user_id == current_user.id,
+        PastReportSubmissionRequest.status == "Approved",
+    ).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Approved past report request not found")
+    submitted = db.query(DailyReportData).filter(
+        DailyReportData.user_id == current_user.id,
+        DailyReportData.attendance_date == request.attendance_date,
+    ).first()
+    if not submitted:
+        raise HTTPException(status_code=409, detail="Submit the report before completing this approval")
+    db.delete(request)
+    db.commit()
+    return {"message": "Past report submission completed"}
 
 
 @router.put("/past-submission-requests/{request_id}")
@@ -1280,13 +1315,9 @@ def delete_department(
                 else:
                     user.department = "Unassigned"
 
-        # Deactivate department and its dynamic report structure.
-        department.is_active = 0
-        if target is None:
-            for report_type in report_types:
-                report_type.is_active = 0
-                for subtype in report_type.subtypes:
-                    subtype.is_active = 0
+        # User assignments and future configuration have already moved. The
+        # daily_report_data FK is SET NULL, preserving each name snapshot.
+        db.delete(department)
 
     log_activity(
         db,
