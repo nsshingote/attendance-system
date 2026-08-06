@@ -477,7 +477,7 @@ class PastReportSubmissionRequest(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     attendance_date = Column(Date, nullable=False)
     reason = Column(Text, nullable=True)
-    status = Column(Enum("Pending", "Approved", "Rejected", name="past_report_request_status"), default="Pending")
+    status = Column(Enum("Pending", "Approved", "Rejected", "Submitted", name="past_report_request_status"), default="Pending")
     requested_at = Column(TIMESTAMP, server_default=func.now())
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)

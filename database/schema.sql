@@ -447,7 +447,7 @@ CREATE TABLE IF NOT EXISTS past_report_submission_requests (
     user_id INT NOT NULL,
     attendance_date DATE NOT NULL,
     reason TEXT,
-    status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
+    status ENUM('Pending', 'Approved', 'Rejected', 'Submitted') DEFAULT 'Pending',
     requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     reviewed_by INT NULL,
     reviewed_at DATETIME NULL,

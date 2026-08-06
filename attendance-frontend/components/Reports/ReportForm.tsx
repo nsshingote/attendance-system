@@ -75,6 +75,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   const [pastRequestDate, setPastRequestDate] = useState("");
   const [pastRequestReason, setPastRequestReason] = useState("");
   const [approvedPastDates, setApprovedPastDates] = useState<{ id: number; attendance_date: string }[]>([]);
+  const [activeApprovedDate, setActiveApprovedDate] = useState<string | null>(null);
   
   const [departments, setDepartments] = useState<any[]>([]);
   const [assignedDepartments, setAssignedDepartments] = useState<any[]>([]);
@@ -492,6 +493,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
   const openApprovedPastReport = (attendanceDate: string) => {
     setSelectedDate(attendanceDate);
+    setActiveApprovedDate(attendanceDate);
     setShowHistory(false);
     setPlainDescription("");
     setReportData({});
@@ -503,6 +505,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     if (!approved) return;
     await api.post(`/reports/past-submission-requests/${approved.id}/complete`);
     await loadApprovedPastDates();
+    setActiveApprovedDate(null);
   };
 
   const loadApprovedPastDates = async () => {
@@ -548,6 +551,17 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         ))}
       </div>
     </section>
+  ) : null;
+
+  const renderActivePastReportNotice = () => activeApprovedDate ? (
+    <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+      <span className="font-semibold">Submitting report for {activeApprovedDate.split("-").reverse().join("-")}</span>
+      <p className="mt-1 text-brand-700">Complete the normal report form below. This approved date will be marked submitted after saving.</p>
+      <div className="mt-3 max-w-xs">
+        <label htmlFor="approved-report-date" className="mb-1 block text-xs font-semibold text-brand-800">Attendance Date</label>
+        <input id="approved-report-date" type="date" value={activeApprovedDate} readOnly className="w-full rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm text-ink-900" />
+      </div>
+    </div>
   ) : null;
 
   // ============================================================
@@ -894,6 +908,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     return (
       <div className="space-y-5">
         {renderApprovedPastDates()}
+        {renderActivePastReportNotice()}
         <div className="flex justify-end">
           <button
             onClick={() => setShowHistory(true)}
@@ -937,6 +952,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   return (
     <div className="space-y-5">
       {renderApprovedPastDates()}
+      {renderActivePastReportNotice()}
       <div className="flex justify-end">
         <button
           onClick={() => setShowHistory(true)}

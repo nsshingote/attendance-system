@@ -983,6 +983,8 @@ def request_past_report_submission(
     ).first()
     if request and request.status == "Approved":
         return {"id": request.id, "status": request.status, "message": "This date is already approved"}
+    if request and request.status == "Submitted":
+        raise HTTPException(status_code=409, detail="A report has already been submitted for this approved date")
     if request is None:
         request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date)
         db.add(request)
@@ -1031,7 +1033,7 @@ def complete_past_report_submission(
     ).first()
     if not submitted:
         raise HTTPException(status_code=409, detail="Submit the report before completing this approval")
-    db.delete(request)
+    request.status = "Submitted"
     db.commit()
     return {"message": "Past report submission completed"}
 
@@ -1221,16 +1223,10 @@ def delete_department(
 
     # Historical report rows deliberately remain attached to this now-inactive
     # department. Reassignment changes future assignments/defaults only.
-    if (report_types or default_rows) and target is None:
+    if has_user_assignments and target is None:
         raise HTTPException(
             status_code=400,
-            detail="Department is in use by reports. Provide reassign_department_id to move related data before deletion."
-        )
-
-    if has_user_assignments and not remove_assignments and target is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Department has assigned users. Provide reassign_department_id or set remove_assignments=true to delete it safely."
+            detail="Department has assigned users. Reassign users before deleting it."
         )
 
     affected_user_ids = {assignment.user_id for assignment in assignments}
@@ -1317,6 +1313,13 @@ def delete_department(
 
         # User assignments and future configuration have already moved. The
         # daily_report_data FK is SET NULL, preserving each name snapshot.
+        if target is None:
+            # A department with no assigned users can be deleted immediately;
+            # its unused future configuration is removed with it.
+            for row in default_rows:
+                db.delete(row)
+            for report_type in report_types:
+                db.delete(report_type)
         db.delete(department)
 
     log_activity(
