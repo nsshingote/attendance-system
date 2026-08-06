@@ -31,6 +31,7 @@ import { getSession, isSuperAdmin } from "@/lib/auth";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/users", label: "Users", icon: Users },
+  { href: "/admin/report-structure", label: "Report Structure", icon: Layers },
   { href: "/manage-departments", label: "Manage Departments", icon: Layers },
   { href: "/attendance", label: "Attendance", icon: CalendarCheck },
   { href: "/leave", label: "Leave", icon: Plane },
