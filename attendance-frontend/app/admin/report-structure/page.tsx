@@ -46,11 +46,6 @@ export default function ReportStructurePage() {
   const [defaultRows, setDefaultRows] = useState<DefaultRow[]>([]);
   const [selectedDept, setSelectedDept] = useState<number | null>(null);
   const [selectedDefaults, setSelectedDefaults] = useState<number[]>([]);
-  const [assignmentCount, setAssignmentCount] = useState<number | null>(null);
-  const [reportTypeCount, setReportTypeCount] = useState<number | null>(null);
-  const [reportSubtypeCount, setReportSubtypeCount] = useState<number | null>(null);
-  const [defaultRowCount, setDefaultRowCount] = useState<number | null>(null);
-  const [reportDataCount, setReportDataCount] = useState<number | null>(null);
   const [showAddType, setShowAddType] = useState(false);
   const [showAddSubtype, setShowAddSubtype] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
@@ -88,23 +83,6 @@ export default function ReportStructurePage() {
     const types = allTypes.filter(t => t.department_id === deptId && t.is_active);
     const typeIds = types.map(t => t.id);
     return allSubtypes.filter(s => typeIds.includes(s.type_id) && s.is_active);
-  };
-
-  const loadDepartmentAssignments = async (deptId: number) => {
-    try {
-      const res = await api.get(`/reports/admin/departments/${deptId}/assignments`);
-      setAssignmentCount(res.data.count ?? 0);
-      setReportTypeCount(res.data.report_type_count ?? 0);
-      setReportSubtypeCount(res.data.report_subtype_count ?? 0);
-      setDefaultRowCount(res.data.default_row_count ?? 0);
-      setReportDataCount(res.data.report_data_count ?? 0);
-    } catch (error) {
-      setAssignmentCount(null);
-      setReportTypeCount(null);
-      setReportSubtypeCount(null);
-      setDefaultRowCount(null);
-      setReportDataCount(null);
-    }
   };
 
   const handleDeleteType = async (typeId: number) => {
@@ -145,15 +123,10 @@ export default function ReportStructurePage() {
 
   const handleDepartmentChange = async (deptId: number) => {
     setSelectedDept(deptId);
-    setReassignDepartmentId(null);
-    setReassignmentCompleted(false);
     try {
-      const [defaultRes] = await Promise.all([
-        api.get("/reports/default-rows", {
-          params: { department_id: deptId }
-        }),
-        loadDepartmentAssignments(deptId),
-      ]);
+      const defaultRes = await api.get("/reports/default-rows", {
+        params: { department_id: deptId }
+      });
       setDefaultRows(defaultRes.data);
       const existingDefaults = defaultRes.data
         .filter((r: DefaultRow) => r.is_default === true)
