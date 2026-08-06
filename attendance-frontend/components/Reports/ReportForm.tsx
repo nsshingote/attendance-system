@@ -493,7 +493,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         <h3 className="text-base font-semibold text-ink-900">Past Report Submission Request</h3>
         <p className="mt-1 text-sm text-ink-600">Request approval to submit a report for a previous attendance date.</p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-[minmax(0,14rem)_1fr] sm:items-end">
+      <div className="grid gap-4 md:grid-cols-[minmax(12rem,0.35fr)_minmax(0,1fr)] md:items-start">
         <div>
           <label htmlFor="past-request-date" className="mb-1.5 block text-sm font-medium text-ink-700">Attendance Date</label>
           <input id="past-request-date" type="date" value={pastRequestDate} max={getLocalDateString(new Date(Date.now() - 86400000))} onChange={(e) => setPastRequestDate(e.target.value)} className="ios-date-input w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-base text-ink-900" />
@@ -851,19 +851,10 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   if (!hasDynamicStructure) {
     return (
       <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink-700">Date</label>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm"
-            />
-          </div>
+        <div className="flex justify-end">
           <button
             onClick={() => setShowHistory(true)}
-            className="mt-6 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
+            className="min-h-11 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
           >
             📄 View Past Reports
           </button>
@@ -902,19 +893,10 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-ink-700">Date</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm"
-          />
-        </div>
+      <div className="flex justify-end">
         <button
           onClick={() => setShowHistory(true)}
-          className="mt-6 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
+          className="min-h-11 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
         >
           📄 View Past Reports
         </button>

@@ -943,7 +943,9 @@ def get_report_history(
             "id": report.id,
             "user_id": report.user_id,
             "department_id": report.department_id,
-            "department_name": report.department_name or (department.name if department else "Unknown Department"),
+            # department_name is an immutable snapshot from submission time.
+            # The live lookup only supports legacy rows that predate the snapshot.
+            "department_name": report.department_name or (department.name if department else ""),
             "attendance_date": report.attendance_date.isoformat(),
             "subtype_id": report.subtype_id,
             "type_name": report_type.name if report_type else None,
@@ -1078,6 +1080,76 @@ def get_department_assignments(
     }
 
 
+@router.post("/admin/departments/{department_id}/reassign-users")
+def reassign_department_users(
+    department_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin")),
+):
+    """Move users and future report configuration before a department is deleted.
+
+    Submitted report rows are intentionally never touched: their department ID and
+    department-name snapshot remain historical records.
+    """
+    target_id = payload.get("target_department_id")
+    if not isinstance(target_id, int) or target_id == department_id:
+        raise HTTPException(status_code=400, detail="Select a different active department")
+
+    source = db.query(Department).filter(Department.id == department_id, Department.is_active == 1).first()
+    target = db.query(Department).filter(Department.id == target_id, Department.is_active == 1).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Department not found")
+    if not target:
+        raise HTTPException(status_code=404, detail="Reassignment department not found")
+
+    assignments = db.query(UserDepartment).filter(UserDepartment.department_id == department_id).all()
+    report_types = db.query(DynamicReportType).filter(DynamicReportType.department_id == department_id).all()
+    default_rows = db.query(ReportDefaultRow).filter(ReportDefaultRow.department_id == department_id).all()
+    affected_user_ids = {assignment.user_id for assignment in assignments}
+
+    try:
+        for assignment in assignments:
+            duplicate = db.query(UserDepartment).filter(
+                UserDepartment.user_id == assignment.user_id,
+                UserDepartment.department_id == target.id,
+            ).first()
+            if duplicate:
+                duplicate.is_primary = max(duplicate.is_primary, assignment.is_primary)
+                db.delete(assignment)
+            else:
+                assignment.department_id = target.id
+
+        for report_type in report_types:
+            report_type.department_id = target.id
+        for row in default_rows:
+            row.department_id = target.id
+
+        db.flush()
+        for user_id in affected_user_ids:
+            user = db.query(User).filter(User.id == user_id).first()
+            assignments_for_user = db.query(UserDepartment).filter(UserDepartment.user_id == user_id).all()
+            if user and assignments_for_user:
+                primary = next((item for item in assignments_for_user if item.is_primary), assignments_for_user[0])
+                if not primary.is_primary:
+                    primary.is_primary = 1
+                user.department = target.name if primary.department_id == target.id else user.department
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Unable to reassign department users and configuration")
+
+    log_activity(db, current_user.id, f"Reassigned department {source.name} to {target.name}")
+    return {
+        "message": "Users and future report configuration reassigned successfully",
+        "reassigned_users": len(assignments),
+        "reassigned_report_types": len(report_types),
+        "reassigned_default_rows": len(default_rows),
+        "preserved_historical_report_data_rows": db.query(DailyReportData).filter(DailyReportData.department_id == department_id).count(),
+    }
+
+
 @router.delete("/admin/departments/{department_id}")
 def delete_department(
     department_id: int,
@@ -1128,6 +1200,10 @@ def delete_department(
 
     affected_user_ids = {assignment.user_id for assignment in assignments}
 
+    # Earlier reads have started SQLAlchemy's implicit transaction. Close it
+    # before opening the atomic write transaction (the production API error was
+    # "A transaction is already begun on this Session").
+    db.commit()
     with db.begin():
         if assignments:
             if remove_assignments:

@@ -52,7 +52,7 @@ export default function ReportStructurePage() {
   const [defaultRowCount, setDefaultRowCount] = useState<number | null>(null);
   const [reportDataCount, setReportDataCount] = useState<number | null>(null);
   const [reassignDepartmentId, setReassignDepartmentId] = useState<number | null>(null);
-  const [removeAssignments, setRemoveAssignments] = useState(false);
+  const [reassignmentCompleted, setReassignmentCompleted] = useState(false);
   const [showAddType, setShowAddType] = useState(false);
   const [showAddSubtype, setShowAddSubtype] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
@@ -112,7 +112,7 @@ export default function ReportStructurePage() {
   const handleDepartmentChange = async (deptId: number) => {
     setSelectedDept(deptId);
     setReassignDepartmentId(null);
-    setRemoveAssignments(false);
+    setReassignmentCompleted(false);
     try {
       const [defaultRes] = await Promise.all([
         api.get("/reports/default-rows", {
@@ -322,18 +322,21 @@ export default function ReportStructurePage() {
                   </div>
                 )}
 
-                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
                   <div className="space-y-3 rounded-lg border border-ink-200 bg-ink-50 p-4">
-                    <p className="text-sm font-medium text-ink-800">Delete Department</p>
+                    <p className="text-sm font-medium text-ink-800">Reassign before deleting</p>
                     <div className="space-y-3 text-sm text-ink-600">
                       <div>
-                        <label className="block text-xs font-semibold text-ink-700">Reassign users to</label>
+                        <label className="block text-xs font-semibold text-ink-700">New department</label>
                         <select
                           value={reassignDepartmentId || ""}
-                          onChange={(e) => setReassignDepartmentId(e.target.value ? Number(e.target.value) : null)}
+                          onChange={(e) => {
+                            setReassignDepartmentId(e.target.value ? Number(e.target.value) : null);
+                            setReassignmentCompleted(false);
+                          }}
                           className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                         >
-                          <option value="">No reassignment</option>
+                          <option value="">Select a department</option>
                           {departments
                             .filter((dept) => dept.id !== selectedDept)
                             .map((dept) => (
@@ -341,51 +344,54 @@ export default function ReportStructurePage() {
                             ))}
                         </select>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          id="removeAssignments"
-                          type="checkbox"
-                          checked={removeAssignments}
-                          onChange={(e) => setRemoveAssignments(e.target.checked)}
-                          className="h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
-                        />
-                        <label htmlFor="removeAssignments" className="text-sm text-ink-600">Remove all user department assignments instead of reassigning.</label>
-                      </div>
                     </div>
                   </div>
                   <button
                     onClick={async () => {
-                      if (!selectedDept) {
-                        toast.error("Select a department first.");
+                      if (!selectedDept || !reassignDepartmentId) {
+                        toast.error("Select another department before reassignment.");
                         return;
                       }
-
-                      if (!reassignDepartmentId && !removeAssignments && assignmentCount && assignmentCount > 0) {
-                        toast.error("Choose reassignment or removal before deleting a department with assigned users.");
+                      try {
+                        await api.post(`/reports/admin/departments/${selectedDept}/reassign-users`, {
+                          target_department_id: reassignDepartmentId,
+                        });
+                        toast.success("Users reassigned successfully. You can now delete this department.");
+                        setReassignmentCompleted(true);
+                        await handleDepartmentChange(selectedDept);
+                      } catch (error) {
+                        toast.error(getErrorMessage(error));
+                      }
+                    }}
+                    disabled={!selectedDept || !reassignDepartmentId || reassignmentCompleted}
+                    className="min-h-11 rounded-lg bg-brand-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {reassignmentCompleted ? "Reassignment Complete" : "Reassign Users"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!selectedDept || !reassignmentCompleted) {
+                        toast.error("Reassign users before deleting this department.");
                         return;
                       }
 
                       if (!confirm(`Delete department ${selectedDeptName}? This cannot be undone.`)) return;
 
                       try {
-                        await api.delete(`/reports/admin/departments/${selectedDept}`, {
-                          params: {
-                            reassign_department_id: reassignDepartmentId || undefined,
-                            remove_assignments: removeAssignments || undefined,
-                          },
-                        });
+                        await api.delete(`/reports/admin/departments/${selectedDept}`);
                         toast.success("Department deleted successfully");
                         setSelectedDept(null);
                         setSelectedDefaults([]);
                         setAssignmentCount(null);
                         setReassignDepartmentId(null);
-                        setRemoveAssignments(false);
+                        setReassignmentCompleted(false);
                         await fetchData();
                       } catch (error) {
                         toast.error(getErrorMessage(error));
                       }
                     }}
-                    className="rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
+                    disabled={!reassignmentCompleted}
+                    className="min-h-11 rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Delete Department
                   </button>
