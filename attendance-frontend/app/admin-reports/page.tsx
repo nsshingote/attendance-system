@@ -56,6 +56,7 @@ interface ReportGroup {
   status: string;
   activities: ReportRow[];
 }
+interface PastSubmissionRequest { id: number; user_name: string; attendance_date: string; reason?: string | null; status: string; }
 
 function uniqueById<T extends { id: number }>(items: T[]): T[] {
   return Array.from(new Map(items.map((item) => [item.id, item])).values());
@@ -73,18 +74,21 @@ export default function AdminReportsPage() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reports, setReports] = useState<ReportGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pastSubmissionRequests, setPastSubmissionRequests] = useState<PastSubmissionRequest[]>([]);
   const latestRequestId = useRef(0);
 
   useEffect(() => {
     Promise.all([
       api.get<UserOption[]>("/users/"),
       api.get<DepartmentOption[]>("/reports/departments"),
+      api.get<PastSubmissionRequest[]>("/reports/past-submission-requests"),
     ])
-      .then(([usersRes, departmentsRes]) => {
+      .then(([usersRes, departmentsRes, requestsRes]) => {
         // A duplicate option ID makes React reuse the wrong option and can
         // cause the selected employee/department to appear not to change.
         setUsers(uniqueById(usersRes.data || []));
         setDepartments(uniqueById(departmentsRes.data || []));
+        setPastSubmissionRequests(requestsRes.data || []);
       })
       .catch(() => toast.error("Failed to load report filters"));
   }, []);
@@ -157,6 +161,16 @@ export default function AdminReportsPage() {
   const clearDateFilter = () => {
     setSelectedDate("");
     setShowDatePicker(false);
+  };
+
+  const reviewPastSubmissionRequest = async (id: number, status: "Approved" | "Rejected") => {
+    try {
+      await api.put(`/reports/past-submission-requests/${id}`, { status });
+      setPastSubmissionRequests((items) => items.map((item) => item.id === id ? { ...item, status } : item));
+      toast.success(`Request ${status.toLowerCase()}`);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
   };
 
   const selectedUserName = users.find((user) => user.id === selectedUserId)?.name || "";
@@ -312,6 +326,23 @@ const getTotalDuration = (activities: ReportRow[]) => {
             <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
             <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
           </div>
+        )}
+
+        {pastSubmissionRequests.some((request) => request.status === "Pending") && (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <h2 className="text-sm font-semibold text-amber-900">Past-day report requests</h2>
+            <div className="mt-2 space-y-2">
+              {pastSubmissionRequests.filter((request) => request.status === "Pending").map((request) => (
+                <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
+                  <span><strong>{request.user_name}</strong> · {request.attendance_date}{request.reason ? ` · ${request.reason}` : ""}</span>
+                  <span className="flex gap-2">
+                    <button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button>
+                    <button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {loading ? <Loading /> : reports.length === 0 ? (

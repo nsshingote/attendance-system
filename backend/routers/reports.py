@@ -22,7 +22,8 @@ from models import (
     Attendance, User, LeaveRequest, LeaveEncashmentRequest,
     DailyReport, ReportDepartment, ReportType, ReportSubtype,
     Department, DynamicReportType, DynamicReportSubtype, DynamicReportField,
-    ReportDefaultRow, UserDailyRow, DailyReportData, UserDepartment, ActivityLog, WFHRequest
+    ReportDefaultRow, UserDailyRow, DailyReportData, UserDepartment, ActivityLog, WFHRequest,
+    PastReportSubmissionRequest
 )
 from utils.leave_calculator import get_used_paid_leave_days, get_remaining_leave, accrue_monthly_leave
 from utils.logger import log_activity
@@ -828,6 +829,15 @@ def save_report_data(
 ):
     """Save or update report data for a specific date and subtype."""
     
+    if payload.attendance_date < date.today():
+        approval = db.query(PastReportSubmissionRequest).filter(
+            PastReportSubmissionRequest.user_id == current_user.id,
+            PastReportSubmissionRequest.attendance_date == payload.attendance_date,
+            PastReportSubmissionRequest.status == "Approved",
+        ).first()
+        if not approval:
+            raise HTTPException(status_code=403, detail="Approval is required before submitting a past-day report")
+
     department_id = _get_user_department_id(db, current_user.id, payload.department_id)
 
     # Build query based on whether subtype_id is provided
@@ -876,7 +886,7 @@ def save_report_data(
 # ---------- User Report History ----------
 @router.get("/history")
 def get_report_history(
-    days: int = Query(7, ge=1, le=30),
+    days: Optional[int] = Query(None, ge=1, le=3650),
     month: Optional[int] = Query(None, ge=1, le=12),
     date_value: Optional[date] = Query(None),
     department_id: Optional[int] = Query(None),
@@ -892,7 +902,7 @@ def get_report_history(
         query = query.filter(DailyReportData.attendance_date == date_value)
     elif month is not None:
         query = query.filter(func.extract("month", DailyReportData.attendance_date) == month)
-    else:
+    elif days is not None:
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
         query = query.filter(
@@ -910,12 +920,18 @@ def get_report_history(
     
     result = []
     for report in reports:
+        department = db.query(Department).filter(Department.id == report.department_id).first()
+        subtype = db.query(DynamicReportSubtype).filter(DynamicReportSubtype.id == report.subtype_id).first()
+        report_type = db.query(DynamicReportType).filter(DynamicReportType.id == subtype.type_id).first() if subtype else None
         result.append({
             "id": report.id,
             "user_id": report.user_id,
             "department_id": report.department_id,
+            "department_name": department.name if department else "Deleted department",
             "attendance_date": report.attendance_date.isoformat(),
             "subtype_id": report.subtype_id,
+            "type_name": report_type.name if report_type else None,
+            "subtype_name": subtype.name if subtype else None,
             "quantity": report.quantity,
             "duration": report.duration,
             "description": report.description,
@@ -923,6 +939,60 @@ def get_report_history(
         })
     
     return result
+
+
+@router.post("/past-submission-requests", status_code=201)
+def request_past_report_submission(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        attendance_date = date.fromisoformat(payload.get("attendance_date", ""))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="attendance_date must be YYYY-MM-DD")
+    if attendance_date >= date.today():
+        raise HTTPException(status_code=400, detail="A past date is required")
+
+    request = db.query(PastReportSubmissionRequest).filter(
+        PastReportSubmissionRequest.user_id == current_user.id,
+        PastReportSubmissionRequest.attendance_date == attendance_date,
+    ).first()
+    if request and request.status == "Approved":
+        return {"id": request.id, "status": request.status, "message": "This date is already approved"}
+    if request is None:
+        request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date)
+        db.add(request)
+    request.reason = (payload.get("reason") or "").strip() or None
+    request.status = "Pending"
+    request.reviewed_by = None
+    request.reviewed_at = None
+    db.commit()
+    db.refresh(request)
+    return {"id": request.id, "status": request.status, "message": "Past report submission request sent"}
+
+
+@router.get("/past-submission-requests")
+def list_past_report_submission_requests(
+    db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "superadmin"))
+):
+    rows = db.query(PastReportSubmissionRequest).order_by(PastReportSubmissionRequest.requested_at.desc()).all()
+    return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]
+
+
+@router.put("/past-submission-requests/{request_id}")
+def review_past_report_submission_request(
+    request_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "superadmin"))
+):
+    request = db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.id == request_id).first()
+    status = payload.get("status")
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if status not in {"Approved", "Rejected"}:
+        raise HTTPException(status_code=400, detail="status must be Approved or Rejected")
+    request.status, request.reviewed_by, request.reviewed_at = status, current_user.id, datetime.now(IST)
+    db.commit()
+    return {"message": f"Request {status.lower()}"}
 
 # ---------- Admin: Add Department ----------
 @router.post("/admin/departments", response_model=DepartmentOut)
@@ -1023,7 +1093,9 @@ def delete_department(
     non_user_usage = bool(report_types or default_rows or report_data_rows)
     has_user_assignments = bool(assignments)
 
-    if non_user_usage and target is None:
+    # Historical report rows deliberately remain attached to this now-inactive
+    # department. Reassignment changes future assignments/defaults only.
+    if (report_types or default_rows) and target is None:
         raise HTTPException(
             status_code=400,
             detail="Department is in use by reports. Provide reassign_department_id to move related data before deletion."
@@ -1071,9 +1143,6 @@ def delete_department(
             for row in default_rows:
                 row.department_id = target.id
 
-            # Reassign saved report data rows.
-            for row in report_data_rows:
-                row.department_id = target.id
 
         if target is not None and not remove_assignments:
             # When a user's primary assignment was moved into a department they already had,
@@ -1136,7 +1205,7 @@ def delete_department(
         "reassigned_users": len(assignments) if target else 0,
         "reassigned_report_types": len(report_types) if target else 0,
         "reassigned_default_rows": len(default_rows) if target else 0,
-        "reassigned_report_data_rows": len(report_data_rows) if target else 0,
+        "preserved_historical_report_data_rows": len(report_data_rows),
     }
 
 

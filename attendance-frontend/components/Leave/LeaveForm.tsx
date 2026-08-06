@@ -236,14 +236,14 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
         {errors.leave_category && <p className="mt-1 text-xs text-red-600">Please select a category</p>}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-ink-700">From</label>
-          <input type="date" {...register("from_date", { required: true })} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+          <input type="date" {...register("from_date", { required: true })} className="block h-11 w-full min-w-0 rounded-lg border border-ink-200 px-3 py-2 text-sm leading-5" />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-ink-700">To</label>
-          <input type="date" {...register("to_date", { required: true })} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+          <input type="date" {...register("to_date", { required: true })} className="block h-11 w-full min-w-0 rounded-lg border border-ink-200 px-3 py-2 text-sm leading-5" />
         </div>
       </div>
 

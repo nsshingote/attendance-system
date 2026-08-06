@@ -8,11 +8,15 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, hash_password, require_admin, require_superadmin
 from database import get_db
-from models import User, ActivityLog, Department, UserDepartment
+from models import (
+    User, ActivityLog, Department, UserDepartment, DynamicReportType,
+    DynamicReportSubtype, DynamicReportField, ReportDefaultRow
+)
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut
 
 router = APIRouter()
@@ -390,14 +394,21 @@ def permanently_delete_user(
             detail="You cannot delete your own account"
         )
 
-    db.add(
-        ActivityLog(
-            user_id=current_user.id,
-            activity=f"Permanently deleted user '{user.name}'"
-        )
-    )
+    deleted_name = user.name
+    try:
+        # These objects may be referenced by other users' departments/reports.
+        # Preserve that shared data by transferring ownership to the deleting
+        # superadmin before the user's cascading rows are removed.
+        for model in (Department, DynamicReportType, DynamicReportSubtype, DynamicReportField, ReportDefaultRow):
+            db.query(model).filter(model.created_by == user.id).update(
+                {model.created_by: current_user.id}, synchronize_session=False
+            )
 
-    db.delete(user)
-    db.commit()
+        db.add(ActivityLog(user_id=current_user.id, activity=f"Permanently deleted user '{deleted_name}'"))
+        db.delete(user)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="User cannot be deleted because related data is still protected by a database constraint")
 
-    return {"message": f"User '{user.name}' permanently deleted"}
+    return {"message": f"User '{deleted_name}' permanently deleted"}

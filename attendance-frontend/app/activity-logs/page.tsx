@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import toast from "react-hot-toast";
 import { parseISTDateTime } from "@/lib/date";
 import api, { getErrorMessage } from "@/lib/api";
@@ -106,7 +106,7 @@ export default function ActivityLogsPage() {
                   <span className="font-mono text-xs text-ink-400">
                     {(() => {
                       const date = parseISTDateTime(log.created_at);
-                      return date ? format(date, "dd MMM yyyy, hh:mm a") : log.created_at;
+                      return date ? formatInTimeZone(date, "Asia/Kolkata", "dd MMM yyyy, hh:mm a") : log.created_at;
                     })()}
                   </span>
                 </li>

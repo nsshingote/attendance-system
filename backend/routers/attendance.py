@@ -293,6 +293,23 @@ def _mark_absent_records_for_date_range(
     ).all()
     existing_pairs = {(user_id, attendance_date) for user_id, attendance_date in existing_attendance}
 
+    # Older deployments may contain duplicate synthetic Absent rows. Keep a
+    # real check-in/out record when present, otherwise retain one record only.
+    duplicate_groups = db.query(
+        Attendance.user_id, Attendance.attendance_date, func.count(Attendance.id)
+    ).filter(
+        Attendance.user_id.in_(user_ids), Attendance.attendance_date.in_(all_dates)
+    ).group_by(Attendance.user_id, Attendance.attendance_date).having(func.count(Attendance.id) > 1).all()
+    for duplicate_user_id, duplicate_date, _ in duplicate_groups:
+        rows = db.query(Attendance).filter(
+            Attendance.user_id == duplicate_user_id, Attendance.attendance_date == duplicate_date
+        ).order_by(Attendance.check_in.is_(None), Attendance.id.desc()).all()
+        for duplicate in rows[1:]:
+            if duplicate.status == "Absent" and duplicate.check_in is None and duplicate.check_out is None:
+                db.delete(duplicate)
+    if duplicate_groups:
+        db.commit()
+
     new_records = []
     for user_id in user_ids:
         for target_date in all_dates:

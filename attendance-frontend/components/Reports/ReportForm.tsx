@@ -180,10 +180,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   const loadHistory = async () => {
     try {
-      const params: any = { days: 30 };
-      if (selectedDept !== null) {
-        params.department_id = selectedDept;
-      }
+      const params: any = {};
       if (historyMonth) {
         params.month = historyMonth;
       }
@@ -472,6 +469,18 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     }
   };
 
+  const requestPastDatePermission = async () => {
+    if (selectedDate >= new Date().toISOString().slice(0, 10)) return;
+    const reason = window.prompt("Why do you need to submit this past-day report?");
+    if (reason === null) return;
+    try {
+      await api.post("/reports/past-submission-requests", { attendance_date: selectedDate, reason });
+      toast.success("Permission request sent to the admin");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   // ============================================================
   // RENDER ROW (table row)
   // ============================================================
@@ -613,11 +622,12 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       : false;
 
   const groupedHistory = historyReports.reduce((acc: any[], report: any) => {
-    const existing = acc.find((entry) => entry.date === report.attendance_date);
+    const key = `${report.attendance_date}-${report.department_id}`;
+    const existing = acc.find((entry) => entry.key === key);
     if (existing) {
       existing.items.push(report);
     } else {
-      acc.push({ date: report.attendance_date, items: [report] });
+      acc.push({ key, date: report.attendance_date, department: report.department_name, items: [report] });
     }
     return acc;
   }, []);
@@ -670,7 +680,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         >
           <div className="flex flex-col gap-2 border-b border-ink-100 bg-ink-50 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm font-semibold text-ink-700">
-              {new Date(group.date).toLocaleDateString()}
+              {new Date(group.date).toLocaleDateString()} · {group.department}
             </span>
             <span className="text-xs text-ink-500">
               Total Duration: {getTotalDuration(group.items)}
@@ -723,11 +733,11 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
                       {hasDynamicStructureForHistory ? (
                         <>
                           <td className="px-4 py-2 whitespace-nowrap">
-                            {getTypeName(report.subtype_id)}
+                            {report.type_name || getTypeName(report.subtype_id)}
                           </td>
 
                           <td className="px-4 py-2 whitespace-nowrap">
-                            {getSubtypeName(report.subtype_id)}
+                            {report.subtype_name || getSubtypeName(report.subtype_id)}
                           </td>
 
                           <td className="px-4 py-2 whitespace-nowrap">
@@ -860,6 +870,11 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm"
             placeholder="Enter your daily report details..."
           />
+          {selectedDate < new Date().toISOString().slice(0, 10) && (
+            <button type="button" onClick={requestPastDatePermission} className="mt-2 text-sm font-medium text-brand-600 hover:text-brand-700">
+              Request permission to submit this past-day report
+            </button>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-4 border-t border-ink-200">
@@ -892,6 +907,11 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             onChange={(e) => setSelectedDate(e.target.value)}
             className="w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm"
           />
+          {selectedDate < new Date().toISOString().slice(0, 10) && (
+            <button type="button" onClick={requestPastDatePermission} className="mt-2 text-sm font-medium text-brand-600 hover:text-brand-700">
+              Request permission to submit this past-day report
+            </button>
+          )}
         </div>
         <button
           onClick={() => setShowHistory(true)}

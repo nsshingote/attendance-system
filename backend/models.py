@@ -464,3 +464,21 @@ class DailyReportData(Base):
     user = relationship("User", foreign_keys=[user_id])
     department = relationship("Department", foreign_keys=[department_id])
     subtype = relationship("DynamicReportSubtype", foreign_keys=[subtype_id])
+
+
+class PastReportSubmissionRequest(Base):
+    """Approval required before a user can add a report for a past date."""
+    __tablename__ = "past_report_submission_requests"
+    __table_args__ = (UniqueConstraint("user_id", "attendance_date", name="uq_past_report_request"),)
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    reason = Column(Text, nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="past_report_request_status"), default="Pending")
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
