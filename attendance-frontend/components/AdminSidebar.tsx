@@ -25,6 +25,7 @@ import {
   FileSearch,
   X,
   Layers,
+  MessageSquare,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
   { href: "/notification-emails", label: "Notification Emails", icon: Mail },
   { href: "/office-ip", label: "Office IPs", icon: Wifi },
   { href: "/activity-logs", label: "Activity Logs", icon: History },
+  { href: "/feedback", label: "Feedback", icon: MessageSquare },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

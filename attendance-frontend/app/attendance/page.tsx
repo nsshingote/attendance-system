@@ -21,6 +21,7 @@ import UserCalendar from "@/components/Users/UserCalender";
 import AttendanceTable, { AttendanceRecord } from "@/components/Attendance/AttendanceTable";
 import CorrectionForm from "@/components/Corrections/Correctionform";
 import { Calendar as CalendarIcon } from "lucide-react";
+import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 
 interface UserOption {
   id: number;
@@ -44,7 +45,7 @@ export default function AttendancePage() {
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<number | undefined>(session?.userId);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
 
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [summary, setSummary] = useState({ Present: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0 });
@@ -55,9 +56,6 @@ export default function AttendancePage() {
 
   const admin = isAdmin(session?.role);
 
-  // Add "All Employees" option for admin
-  const userOptions = admin ? [{ id: -1, name: "All Employees" }, ...users] : users;
-
   useEffect(() => {
     if (!admin) return;
     api
@@ -67,7 +65,6 @@ export default function AttendancePage() {
   }, [admin]);
 
   const fetchData = useCallback(async () => {
-    if (!selectedUserId && selectedUserId !== -1) return;
     setLoading(true);
     try {
       // Build params with date filter if selected
@@ -76,28 +73,15 @@ export default function AttendancePage() {
         params.date_value = selectedDate;
       }
 
-      let attendanceUrl = "";
-      let userId = selectedUserId;
-
-      // If "All Employees" selected (id: -1), use the user list endpoint
-      if (selectedUserId === -1) {
-        attendanceUrl = "/attendance/all";
-        // Remove user_id from params
-        delete params.user_id;
-      } else {
-        attendanceUrl = admin && selectedUserId !== session?.userId
-          ? `/attendance/user/${selectedUserId}`
-          : "/attendance/me";
-        if (selectedUserId) {
-          params.user_id = selectedUserId;
-        }
-      }
+      const attendanceUrl = admin ? "/attendance/all" : "/attendance/me";
+      if (admin && selectedUserIds.length) params.employee_ids = selectedUserIds;
+      const summaryUserId = selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId;
 
       const [recordsRes, summaryRes] = await Promise.all([
-  api.get<AttendanceRecord[]>(attendanceUrl, { params }),
+  api.get<AttendanceRecord[]>(attendanceUrl, { params, paramsSerializer: { indexes: null } }),
   api.get(
     `/attendance/summary/${
-      userId === -1 ? session?.userId : userId || session?.userId
+      summaryUserId
     }`,
     { params: { year, month } }
   ).catch(() => ({ data: {} })),
@@ -130,7 +114,7 @@ setSummary(
     } finally {
       setLoading(false);
     }
-  }, [selectedUserId, year, month, admin, session?.userId, selectedDate]);
+  }, [selectedUserIds, year, month, admin, session?.userId, selectedDate]);
 
   useEffect(() => {
     fetchData();
@@ -177,27 +161,13 @@ setSummary(
             <div>
               <h1 className="text-lg md:text-xl font-semibold text-ink-900">Attendance</h1>
               <p className="text-sm text-ink-500">
-                {admin && selectedUserId !== session?.userId 
-                  ? selectedUserId === -1 
-                    ? "Viewing all employees" 
-                    : "Viewing employee records" 
-                  : "Your attendance history"}
+                {admin ? (selectedUserIds.length ? `Viewing ${selectedUserIds.length} employee${selectedUserIds.length === 1 ? "" : "s"}` : "Viewing all employees") : "Your attendance history"}
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               {admin && (
-                <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(Number(e.target.value))}
-                  className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-                >
-                  {userOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
+                <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} />
               )}
 
               {/* Date Picker Button */}
@@ -311,14 +281,15 @@ setSummary(
           ) : view === "table" ? (
             <AttendanceTable
               records={records}
-              showRequestCorrection={!admin || selectedUserId === session?.userId}
+              showRequestCorrection={!admin || selectedUserIds.length === 1 && selectedUserIds[0] === session?.userId}
               onRequestCorrection={setCorrectionModal}
-              showEmployeeName={selectedUserId === -1}
+              showEmployeeName={admin}
             />
           ) : (
             <div className="space-y-3">
               <UserCalendar
-                userId={selectedUserId ?? session?.userId!}
+                userId={selectedUserIds.length === 1 ? selectedUserIds[0] : -1}
+                employeeIds={selectedUserIds}
                 year={year}
                 month={month}
                 selectedDate={selectedDate || undefined}

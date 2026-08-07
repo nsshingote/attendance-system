@@ -76,11 +76,50 @@ export default function ReportsPage() {
   }, [fetchData]);
 
   const handleDownloadCSV = () => {
-  window.open(
-    `${api.defaults.baseURL}/reports/attendance/export?year=${year}&month=${month}`,
-    "_blank"
-  );
-};
+    const rows = tab === "attendance"
+      ? employeeSummary.map((r) => [
+          r.name,
+          r.department,
+          r.Present,
+          r.Absent,
+          r["Half Day"],
+          r.Late,
+          r["Paid Leave"],
+          r["Carried Leave Used"],
+          r.LWP,
+          r["Carry Forward Balance"],
+          r["Used Paid Leave This Month"] ? "Yes" : "No",
+          r.Encashed,
+        ])
+      : leaveSummary.map((r) => [
+          r.name,
+          r.department,
+          r.paid_leave,
+          r.unpaid_leave,
+          r.carried_leave,
+          r.leave_encashed,
+          r.remaining_leave,
+        ]);
+
+    if (rows.length === 0) {
+      toast.error("No data to export");
+      return;
+    }
+
+    const headers = tab === "attendance"
+      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "Paid Leave", "Carried Leave Used", "LWP", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
+      : ["Name", "Department", "Paid Leave", "Unpaid Leave", "Carried Leave", "Encashed", "Remaining"];
+    const escapeCsv = (value: string | number) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${tab === "attendance" ? "attendance" : "leave"}_report_${year}_${month}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const handleExportExcel = () => {
     if (tab === "attendance") {
@@ -195,39 +234,6 @@ export default function ReportsPage() {
     }
   };
 
-  const totalPresent = employeeSummary.reduce((sum, row) => sum + (row.Present || 0), 0);
-  const totalAbsent = employeeSummary.reduce((sum, row) => sum + (row.Absent || 0), 0);
-  const totalLate = employeeSummary.reduce((sum, row) => sum + (row.Late || 0), 0);
-  const totalPaidLeave = employeeSummary.reduce((sum, row) => sum + (row["Paid Leave"] || 0), 0);
-  const totalCarriedLeave = leaveSummary.reduce((sum, row) => sum + (row.carried_leave || 0), 0);
-  const totalUsedLeave = leaveSummary.reduce((sum, row) => sum + (row.paid_leave || 0), 0);
-  const totalRemainingLeave = leaveSummary.reduce((sum, row) => sum + (row.remaining_leave || 0), 0);
-
-  const attendanceCards = [
-    { label: "Employees", value: employeeSummary.length },
-    { label: "Total Present", value: totalPresent },
-    { label: "Total Absent", value: totalAbsent },
-    { label: "Total Late", value: totalLate },
-  ];
-
-  const leaveCards = [
-    { label: "Employees", value: leaveSummary.length },
-    { label: "Paid Leave Used", value: totalUsedLeave },
-    { label: "Carried Leave", value: totalCarriedLeave },
-    { label: "Remaining Leave", value: totalRemainingLeave },
-  ];
-
-  const renderSummaryCards = () => (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {(tab === "attendance" ? attendanceCards : leaveCards).map((card) => (
-        <div key={card.label} className="rounded-1rem border border-ink-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-500">{card.label}</p>
-          <p className="mt-3 text-2xl font-semibold text-ink-900">{card.value}</p>
-        </div>
-      ))}
-    </div>
-  );
-
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
@@ -277,8 +283,6 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
-
-        {renderSummaryCards()}
 
         {loading ? (
           <Loading />

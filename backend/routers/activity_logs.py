@@ -7,7 +7,7 @@ visible to Admin/SuperAdmin. Supports filtering to a single user via
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from auth import require_admin
@@ -22,12 +22,15 @@ router = APIRouter()
 @router.get("/", response_model=List[ActivityLogOut])
 def list_activity_logs(
     user_id: Optional[int] = None,
+    employee_ids: Optional[List[int]] = Query(None),
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     query = db.query(ActivityLog)
-    if user_id:
+    if employee_ids:
+        query = query.filter(ActivityLog.user_id.in_(employee_ids))
+    elif user_id:
         query = query.filter(ActivityLog.user_id == user_id)
     logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 500)).all()
     return [

@@ -456,6 +456,20 @@ CREATE TABLE IF NOT EXISTS past_report_submission_requests (
     FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- ============================================================
+-- 16. MONTHLY FEEDBACK TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS feedback (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    feedback_type ENUM('positive', 'negative') NOT NULL,
+    description TEXT NOT NULL,
+    is_anonymous BOOLEAN NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX ix_feedback_user_id (user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,

@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { LayoutDashboard, CalendarCheck, Plane, ClipboardEdit, FileText, X } from "lucide-react";
+import { LayoutDashboard, CalendarCheck, Plane, ClipboardEdit, FileText, MessageSquare, X } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/leave", label: "My Leave", icon: Plane },
   { href: "/daily-report", label: "Daily Report", icon: FileText },
   { href: "/corrections", label: "Corrections", icon: ClipboardEdit },
+  { href: "/feedback", label: "Feedback", icon: MessageSquare },
 ];
 
 interface EmployeeSidebarProps {

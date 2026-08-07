@@ -24,6 +24,7 @@ interface CalendarDay {
 
 interface UserCalendarProps {
   userId: number;
+  employeeIds?: number[];
   year: number;
   month: number;
   selectedDate?: string;
@@ -40,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
   "Weekly Off": "bg-gray-300 text-ink-500",
 };
 
-export default function UserCalendar({ userId, year, month, selectedDate }: UserCalendarProps) {
+export default function UserCalendar({ userId, employeeIds, year, month, selectedDate }: UserCalendarProps) {
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -48,7 +49,8 @@ export default function UserCalendar({ userId, year, month, selectedDate }: User
     const fetchCalendar = async () => {
       try {
         const { data } = await api.get<CalendarDay[]>("/attendance/calendar", {
-          params: { year, month, user_id: userId },
+          params: { year, month, user_id: userId, employee_ids: employeeIds?.length ? employeeIds : undefined },
+          paramsSerializer: { indexes: null },
         });
         setDays(data);
       } catch (error) {
@@ -59,7 +61,7 @@ export default function UserCalendar({ userId, year, month, selectedDate }: User
     };
 
     fetchCalendar();
-  }, [userId, year, month]);
+  }, [userId, employeeIds, year, month]);
 
   if (loading) {
     return <Loading />;

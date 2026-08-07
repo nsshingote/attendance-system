@@ -36,6 +36,11 @@ interface NotificationEmailOption {
   email: string | null;
 }
 
+interface RecipientLoadResult {
+  recipients: NotificationEmailOption[];
+  error: string | null;
+}
+
 interface UserOption {
   id: number;
   name: string;
@@ -77,10 +82,13 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
     getValues,
   } = useForm<LeaveFormValues>();
 
-  const loadRecipientEmails = useCallback(async () => {
+  const loadRecipientEmails = useCallback(async (): Promise<RecipientLoadResult> => {
     try {
       const response = await api.get<NotificationEmailOption[]>("/notification-emails/");
-      const recipients = response.data || [];
+      if (!Array.isArray(response.data)) {
+        throw new Error("Invalid notification recipient response");
+      }
+      const recipients = response.data;
       console.info("[Leave Compose] notification recipient response", {
         status: response.status,
         count: recipients.length,
@@ -89,7 +97,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
       });
       setEmailOptions(recipients);
       setRecipientLoadError(null);
-      return recipients;
+      return { recipients, error: null };
     } catch (error) {
       const message = getErrorMessage(error);
       console.error("[Leave Compose] notification recipient request failed", {
@@ -98,7 +106,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
         response: (error as any)?.response?.data,
       });
       setRecipientLoadError(message);
-      return [];
+      return { recipients: [], error: message };
     }
   }, []);
 
@@ -165,12 +173,20 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
 
     // iOS/WebKit can open the form before the initial effect has completed.
     // Refresh once at click time before treating the configured list as empty.
-    const recipients = emailOptions.length > 0 ? emailOptions : await loadRecipientEmails();
+    let recipients = emailOptions;
+    let loadError = recipientLoadError;
+
+    if (recipients.length === 0) {
+      const result = await loadRecipientEmails();
+      recipients = result.recipients;
+      loadError = result.error;
+    }
+
     const toAddresses = recipients.map((opt) => opt.email).filter((email): email is string => !!email);
 
     if (toAddresses.length === 0) {
-      if (recipientLoadError) {
-        toast.error(`Unable to load notification recipients: ${recipientLoadError}`);
+      if (loadError) {
+        toast.error(`Unable to load notification recipients: ${loadError}`);
         return;
       }
       toast.error("No notification recipients configured. Add HR emails on the Notification Emails page first.");

@@ -174,6 +174,11 @@ class LeaveRequest(Base):
     approver = relationship("User", foreign_keys=[approved_by])
     notification_links = relationship("LeaveNotificationEmail", back_populates="leave_request")
 
+    @property
+    def user_name(self):
+        """Employee name for leave-request lists; keep the user ID for internal use."""
+        return self.user.name if self.user else None
+
 
 class NotificationEmail(Base):
     __tablename__ = "notification_emails"
@@ -272,6 +277,19 @@ class ActivityLog(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", back_populates="activity_logs")
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    feedback_type = Column(Enum("positive", "negative", name="feedback_type"), nullable=False)
+    description = Column(Text, nullable=False)
+    is_anonymous = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
 
 
 # ============================================================

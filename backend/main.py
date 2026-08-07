@@ -29,6 +29,7 @@ from routers import (
     office_ips,
     activity_logs,
     password_reset,
+    feedback,
 )
 
 # Create tables if they don't exist yet (safe no-op if schema.sql already applied)
@@ -102,6 +103,7 @@ app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 # ---------------------------------------------------------
 app.include_router(login.router, prefix="/auth", tags=["Authentication"])
 app.include_router(password_reset.router, prefix="/auth", tags=["Password Reset"])
+app.include_router(feedback.router, prefix="/feedback", tags=["Feedback"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(attendance.router, prefix="/attendance", tags=["Attendance"])
 app.include_router(attendance_correction.router, prefix="/corrections", tags=["Attendance Corrections"])

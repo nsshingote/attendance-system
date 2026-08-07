@@ -16,6 +16,7 @@ import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
 import MonthSelector from "@/components/Calendar/MonthSelector";
+import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 
 interface UserOption {
   id: number;
@@ -68,7 +69,7 @@ export default function AdminReportsPage() {
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<number | "">("");
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -97,12 +98,12 @@ export default function AdminReportsPage() {
     const requestId = ++latestRequestId.current;
     setLoading(true);
     try {
-      const params: { year: number; month: number; user_id?: number; department_id?: number; date_value?: string } = { year, month };
-      if (selectedUserId) params.user_id = selectedUserId;
+      const params: { year: number; month: number; employee_ids?: number[]; department_id?: number; date_value?: string } = { year, month };
+      if (selectedUserIds.length) params.employee_ids = selectedUserIds;
       if (selectedDepartmentId) params.department_id = selectedDepartmentId;
       if (selectedDate) params.date_value = selectedDate;
 
-      const { data } = await api.get<ReportRow[]>("/reports/all", { params });
+      const { data } = await api.get<ReportRow[]>("/reports/all", { params, paramsSerializer: { indexes: null } });
       // Requests can finish out of order when filters are changed quickly.  Do
       // not let an earlier, unfiltered response replace the newest result.
       if (requestId !== latestRequestId.current) return;
@@ -113,7 +114,7 @@ export default function AdminReportsPage() {
         return (
           reportYear === year &&
           reportMonth === month &&
-          (!selectedUserId || report.user_id === selectedUserId) &&
+          (selectedUserIds.length === 0 || selectedUserIds.includes(report.user_id)) &&
           (!selectedDepartmentId || report.department_id === selectedDepartmentId) &&
           (!selectedDate || report.attendance_date === selectedDate)
         );
@@ -156,7 +157,7 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     fetchReports();
-  }, [selectedUserId, selectedDepartmentId, selectedDate, year, month]);
+  }, [selectedUserIds, selectedDepartmentId, selectedDate, year, month]);
 
   const clearDateFilter = () => {
     setSelectedDate("");
@@ -173,7 +174,7 @@ export default function AdminReportsPage() {
     }
   };
 
-  const selectedUserName = users.find((user) => user.id === selectedUserId)?.name || "";
+  const selectedUserName = selectedUserIds.length === 1 ? users.find((user) => user.id === selectedUserIds[0])?.name || "" : "";
 
   // const getTotalDuration = (activities: ReportRow[]) => {
   //   const durations = activities
@@ -267,19 +268,12 @@ const getTotalDuration = (activities: ReportRow[]) => {
           <div>
             <h1 className="text-base font-semibold text-ink-900">Team Reports</h1>
             <p className="text-xs text-ink-500">
-              {selectedUserId ? `Reports for ${selectedUserName}` : "All employees"}
+              {selectedUserIds.length ? `Reports for ${selectedUserIds.length === 1 ? selectedUserName : `${selectedUserIds.length} employees`}` : "All employees"}
             </p>
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
-            <select
-              value={selectedUserId}
-              onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : "")}
-              className="min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
-            >
-              <option value="">All Employees</option>
-              {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-            </select>
+            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
             <select
               value={selectedDepartmentId}
               onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}

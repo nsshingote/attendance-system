@@ -49,7 +49,10 @@ def _validate_office_ip(ip_address: str, db: Session) -> bool:
     """Return True if the client IP is configured as an active office IP."""
     office_ips = db.query(OfficeIP).filter(OfficeIP.status == "active").all()
     if not office_ips:
-        return True
+        # Never disable network validation globally just because an office IP
+        # is missing or has been deactivated. Approved WFH is the only
+        # per-user exception and is checked separately in check-in/out.
+        return False
 
     approved = db.query(OfficeIP).filter(
         OfficeIP.ip_address == ip_address,
@@ -656,6 +659,7 @@ def get_all_attendance(
     year: int,
     month: int,
     date_value: Optional[date] = Query(None),
+    employee_ids: Optional[List[int]] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -676,6 +680,9 @@ def get_all_attendance(
         target_start = target_end = date_value
     else:
         target_start, target_end = _get_month_date_range(year, month)
+
+    if employee_ids:
+        query = query.filter(Attendance.user_id.in_(employee_ids))
 
     if target_start is not None and target_end is not None:
         _mark_absent_records_for_date_range(db, target_start, target_end)
@@ -719,6 +726,7 @@ def attendance_calendar(
     year: int,
     month: int,
     user_id: Optional[int] = None,
+    employee_ids: Optional[List[int]] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -728,7 +736,7 @@ def attendance_calendar(
     all-employees calendar by passing user_id=-1.
     """
     is_admin_user = current_user.role in ("admin", "superadmin")
-    aggregated_all = user_id == -1 and is_admin_user
+    aggregated_all = (user_id == -1 or bool(employee_ids)) and is_admin_user
     target_user_id = None
 
     if aggregated_all:
@@ -757,6 +765,8 @@ def attendance_calendar(
 
     if not aggregated_all:
         records_query = records_query.filter(Attendance.user_id == target_user_id)
+    elif employee_ids:
+        records_query = records_query.filter(Attendance.user_id.in_(employee_ids))
 
     records = records_query.all()
 

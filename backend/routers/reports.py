@@ -516,6 +516,7 @@ def get_all_reports(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
     user_id: Optional[int] = Query(None),
+    employee_ids: Optional[List[int]] = Query(None),
     department_id: Optional[int] = Query(None),
     date_value: Optional[date] = Query(None),
     db: Session = Depends(get_db),
@@ -538,7 +539,9 @@ def get_all_reports(
             DailyReportData.attendance_date < end_date
         )
     
-    if user_id is not None:
+    if employee_ids:
+        query = query.filter(DailyReportData.user_id.in_(employee_ids))
+    elif user_id is not None:
         query = query.filter(DailyReportData.user_id == user_id)
 
     if department_id is not None:

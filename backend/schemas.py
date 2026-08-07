@@ -17,6 +17,26 @@ class ORMBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FeedbackCreate(BaseModel):
+    feedback_type: str
+    description: str
+    is_anonymous: bool = False
+
+    @field_validator("feedback_type")
+    @classmethod
+    def validate_feedback_type(cls, value: str) -> str:
+        if value not in {"positive", "negative"}:
+            raise ValueError("Feedback type must be positive or negative")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Description is required")
+        return value.strip()
+
+
 # =========================================================
 # Auth
 # =========================================================
@@ -180,6 +200,7 @@ class LeaveCategoryOverride(BaseModel):
 class LeaveRequestOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     leave_type_id: Optional[int] = None
     from_date: date
     to_date: date

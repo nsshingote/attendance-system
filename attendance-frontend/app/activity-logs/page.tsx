@@ -14,6 +14,7 @@ import { parseISTDateTime } from "@/lib/date";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
+import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 
 interface ActivityLog {
   id: number;
@@ -30,7 +31,7 @@ interface UserOption {
 export default function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -46,8 +47,9 @@ export default function ActivityLogsPage() {
       const { data } = await api.get<ActivityLog[]>("/activity-logs/", {
         params: {
           limit: 200,
-          user_id: selectedUserId ? Number(selectedUserId) : undefined,
+          employee_ids: selectedUserIds.length ? selectedUserIds : undefined,
         },
+        paramsSerializer: { indexes: null },
       });
       setLogs(data);
     } catch (error) {
@@ -55,7 +57,7 @@ export default function ActivityLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedUserId]);
+  }, [selectedUserIds]);
 
   useEffect(() => {
     fetchLogs();
@@ -70,22 +72,11 @@ export default function ActivityLogsPage() {
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Activity Logs</h1>
             <p className="text-sm text-ink-500">
-              {selectedUserId ? `Activity for ${userNameById(Number(selectedUserId))}` : "Recent system activity across all users"}
+              {selectedUserIds.length ? `Activity for ${selectedUserIds.length === 1 ? userNameById(selectedUserIds[0]) : `${selectedUserIds.length} employees`}` : "Recent system activity across all users"}
             </p>
           </div>
 
-          <select
-            value={selectedUserId}
-            onChange={(e) => setSelectedUserId(e.target.value)}
-            className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">All Users</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
+          <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} allLabel="All Users" />
         </div>
 
         {loading ? (
