@@ -107,18 +107,6 @@ textarea {
   max-width: none;
 }
 
-.table-cell-clamp {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-
 /* Keep long table content compact; individual cells expose full text via title. */
 main table {
   border-collapse: separate;

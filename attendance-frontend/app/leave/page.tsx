@@ -358,7 +358,7 @@ export default function LeavePage() {
               {showDatePicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] w-[260px] rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
                     <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
@@ -524,7 +524,7 @@ export default function LeavePage() {
                                   : `${format(parseISO(r.from_date), "dd MMM")} – ${format(parseISO(r.to_date), "dd MMM yyyy")}`}
                               </td>
                               <td className="px-4 py-3 text-ink-700">{r.detail}</td>
-                              <td className="max-w-220px table-cell-clamp px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                              <td className="max-w-220px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                                 {r.reason ?? "—"}
                               </td>
                               <td className="px-4 py-3">
@@ -604,7 +604,7 @@ export default function LeavePage() {
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
                           <td className="px-4 py-3 text-ink-700">{SLOT_LABELS[r.slot] ?? r.slot}</td>
-                          <td className="max-w-200px table-cell-clamp px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                             {r.reason ?? "—"}
                           </td>
                           <td className="px-4 py-3">
@@ -663,7 +663,7 @@ export default function LeavePage() {
                         <tr key={r.id} className="hover:bg-ink-50/60">
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
-                          <td className="max-w-200px table-cell-clamp px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                             {r.reason ?? "—"}
                           </td>
                           <td className="px-4 py-3">

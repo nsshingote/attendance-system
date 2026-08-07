@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { format } from "date-fns";
 import { Users, UserCheck, Clock, UserX, Plane, ClipboardEdit, Smartphone, Sunrise, CalendarDays } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
@@ -91,32 +90,25 @@ export default function AdminDashboard() {
 
   return (
     <div className="w-full max-w-full overflow-x-hidden">
-      <div className="space-y-5 pb-4 md:space-y-6 md:pb-6">
-        <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-card">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-ink-900">Dashboard</h1>
-              <p className="mt-1 text-sm text-ink-500">Overview of today&apos;s workforce activity</p>
-            </div>
-            <div className="rounded-3xl bg-ink-50 px-4 py-3 text-sm text-ink-600">
-              <span className="font-semibold text-ink-900">Updated Today</span> · {format(new Date(), "EEEE, dd MMM yyyy")}
-            </div>
-          </div>
+      <div className="space-y-4 md:space-y-6 pb-4 md:pb-6">
+        <div>
+          <h1 className="text-lg md:text-xl font-semibold text-ink-900">Dashboard</h1>
+          <p className="text-sm text-ink-500">Overview of today&apos;s workforce activity</p>
         </div>
 
         {selfSnapshot && (
-          <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-card">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="rounded-xl border border-ink-200 bg-white p-4 md:p-6 shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-ink-500">Your Attendance Today</p>
-                <div className="mt-2">
-                  <Badge status={selfSnapshot.today_status} className="text-sm px-3 py-1 rounded-full" />
+                <div className="mt-1.5">
+                  <Badge status={selfSnapshot.today_status} />
                 </div>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <CheckInButton
-                  disabled={checkedIn}
-                  onSuccess={fetchSelfSnapshot}
+              <div className="flex gap-3">
+                <CheckInButton 
+                  disabled={checkedIn} 
+                  onSuccess={fetchSelfSnapshot} 
                 />
                 <CheckOutButton
                   disabled={!checkedIn || checkedOut}
@@ -127,34 +119,34 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Row 1: 4 cards */}
+        <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-4">
           <StatCard label="Total Employees" value={summary.total_employees} icon={Users} tone="brand" />
           <StatCard label="Present Today" value={summary.present_today} icon={UserCheck} tone="green" />
           <StatCard label="Late Today" value={summary.late_today} icon={Clock} tone="lime" />
           <StatCard label="Half Day Today" value={summary.half_day_today} icon={Sunrise} tone="violet" />
+        </div>
+
+        {/* Row 2: 4 cards */}
+        <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-4">
           <StatCard label="Absent Today" value={summary.absent_today} icon={UserX} tone="red" />
           <StatCard label="Pending Leaves" value={summary.pending_leave_requests} icon={Plane} tone="amber" />
           <StatCard label="Pending Corrections" value={summary.pending_corrections} icon={ClipboardEdit} tone="amber" />
-          <StatCard label="Holidays This Month" value={summary.holiday_today || 0} icon={CalendarDays} tone="violet" />
+          <StatCard 
+            label="Holidays This Month"
+            value={summary.holiday_today || 0} 
+            icon={CalendarDays} 
+            tone="violet" 
+          />
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-card">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-ink-900">Today&apos;s Attendance</h2>
-                <p className="mt-1 text-sm text-ink-500">Quick view of check-in status, hours worked and pending reports.</p>
-              </div>
-              <span className="inline-flex rounded-full border border-ink-200 bg-ink-50 px-3 py-1 text-xs text-ink-600">Live update</span>
-            </div>
-          </div>
-
-          <div className="w-full overflow-x-auto rounded-2xl border border-ink-200 bg-white shadow-card">
-            <TodayAttendanceTable />
-          </div>
+        {/* Today's Attendance Table */}
+        <div className="w-full overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+          <TodayAttendanceTable />
         </div>
 
-        <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-card">
+        {/* Attendance Breakdown Chart */}
+        <div className="w-full">
           <AttendanceChart data={attendanceData} />
         </div>
       </div>

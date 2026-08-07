@@ -773,7 +773,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
           {/* Horizontal Scroll */}
           <div className="overflow-x-auto">
-            <table className="min-w-700px w-full text-left text-sm">
+            <table className="min-w-[700px] w-full text-left text-sm">
               <thead className="bg-white">
                 <tr>
                   {hasDynamicStructureForHistory && (
@@ -827,12 +827,12 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
                             {report.duration || "—"}
                           </td>
 
-                          <td className="max-w-300px table-cell-clamp px-4 py-2 text-ink-600" title={report.description || ""}>
+                          <td className="px-4 py-2 min-w-300px">
                             {report.description || "—"}
                           </td>
                         </>
                       ) : (
-                        <td className="px-4 py-2 min-w-300px table-cell-clamp wrap-break" title={report.description || ""}>
+                        <td className="px-4 py-2 min-w-300px">
                           {report.description || "—"}
                         </td>
                       )}

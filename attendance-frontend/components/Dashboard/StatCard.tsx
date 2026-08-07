@@ -24,16 +24,14 @@ const TONE_CLASSES: Record<string, string> = {
 
 export default function StatCard({ label, value, icon: Icon, tone = "brand" }: StatCardProps) {
   return (
-    <div className="flex h-full min-h-[136px] flex-col justify-between rounded-[1rem] border border-ink-200 bg-white p-5 shadow-card">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-500">{label}</p>
-          <p className="mt-3 text-3xl font-semibold tracking-tight text-ink-900">{value}</p>
-        </div>
-        <div className={clsx("flex h-11 w-11 items-center justify-center rounded-2xl", TONE_CLASSES[tone])}>
-          <Icon size={20} />
+    <div className="flex min-h-28 h-full flex-col justify-between rounded-xl border border-ink-200 bg-white p-4 shadow-card">
+      <div className="flex items-center justify-between">
+        <p className="pr-2 text-sm font-medium leading-5 text-ink-500">{label}</p>
+        <div className={clsx("flex h-8 w-8 items-center justify-center rounded-lg", TONE_CLASSES[tone])}>
+          <Icon size={16} />
         </div>
       </div>
+      <p className="mt-2 text-2xl font-semibold text-ink-900">{value}</p>
     </div>
   );
 }
