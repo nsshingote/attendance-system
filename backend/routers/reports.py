@@ -868,14 +868,22 @@ def save_report_data(
 ):
     """Save or update report data for a specific date and subtype."""
     
+    existing_for_date = db.query(DailyReportData).filter(
+        DailyReportData.user_id == current_user.id,
+        DailyReportData.attendance_date == payload.attendance_date,
+    ).first()
     if payload.attendance_date < date.today():
+        request_type = "Edit Report" if existing_for_date else "Missing Report"
+        # The edit grace period is based on the report date, not its submission time.
+        direct_edit_allowed = bool(existing_for_date and payload.attendance_date >= date.today() - timedelta(days=7))
         approval = db.query(PastReportSubmissionRequest).filter(
             PastReportSubmissionRequest.user_id == current_user.id,
             PastReportSubmissionRequest.attendance_date == payload.attendance_date,
+            PastReportSubmissionRequest.request_type == request_type,
             PastReportSubmissionRequest.status == "Approved",
         ).first()
-        if not approval:
-            raise HTTPException(status_code=403, detail="Approval is required before submitting a past-day report")
+        if not direct_edit_allowed and not approval:
+            raise HTTPException(status_code=403, detail="Approval is required before submitting or editing this past-day report")
 
     department_id = _get_user_department_id(db, current_user.id, payload.department_id)
     department = db.query(Department).filter(Department.id == department_id).first()
@@ -1002,16 +1010,19 @@ def request_past_report_submission(
     if not reason:
         raise HTTPException(status_code=422, detail="A reason is required")
 
+    has_report = db.query(DailyReportData.id).filter(DailyReportData.user_id == current_user.id, DailyReportData.attendance_date == attendance_date).first()
+    request_type = "Edit Report" if has_report else "Missing Report"
     request = db.query(PastReportSubmissionRequest).filter(
         PastReportSubmissionRequest.user_id == current_user.id,
         PastReportSubmissionRequest.attendance_date == attendance_date,
+        PastReportSubmissionRequest.request_type == request_type,
     ).first()
     if request and request.status == "Approved":
         return {"id": request.id, "status": request.status, "message": "This date is already approved"}
-    if request and request.status == "Submitted":
-        raise HTTPException(status_code=409, detail="A report has already been submitted for this approved date")
+    if request and request.status == "Pending":
+        raise HTTPException(status_code=409, detail="A request for this report is already pending")
     if request is None:
-        request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date)
+        request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date, request_type=request_type)
         db.add(request)
     request.reason = reason
     request.status = "Pending"
@@ -1019,7 +1030,7 @@ def request_past_report_submission(
     request.reviewed_at = None
     db.commit()
     db.refresh(request)
-    return {"id": request.id, "status": request.status, "message": "Past report submission request sent"}
+    return {"id": request.id, "status": request.status, "request_type": request.request_type, "message": "Past report submission request sent"}
 
 
 @router.get("/past-submission-requests")
@@ -1027,7 +1038,7 @@ def list_past_report_submission_requests(
     db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
     rows = db.query(PastReportSubmissionRequest).order_by(PastReportSubmissionRequest.requested_at.desc()).all()
-    return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]
+    return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "request_type": row.request_type, "status": row.status} for row in rows]
 
 
 @router.get("/past-submission-requests/mine/approved")
@@ -1038,7 +1049,15 @@ def list_my_approved_past_report_dates(
         PastReportSubmissionRequest.user_id == current_user.id,
         PastReportSubmissionRequest.status == "Approved",
     ).order_by(PastReportSubmissionRequest.attendance_date.asc()).all()
-    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat()} for row in rows]
+    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat(), "request_type": row.request_type} for row in rows]
+
+
+@router.get("/past-submission-requests/mine")
+def list_my_past_report_requests(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    rows = db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.user_id == current_user.id).all()
+    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat(), "request_type": row.request_type, "status": row.status} for row in rows]
 
 
 @router.post("/past-submission-requests/{request_id}/complete")
@@ -1058,7 +1077,13 @@ def complete_past_report_submission(
     ).first()
     if not submitted:
         raise HTTPException(status_code=409, detail="Submit the report before completing this approval")
-    request.status = "Submitted"
+    request.status = "Completed"
+    if request.request_type == "Edit Report":
+        log_activity(
+            db,
+            current_user.id,
+            f"Edited report for {request.attendance_date.isoformat()} after approved edit request #{request.id}; reason: {request.reason or '-'}",
+        )
     db.commit()
     return {"message": "Past report submission completed"}
 

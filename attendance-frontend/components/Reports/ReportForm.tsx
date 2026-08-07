@@ -74,6 +74,8 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   const [historyDate, setHistoryDate] = useState<string>("");
   const [pastRequestDate, setPastRequestDate] = useState("");
   const [pastRequestReason, setPastRequestReason] = useState("");
+  const [pastRequestType, setPastRequestType] = useState<"Missing Report" | "Edit Report">("Missing Report");
+  const [myPastRequests, setMyPastRequests] = useState<{ attendance_date: string; request_type: string; status: string }[]>([]);
   const [approvedPastDates, setApprovedPastDates] = useState<{ id: number; attendance_date: string }[]>([]);
   const [activeApprovedDate, setActiveApprovedDate] = useState<string | null>(null);
   
@@ -486,6 +488,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       await api.post("/reports/past-submission-requests", { attendance_date: pastRequestDate, reason: pastRequestReason.trim() });
       toast.success("Permission request sent to the admin");
       setPastRequestReason("");
+      await loadMyPastRequests();
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -517,16 +520,32 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
     }
   };
 
+  const requestEditReport = (attendanceDate: string) => {
+    setPastRequestDate(attendanceDate);
+    setPastRequestType("Edit Report");
+    setPastRequestReason("");
+    setShowHistory(false);
+  };
+
+  const loadMyPastRequests = async () => {
+    try {
+      const res = await api.get("/reports/past-submission-requests/mine");
+      setMyPastRequests(res.data || []);
+    } catch {
+      // Non-fatal: the existing request form is still available.
+    }
+  };
+
   const renderPastReportRequestCard = () => (
     <section className="relative z-10 rounded-xl border border-brand-100 bg-brand-50/50 p-4 sm:p-5">
       <div className="mb-4">
-        <h3 className="text-base font-semibold text-ink-900">Past Report Submission Request</h3>
-        <p className="mt-1 text-sm text-ink-600">Request approval to submit a report for a previous attendance date.</p>
+        <h3 className="text-base font-semibold text-ink-900">{pastRequestType} Request</h3>
+        <p className="mt-1 text-sm text-ink-600">Request approval to {pastRequestType === "Edit Report" ? "edit" : "submit"} a report for a previous attendance date.</p>
       </div>
       <div className="grid gap-4 md:grid-cols-[minmax(12rem,0.35fr)_minmax(0,1fr)] md:items-start">
         <div>
           <label htmlFor="past-request-date" className="mb-1.5 block text-sm font-medium text-ink-700">Attendance Date</label>
-          <input id="past-request-date" type="date" value={pastRequestDate} max={getLocalDateString(new Date(Date.now() - 86400000))} onChange={(e) => setPastRequestDate(e.target.value)} className="ios-date-input w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-base text-ink-900" />
+          <input id="past-request-date" type="date" value={pastRequestDate} max={getLocalDateString(new Date(Date.now() - 86400000))} onChange={(e) => { setPastRequestDate(e.target.value); setPastRequestType("Missing Report"); }} readOnly={pastRequestType === "Edit Report"} className="ios-date-input w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-base text-ink-900" />
         </div>
         <div>
           <label htmlFor="past-request-reason" className="mb-1.5 block text-sm font-medium text-ink-700">Reason <span className="text-status-absent">(required)</span></label>
@@ -534,7 +553,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         </div>
       </div>
       <div className="mt-4 flex justify-end">
-        <button type="button" onClick={requestPastDatePermission} className="touch-action-manipulation min-h-11 w-full rounded-lg bg-brand-500 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-600 active:bg-brand-700 sm:w-auto">Request Approval</button>
+        <button type="button" onClick={requestPastDatePermission} disabled={myPastRequests.some((item) => item.attendance_date === pastRequestDate && item.request_type === pastRequestType && item.status === "Pending")} className="touch-action-manipulation min-h-11 w-full rounded-lg bg-brand-500 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-600 active:bg-brand-700 disabled:opacity-60 sm:w-auto">{myPastRequests.some((item) => item.attendance_date === pastRequestDate && item.request_type === pastRequestType && item.status === "Pending") ? "Request Pending" : "Request Approval"}</button>
       </div>
     </section>
   );
@@ -691,12 +710,12 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       return <p className="text-center py-8 text-ink-500">No past reports found.</p>;
     }
 
-    const isWithin7Days = (date: string) => {
-    const reportDate = new Date(date);
+    const isWithin7Days = (reportDate: string) => {
+    const start = new Date(`${reportDate}T00:00:00`);
     const today = new Date();
-    const diffTime = today.getTime() - reportDate.getTime();
-    const diffDays = diffTime / (1000 * 3600 * 24);
-    return diffDays <= 7;
+    today.setHours(0, 0, 0, 0);
+    const diffDays = (today.getTime() - start.getTime()) / 86400000;
+    return diffDays >= 0 && diffDays <= 7;
   };
 
   const hasDynamicStructureForHistory =
@@ -768,7 +787,9 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             </div>
             {isWithin7Days(group.date) ? (
               <button type="button" onClick={() => handleEditReport(group.date, group.items[0].department_id)} className="touch-action-manipulation min-h-11 rounded-lg border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50">Edit report</button>
-            ) : <span className="text-sm text-ink-400">Expired</span>}
+            ) : myPastRequests.some((item) => item.attendance_date === group.date && item.request_type === "Edit Report" && item.status === "Pending") ? <span className="text-sm text-ink-400">Request Pending</span> : (
+              myPastRequests.some((item) => item.attendance_date === group.date && item.request_type === "Edit Report" && item.status === "Approved") ? <button type="button" onClick={() => handleEditReport(group.date, group.items[0].department_id)} className="touch-action-manipulation min-h-11 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm font-semibold text-green-700 hover:bg-green-100">Approved – Edit Available</button> : <button type="button" onClick={() => requestEditReport(group.date)} className="touch-action-manipulation min-h-11 rounded-lg border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50">Request</button>
+            )}
           </div>
 
           {/* Horizontal Scroll */}
@@ -855,6 +876,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   useEffect(() => {
     loadAllData();
     loadApprovedPastDates();
+    loadMyPastRequests();
   }, []);
 
   // ============================================================

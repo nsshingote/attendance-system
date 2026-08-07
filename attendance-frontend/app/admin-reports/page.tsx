@@ -57,7 +57,7 @@ interface ReportGroup {
   status: string;
   activities: ReportRow[];
 }
-interface PastSubmissionRequest { id: number; user_name: string; attendance_date: string; reason?: string | null; status: string; }
+interface PastSubmissionRequest { id: number; user_name: string; attendance_date: string; reason?: string | null; request_type?: string; status: string; }
 
 function uniqueById<T extends { id: number }>(items: T[]): T[] {
   return Array.from(new Map(items.map((item) => [item.id, item])).values());
@@ -328,7 +328,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
             <div className="mt-2 space-y-2">
               {pastSubmissionRequests.filter((request) => request.status === "Pending").map((request) => (
                 <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
-                  <span><strong>{request.user_name}</strong> · {request.attendance_date}{request.reason ? ` · ${request.reason}` : ""}</span>
+                  <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
                   <span className="flex gap-2">
                     <button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button>
                     <button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button>

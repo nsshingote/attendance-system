@@ -489,13 +489,14 @@ class DailyReportData(Base):
 class PastReportSubmissionRequest(Base):
     """Approval required before a user can add a report for a past date."""
     __tablename__ = "past_report_submission_requests"
-    __table_args__ = (UniqueConstraint("user_id", "attendance_date", name="uq_past_report_request"),)
+    __table_args__ = (UniqueConstraint("user_id", "attendance_date", "request_type", name="uq_past_report_request"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     attendance_date = Column(Date, nullable=False)
     reason = Column(Text, nullable=True)
-    status = Column(Enum("Pending", "Approved", "Rejected", "Submitted", name="past_report_request_status"), default="Pending")
+    request_type = Column(Enum("Missing Report", "Edit Report", name="past_report_request_type"), nullable=False, default="Missing Report")
+    status = Column(Enum("Pending", "Approved", "Rejected", "Submitted", "Completed", name="past_report_request_status"), default="Pending")
     requested_at = Column(TIMESTAMP, server_default=func.now())
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)

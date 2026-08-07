@@ -447,11 +447,12 @@ CREATE TABLE IF NOT EXISTS past_report_submission_requests (
     user_id INT NOT NULL,
     attendance_date DATE NOT NULL,
     reason TEXT,
-    status ENUM('Pending', 'Approved', 'Rejected', 'Submitted') DEFAULT 'Pending',
+    request_type ENUM('Missing Report', 'Edit Report') NOT NULL DEFAULT 'Missing Report',
+    status ENUM('Pending', 'Approved', 'Rejected', 'Submitted', 'Completed') DEFAULT 'Pending',
     requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     reviewed_by INT NULL,
     reviewed_at DATETIME NULL,
-    UNIQUE KEY uq_past_report_request (user_id, attendance_date),
+    UNIQUE KEY uq_past_report_request (user_id, attendance_date, request_type),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
 );
