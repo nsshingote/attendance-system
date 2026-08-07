@@ -100,6 +100,10 @@ class AttendanceCorrection(Base):
     attendance = relationship("Attendance", back_populates="corrections")
     requester = relationship("User", foreign_keys=[requested_by])
 
+    @property
+    def requester_name(self):
+        return self.requester.name if self.requester else None
+
 
 class CompanySettings(Base):
     __tablename__ = "company_settings"

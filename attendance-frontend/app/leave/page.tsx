@@ -28,6 +28,7 @@ import LeaveEncashment from "@/components/Leave/LeaveEncashment";
 import HalfDayForm from "@/components/Attendance/HalfDayForm";
 import WFHForm from "@/components/Attendance/WFHForm";
 import MonthSelector from "@/components/Calendar/MonthSelector";
+import ExpandableText from "@/components/Common/ExpandableText";
 
 interface LeaveBalance {
   user_id: number;
@@ -524,9 +525,9 @@ export default function LeavePage() {
                                   : `${format(parseISO(r.from_date), "dd MMM")} – ${format(parseISO(r.to_date), "dd MMM yyyy")}`}
                               </td>
                               <td className="px-4 py-3 text-ink-700">{r.detail}</td>
-                              <td className="max-w-220px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                              <td className="max-w-52 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={48} /><span className="hidden">
                                 {r.reason ?? "—"}
-                              </td>
+                              </span></td>
                               <td className="px-4 py-3">
                                 <Badge status={r.status} />
                               </td>
@@ -604,9 +605,9 @@ export default function LeavePage() {
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
                           <td className="px-4 py-3 text-ink-700">{SLOT_LABELS[r.slot] ?? r.slot}</td>
-                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                          <td className="max-w-52 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={48} /><span className="hidden">
                             {r.reason ?? "—"}
-                          </td>
+                          </span></td>
                           <td className="px-4 py-3">
                             <Badge status={r.status} />
                           </td>
@@ -663,9 +664,9 @@ export default function LeavePage() {
                         <tr key={r.id} className="hover:bg-ink-50/60">
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
-                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                          <td className="max-w-52 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={48} /><span className="hidden">
                             {r.reason ?? "—"}
-                          </td>
+                          </span></td>
                           <td className="px-4 py-3">
                             <Badge status={r.status} />
                           </td>

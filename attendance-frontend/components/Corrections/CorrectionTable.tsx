@@ -35,11 +35,11 @@ interface CorrectionTableProps {
 }
 
 function formatISTDateTime(isoString: string | null): string {
-  if (!isoString) return "—";
+  if (!isoString) return "Not recorded";
   const date = parseISTDateTime(isoString);
-  if (!date) return isoString || "—";
+  if (!date) return isoString || "Not recorded";
   const datePart = date.toLocaleDateString("en-IN", {
-    day: "2-digit",
+    day: "numeric",
     month: "short",
   });
   const timePart = date.toLocaleTimeString("en-IN", {
@@ -61,31 +61,31 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
 
   return (
     <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-[760px] text-left text-sm">
+      <table className="w-full min-w-[720px] text-left text-sm">
         <thead>
-          <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-            {canDecide && <th className="px-4 py-3 font-medium">Employee</th>}
-            <th className="px-4 py-3 font-medium">Check-In Change</th>
-            <th className="px-4 py-3 font-medium">Check-Out Change</th>
-            <th className="px-4 py-3 font-medium">Correction Reason</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            {canDecide && <th className="px-4 py-3 font-medium text-right">Actions</th>}
+          <tr className="border-b border-ink-200 bg-ink-50 text-[11px] uppercase tracking-wide text-ink-500">
+            {canDecide && <th className="px-3 py-2.5 font-medium">Employee</th>}
+            <th className="px-3 py-2.5 font-medium">Check-In Change</th>
+            <th className="px-3 py-2.5 font-medium">Check-Out Change</th>
+            <th className="px-3 py-2.5 font-medium">Reason</th>
+            <th className="px-3 py-2.5 font-medium">Status</th>
+            {canDecide && <th className="px-3 py-2.5 font-medium text-right">Actions</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
           {corrections.map((c) => (
             <tr key={c.id} className="hover:bg-ink-50/60">
               {canDecide && (
-                <td className="px-4 py-3 font-medium text-ink-900">
+                <td className="px-3 py-2 font-medium text-ink-900">
                   {c.requester_name ?? `User #${c.requested_by}`}
                 </td>
               )}
-              <td className="px-4 py-3 text-xs text-ink-600">
+              <td className="px-3 py-2 text-[11px] text-ink-600">
                 {c.new_check_in ? (
                   <div className="space-y-0.5">
-                    <p className="font-mono">
-                      {c.old_check_in ? formatISTDateTime(c.old_check_in) : "—"}
-                      {" → "}
+                    <p className="font-mono leading-4">
+                      <span>{formatISTDateTime(c.old_check_in)}</span>
+                      <span className="mx-1 text-ink-400">→</span>
                       <span className="font-semibold text-ink-900">{formatISTDateTime(c.new_check_in)}</span>
                     </p>
                   </div>
@@ -93,12 +93,12 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
                   "—"
                 )}
               </td>
-              <td className="px-4 py-3 text-xs text-ink-600">
+              <td className="px-3 py-2 text-[11px] text-ink-600">
                 {c.new_check_out ? (
                   <div className="space-y-0.5">
-                    <p className="font-mono">
-                      {c.old_check_out ? formatISTDateTime(c.old_check_out) : "—"}
-                      {" → "}
+                    <p className="font-mono leading-4">
+                      <span>{formatISTDateTime(c.old_check_out)}</span>
+                      <span className="mx-1 text-ink-400">→</span>
                       <span className="font-semibold text-ink-900">{formatISTDateTime(c.new_check_out)}</span>
                     </p>
                   </div>
@@ -106,10 +106,10 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
                   "—"
                 )}
               </td>
-              <td className="max-w-60 truncate px-3 py-2 text-xs text-ink-600" title={c.reason ?? ""}>
+              <td className="max-w-48 truncate px-3 py-2 text-[11px] text-ink-600" title={c.reason ?? ""}>
                 {c.reason ?? "—"}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-3 py-2">
                 <Badge status={c.status} />
               </td>
               {canDecide && (

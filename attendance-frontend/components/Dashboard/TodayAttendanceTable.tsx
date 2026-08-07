@@ -14,6 +14,7 @@ import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
+import ExpandableText from "@/components/Common/ExpandableText";
 import { parseISTDateTime } from "@/lib/date";
 
 interface AttendanceReportRow {
@@ -118,7 +119,7 @@ export default function TodayAttendanceTable() {
   }, []);
 
   return (
-    <div className="rounded-xl border border-ink-200 bg-white shadow-card">
+    <div className="w-full max-w-full rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="border-b border-ink-200 px-5 py-4">
         <h3 className="text-sm font-semibold text-ink-900">Today&apos;s Attendance</h3>
         <p className="text-xs text-ink-500">{format(new Date(), "EEEE, dd MMMM yyyy")}</p>
@@ -135,18 +136,18 @@ export default function TodayAttendanceTable() {
           <p className="text-sm text-ink-500">No attendance marked yet today.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+        <div className="w-full max-w-full overflow-x-auto">
+          <table className="w-full min-w-[700px] text-left text-sm">
             <thead>
               <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                 <th className="px-4 py-3 font-medium">Employee</th>
                 <th className="px-4 py-3 font-medium">Department</th>
                 <th className="px-4 py-3 font-medium">Check In</th>
                 <th className="px-4 py-3 font-medium">Check Out</th>
-                <th className="px-4 py-3 font-medium">Hours Worked</th>
+                <th className="px-3 py-3 font-medium">Hours</th>
                 <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Late Entry Reason</th>
-                <th className="px-4 py-3 font-medium">Early Logout Reason</th>
+                <th className="px-3 py-3 font-medium">Late Entry</th>
+                <th className="px-3 py-3 font-medium">Early Checkout</th>
                 <th className="px-4 py-3 font-medium">Report</th>
               </tr>
             </thead>
@@ -172,12 +173,12 @@ export default function TodayAttendanceTable() {
                     <td className="px-4 py-3">
                       <Badge status={r.status} />
                     </td>
-                    <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={lateReason || remark}>
+                    <td className="max-w-40 px-3 py-3 text-xs text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={28} /><span className="hidden">
                       {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
-                    </td>
-                    <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={earlyReason || remark}>
+                    </span></td>
+                    <td className="max-w-40 px-3 py-3 text-xs text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={28} /><span className="hidden">
                       {earlyReason || (!lateReason ? remark : "") || "—"}
-                    </td>
+                    </span></td>
                     <td className="px-4 py-3 text-xs font-medium">
                       <span className={isSubmitted ? "text-green-600" : "text-red-500"}>
                         {reportStatus}

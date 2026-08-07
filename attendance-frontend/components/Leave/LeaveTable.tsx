@@ -11,6 +11,7 @@
 import { format, parseISO } from "date-fns";
 import { Check, X } from "lucide-react";
 import Badge from "@/components/Common/Badge";
+import ExpandableText from "@/components/Common/ExpandableText";
 
 export interface LeaveRow {
   id: number;
@@ -165,9 +166,9 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                     {r.leave_category}
                   </span>
                 </td>
-                <td className="max-w-120px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                <td className="max-w-48 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={42} /><span className="hidden">
                   {r.reason ?? "—"}
-                </td>
+                </span></td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <Badge status={r.status} />
                 </td>

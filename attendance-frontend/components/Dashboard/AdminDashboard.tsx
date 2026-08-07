@@ -141,7 +141,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Today's Attendance Table */}
-        <div className="w-full overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+        <div className="w-full min-w-0">
           <TodayAttendanceTable />
         </div>
 

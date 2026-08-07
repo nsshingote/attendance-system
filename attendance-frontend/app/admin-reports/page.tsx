@@ -16,6 +16,7 @@ import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
 import MonthSelector from "@/components/Calendar/MonthSelector";
+import ExpandableText from "@/components/Common/ExpandableText";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 
 interface UserOption {
@@ -373,7 +374,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.subtype_name || "—"}</td>
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.quantity ?? "—"}</td>
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.duration || "—"}</td>
-                        <td className="max-w-64 truncate px-3 py-2 text-ink-700" title={activity.description || ""}>{activity.description || "—"}</td>
+                        <td className="max-w-64 px-3 py-2 text-ink-700"><ExpandableText text={activity.description} limit={52} /></td>
                         {index === 0 && <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={group.status} /></td>}
                       </tr>
                     ))}

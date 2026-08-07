@@ -8,6 +8,7 @@
 import { parseISO } from "date-fns";
 import Badge from "@/components/Common/Badge";
 import { parseISTDateTime } from "@/lib/date";
+import ExpandableText from "@/components/Common/ExpandableText";
 
 export interface AttendanceRecord {
   id: number;
@@ -153,12 +154,12 @@ export default function AttendanceTable({
                 <td className="px-2 py-2 whitespace-nowrap">
                   <Badge status={r.status} />
                 </td>
-                <td className="max-w-60 truncate whitespace-nowrap px-2 py-2 text-[10px] text-ink-500" title={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")}>
+                <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={34} /><span className="hidden">
                   {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
-                </td>
-                <td className="max-w-60 truncate whitespace-nowrap px-2 py-2 text-[10px] text-ink-500" title={earlyReason || (!lateReason ? remark : "")}>
+                </span></td>
+                <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={34} /><span className="hidden">
                   {earlyReason || (!lateReason ? remark : "") || "—"}
-                </td>
+                </span></td>
                 <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">
                   <span className={reportStatus === "✅" ? "text-green-600" : "text-red-500"}>
                     {reportStatus}

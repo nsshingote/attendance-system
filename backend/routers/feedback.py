@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -19,10 +19,14 @@ def create_feedback(payload: FeedbackCreate, db: Session = Depends(get_db), curr
         already_submitted = db.query(Feedback.id).filter(
             Feedback.user_id == current_user.id,
             Feedback.is_anonymous.is_(True),
+            Feedback.feedback_type == payload.feedback_type,
             Feedback.created_at >= datetime(now.year, now.month, 1),
         ).first()
         if already_submitted:
-            raise HTTPException(status_code=400, detail="Anonymous feedback can only be submitted once per calendar month")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Anonymous {payload.feedback_type} feedback can only be submitted once per calendar month",
+            )
     feedback = Feedback(user_id=current_user.id, **payload.model_dump())
     db.add(feedback)
     db.commit()
@@ -35,6 +39,7 @@ def list_feedback(
     year: Optional[int] = Query(None), month: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None), end_date: Optional[datetime] = Query(None),
     search: Optional[str] = Query(None, max_length=200),
+    employee_ids: Optional[List[int]] = Query(None),
     sort: str = Query("newest", pattern="^(newest|oldest)$"),
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db), current_user: User = Depends(require_admin),
@@ -46,6 +51,10 @@ def list_feedback(
     if year and month: query = query.filter(Feedback.created_at >= datetime(year, month, 1), Feedback.created_at < datetime(year + (month == 12), 1 if month == 12 else month + 1, 1))
     if start_date: query = query.filter(Feedback.created_at >= start_date)
     if end_date: query = query.filter(Feedback.created_at <= end_date)
+    # Do not return anonymous feedback for an employee filter: doing so could
+    # reveal an anonymous sender by inference.
+    if employee_ids:
+        query = query.filter(Feedback.is_anonymous.is_(False), Feedback.user_id.in_(employee_ids))
     if search:
         term = f"%{search.strip()}%"
         query = query.outerjoin(User, Feedback.user_id == User.id).filter(

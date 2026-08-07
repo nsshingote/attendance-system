@@ -161,6 +161,7 @@ class CorrectionOut(ORMBase):
     id: int
     attendance_id: int
     requested_by: int
+    requester_name: Optional[str] = None
     reason: Optional[str] = None
     old_check_in: Optional[datetime] = None
     new_check_in: Optional[datetime] = None

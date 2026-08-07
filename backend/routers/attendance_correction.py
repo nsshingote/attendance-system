@@ -5,7 +5,7 @@ Attendance correction requests and approvals.
 
 from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
 from database import get_db
@@ -32,7 +32,7 @@ def get_all_corrections(
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
     """Admin gets all correction requests."""
-    query = db.query(AttendanceCorrection)
+    query = db.query(AttendanceCorrection).options(joinedload(AttendanceCorrection.requester))
     if status:
         query = query.filter(AttendanceCorrection.status == status)
     if date_value is not None:
@@ -122,6 +122,7 @@ def request_correction(
         new_check_out=new_check_out,
         status="Pending"
     )
+    correction.requester = target_user
     db.add(correction)
     db.commit()
     db.refresh(correction)
@@ -143,7 +144,11 @@ def get_my_corrections(
     current_user: User = Depends(get_current_user)
 ):
     """Get current user's correction requests."""
-    query = db.query(AttendanceCorrection).filter(AttendanceCorrection.requested_by == current_user.id)
+    query = (
+        db.query(AttendanceCorrection)
+        .options(joinedload(AttendanceCorrection.requester))
+        .filter(AttendanceCorrection.requested_by == current_user.id)
+    )
     if date_value is not None:
         query = query.filter(AttendanceCorrection.created_at >= datetime.combine(date_value, time.min))
         query = query.filter(AttendanceCorrection.created_at < datetime.combine(date_value + timedelta(days=1), time.min))
@@ -160,9 +165,13 @@ def get_pending_corrections(
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
     """Admin gets all pending correction requests."""
-    return db.query(AttendanceCorrection).filter(
-        AttendanceCorrection.status == "Pending"
-    ).order_by(AttendanceCorrection.created_at.desc()).all()
+    return (
+        db.query(AttendanceCorrection)
+        .options(joinedload(AttendanceCorrection.requester))
+        .filter(AttendanceCorrection.status == "Pending")
+        .order_by(AttendanceCorrection.created_at.desc())
+        .all()
+    )
 
 
 # ------------------------------------------------------------
@@ -180,9 +189,13 @@ def get_user_corrections(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return db.query(AttendanceCorrection).filter(
-        AttendanceCorrection.requested_by == user_id
-    ).order_by(AttendanceCorrection.created_at.desc()).all()
+    return (
+        db.query(AttendanceCorrection)
+        .options(joinedload(AttendanceCorrection.requester))
+        .filter(AttendanceCorrection.requested_by == user_id)
+        .order_by(AttendanceCorrection.created_at.desc())
+        .all()
+    )
 
 
 # ------------------------------------------------------------
@@ -197,9 +210,12 @@ def decide_correction(
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
     """Admin approves or rejects a correction request."""
-    correction = db.query(AttendanceCorrection).filter(
-        AttendanceCorrection.id == correction_id
-    ).first()
+    correction = (
+        db.query(AttendanceCorrection)
+        .options(joinedload(AttendanceCorrection.requester))
+        .filter(AttendanceCorrection.id == correction_id)
+        .first()
+    )
     
     if not correction:
         raise HTTPException(status_code=404, detail="Correction request not found")

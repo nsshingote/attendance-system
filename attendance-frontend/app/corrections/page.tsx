@@ -68,8 +68,8 @@ export default function CorrectionsPage() {
 
   return (
     <AppShell>
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Attendance Corrections</h1>
             <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
@@ -84,7 +84,7 @@ export default function CorrectionsPage() {
               {showDatePicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] w-[260px] rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
                     <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
@@ -96,7 +96,7 @@ export default function CorrectionsPage() {
             </div>
             <button
               onClick={() => setFormOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
             >
               <Plus size={16} />
               Request Correction
@@ -126,7 +126,7 @@ export default function CorrectionsPage() {
             <span className="font-medium">Filtering by date:</span>
             <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
             <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
-          </div>
+         </div>
         )}
 
         {loading ? (
