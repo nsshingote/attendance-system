@@ -467,13 +467,31 @@ def employee_wise_summary(
 # ============================================================
 
 @router.get("/leave-summary")
-def leave_summary(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def leave_summary(
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+):
     users = db.query(User).filter(User.status == "active").all()
     results = []
     for user in users:
         accrue_monthly_leave(db, user)
         used = get_used_paid_leave_days(db, user.id)
         remaining = get_remaining_leave(db, user)
+        leave_query = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == user.id,
+            LeaveRequest.status == "Approved",
+        )
+        if year and month:
+            start_date = date(year, month, 1)
+            end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+            leave_query = leave_query.filter(
+                LeaveRequest.from_date < end_date,
+                LeaveRequest.to_date >= start_date,
+            )
+        approved_leaves = leave_query.all()
+        paid_leave = sum((leave.total_days or 0) for leave in approved_leaves if leave.leave_category == "Paid")
+        unpaid_leave = sum((leave.total_days or 0) for leave in approved_leaves if leave.leave_category == "Unpaid")
         results.append(
             {
                 "user_id": user.id,
@@ -481,6 +499,8 @@ def leave_summary(db: Session = Depends(get_db), current_user: User = Depends(re
                 "department": user.department,
                 "carried_leave": user.carried_leave or 0,
                 "used_leave": used,
+                "paid_leave": paid_leave,
+                "unpaid_leave": unpaid_leave,
                 "leave_encashed": user.leave_encashed or 0,
                 "remaining_leave": remaining,
             }

@@ -165,7 +165,7 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                     {r.leave_category}
                   </span>
                 </td>
-                <td className="max-w-120px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
+                <td className="max-w-120px table-cell-clamp px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                   {r.reason ?? "—"}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">

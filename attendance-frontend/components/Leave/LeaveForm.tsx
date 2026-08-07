@@ -64,6 +64,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   const admin = isAdmin(session?.role);
 
   const [emailOptions, setEmailOptions] = useState<NotificationEmailOption[]>([]);
+  const [recipientLoadError, setRecipientLoadError] = useState<string | null>(null);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -74,8 +75,32 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
     register,
     handleSubmit,
     getValues,
-    formState: { errors },
   } = useForm<LeaveFormValues>();
+
+  const loadRecipientEmails = useCallback(async () => {
+    try {
+      const response = await api.get<NotificationEmailOption[]>("/notification-emails/");
+      const recipients = response.data || [];
+      console.info("[Leave Compose] notification recipient response", {
+        status: response.status,
+        count: recipients.length,
+        recipients,
+        url: response.config.url,
+      });
+      setEmailOptions(recipients);
+      setRecipientLoadError(null);
+      return recipients;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      console.error("[Leave Compose] notification recipient request failed", {
+        message,
+        status: (error as any)?.response?.status,
+        response: (error as any)?.response?.data,
+      });
+      setRecipientLoadError(message);
+      return [];
+    }
+  }, []);
 
   const fetchBalance = useCallback(async () => {
     const userIdToCheck = targetUserId ?? session?.userId;
@@ -89,10 +114,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   }, [targetUserId, session?.userId]);
 
   useEffect(() => {
-    api
-      .get<NotificationEmailOption[]>("/notification-emails/")
-      .then(({ data }) => setEmailOptions(data))
-      .catch(() => {});
+    loadRecipientEmails();
 
     if (admin) {
       api
@@ -100,7 +122,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
         .then(({ data }) => setUsers(data))
         .catch(() => {});
     }
-  }, [admin]);
+  }, [admin, loadRecipientEmails]);
 
   useEffect(() => {
     fetchBalance();
@@ -133,7 +155,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
     }
 };
 
-  const handleComposeEmail = () => {
+  const handleComposeEmail = async () => {
     const values = getValues();
 
     if (!values.from_date || !values.to_date) {
@@ -141,9 +163,16 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
       return;
     }
 
-    const toAddresses = emailOptions.map((opt) => opt.email).filter((email): email is string => !!email);
+    // iOS/WebKit can open the form before the initial effect has completed.
+    // Refresh once at click time before treating the configured list as empty.
+    const recipients = emailOptions.length > 0 ? emailOptions : await loadRecipientEmails();
+    const toAddresses = recipients.map((opt) => opt.email).filter((email): email is string => !!email);
 
     if (toAddresses.length === 0) {
+      if (recipientLoadError) {
+        toast.error(`Unable to load notification recipients: ${recipientLoadError}`);
+        return;
+      }
       toast.error("No notification recipients configured. Add HR emails on the Notification Emails page first.");
       return;
     }
@@ -163,6 +192,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
 
     if (isMobile) {
       const mailtoUrl = `mailto:${toAddresses.join(",")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      console.info("[Leave Compose] opening mailto URL", { mailtoUrl, recipients: toAddresses });
       window.location.href = mailtoUrl;
     } else {
       const gmailComposeUrl =

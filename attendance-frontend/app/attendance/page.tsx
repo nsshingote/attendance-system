@@ -173,24 +173,25 @@ setSummary(
     <AppShell>
       <div className="w-full max-w-full overflow-x-hidden">
         <div className="space-y-4 md:space-y-6 pb-4 md:pb-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-lg md:text-xl font-semibold text-ink-900">Attendance</h1>
-              <p className="text-sm text-ink-500">
-                {admin && selectedUserId !== session?.userId 
-                  ? selectedUserId === -1 
-                    ? "Viewing all employees" 
-                    : "Viewing employee records" 
-                  : "Your attendance history"}
-              </p>
-            </div>
+          <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-card">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h1 className="text-lg md:text-xl font-semibold text-ink-900">Attendance</h1>
+                <p className="text-sm text-ink-500">
+                  {admin && selectedUserId !== session?.userId 
+                    ? selectedUserId === -1 
+                      ? "Viewing all employees" 
+                      : "Viewing employee records" 
+                    : "Your attendance history"}
+                </p>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {admin && (
+              <div className="flex flex-wrap items-center gap-2">
+                {admin && (
                 <select
                   value={selectedUserId}
                   onChange={(e) => setSelectedUserId(Number(e.target.value))}
-                  className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                  className="rounded-2xl border border-ink-200 bg-white px-3 py-2 text-sm"
                 >
                   {userOptions.map((u) => (
                     <option key={u.id} value={u.id}>
@@ -204,12 +205,12 @@ setSummary(
               <div className="relative min-w-45">
                 <button
                   onClick={() => setShowDatePicker(!showDatePicker)}
-                  className={`flex min-w-0 items-center gap-1 rounded-lg border px-3 py-2 text-sm ${
+                  className={`flex min-w-0 items-center gap-2 rounded-2xl border px-3 py-2 text-sm ${
                     selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"
                   }`}
                 >
                   <CalendarIcon size={16} />
-                  {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
+                  <span className="truncate">{selectedDate ? new Date(selectedDate).toLocaleDateString() : "Select date"}</span>
                   {selectedDate && (
                     <span
                       onClick={(e) => {
@@ -229,7 +230,7 @@ setSummary(
                       className="fixed inset-0 z-40"
                       onClick={() => setShowDatePicker(false)}
                     />
-                    <div className="absolute right-0 top-full mt-1 z-50 min-w-55 w-65 rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-55 w-65 rounded-2xl border border-ink-200 bg-white p-3 shadow-lg">
                       <input
                         type="date"
                         value={selectedDate}
@@ -262,16 +263,16 @@ setSummary(
                 )}
               </div>
 
-              <div className="flex rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
+              <div className="flex rounded-2xl border border-ink-200 bg-white p-0.5 text-sm">
                 <button
                   onClick={() => setView("table")}
-                  className={`rounded-md px-3 py-1.5 font-medium ${view === "table" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+                  className={`rounded-2xl px-3 py-1.5 font-medium ${view === "table" ? "bg-brand-500 text-white" : "text-ink-600"}`}
                 >
                   Table
                 </button>
                 <button
                   onClick={() => setView("calendar")}
-                  className={`rounded-md px-3 py-1.5 font-medium ${view === "calendar" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+                  className={`rounded-2xl px-3 py-1.5 font-medium ${view === "calendar" ? "bg-brand-500 text-white" : "text-ink-600"}`}
                 >
                   Calendar
                 </button>
@@ -290,18 +291,41 @@ setSummary(
             </div>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 text-center shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-500">Present</p>
+              <p className="mt-3 text-2xl font-semibold text-ink-900">{summary.Present}</p>
+            </div>
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 text-center shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-500">Half Day</p>
+              <p className="mt-3 text-2xl font-semibold text-ink-900">{summary["Half Day"]}</p>
+            </div>
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 text-center shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-500">Absent</p>
+              <p className="mt-3 text-2xl font-semibold text-ink-900">{summary.Absent}</p>
+            </div>
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 text-center shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-500">Holiday</p>
+              <p className="mt-3 text-2xl font-semibold text-ink-900">{summary.Holiday}</p>
+            </div>
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 text-center shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-500">Leave</p>
+              <p className="mt-3 text-2xl font-semibold text-ink-900">{summary.Leave}</p>
+            </div>
+          </div>
+
           {/* Show active filters */}
           {selectedDate && (
-            <div className="flex items-center gap-2 text-sm text-ink-600">
+            <div className="inline-flex flex-wrap items-center gap-3 rounded-2xl border border-ink-200 bg-ink-50 px-3 py-2 text-sm text-ink-600">
               <span className="font-medium">Filtering by date:</span>
-              <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">
+              <span className="rounded-full bg-white px-3 py-1 text-brand-700 shadow-sm">
                 {new Date(selectedDate).toLocaleDateString()}
               </span>
               <button
                 onClick={clearDateFilter}
-                className="text-ink-400 hover:text-ink-600"
+                className="text-brand-700 underline"
               >
-                × Clear
+                Clear
               </button>
             </div>
           )}
@@ -316,7 +340,7 @@ setSummary(
               showEmployeeName={selectedUserId === -1}
             />
           ) : (
-            <div className="space-y-3">
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 shadow-card">
               <UserCalendar
                 userId={selectedUserId ?? session?.userId!}
                 year={year}
@@ -326,6 +350,7 @@ setSummary(
             </div>
           )}
         </div>
+      </div>
       </div>
 
       <Modal

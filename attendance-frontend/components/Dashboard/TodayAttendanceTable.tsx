@@ -95,15 +95,11 @@ export default function TodayAttendanceTable() {
         params: {
           year: today.getFullYear(),
           month: today.getMonth() + 1,
-          // The API expects date_value; using `date` left the filter unused
-          // and returned every attendance record for the current month.
           date_value: todayIso,
         },
       })
       .then(({ data }) => {
-        setRows(
-          data.sort((a, b) => a.user_name.localeCompare(b.user_name))
-        );
+        setRows(data.sort((a, b) => a.user_name.localeCompare(b.user_name)));
       })
       .catch((error: any) => {
         const msg = getErrorMessage(error);
@@ -118,36 +114,36 @@ export default function TodayAttendanceTable() {
   }, []);
 
   return (
-    <div className="rounded-xl border border-ink-200 bg-white shadow-card">
+    <div className="rounded-[1rem] border border-ink-200 bg-white shadow-card">
       <div className="border-b border-ink-200 px-5 py-4">
         <h3 className="text-sm font-semibold text-ink-900">Today&apos;s Attendance</h3>
-        <p className="text-xs text-ink-500">{format(new Date(), "EEEE, dd MMMM yyyy")}</p>
+        <p className="mt-1 text-sm text-ink-500">{format(new Date(), "EEEE, dd MMMM yyyy")}</p>
       </div>
 
       {loading ? (
         <Loading />
       ) : errorMsg ? (
-        <div className="py-8 px-6 text-center">
+        <div className="py-10 px-6 text-center">
           <p className="text-sm text-ink-500">{errorMsg}</p>
         </div>
       ) : rows.length === 0 ? (
-        <div className="py-12 text-center">
+        <div className="py-10 text-center">
           <p className="text-sm text-ink-500">No attendance marked yet today.</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                <th className="px-4 py-3 font-medium">Employee</th>
-                <th className="px-4 py-3 font-medium">Department</th>
-                <th className="px-4 py-3 font-medium">Check In</th>
-                <th className="px-4 py-3 font-medium">Check Out</th>
-                <th className="px-4 py-3 font-medium">Hours Worked</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Late Entry Reason</th>
-                <th className="px-4 py-3 font-medium">Early Logout Reason</th>
-                <th className="px-4 py-3 font-medium">Report</th>
+          <table className="w-full min-w-[980px] text-left text-sm">
+            <thead className="bg-white">
+              <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-[0.2em] text-ink-500">
+                <th className="px-4 py-3 font-semibold">Employee</th>
+                <th className="px-4 py-3 font-semibold">Department</th>
+                <th className="px-4 py-3 font-semibold">Check In</th>
+                <th className="px-4 py-3 font-semibold">Check Out</th>
+                <th className="px-4 py-3 font-semibold">Hours</th>
+                <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Late Reason</th>
+                <th className="px-4 py-3 font-semibold">Early Reason</th>
+                <th className="px-4 py-3 font-semibold">Report</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
@@ -155,33 +151,25 @@ export default function TodayAttendanceTable() {
                 const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
                 const reportStatus = getReportStatus(r.report, r.has_report);
                 const isSubmitted = reportStatus === "✅ Submitted";
-                
+
                 return (
-                  <tr key={r.user_id} className="hover:bg-ink-50/60">
+                  <tr key={r.user_id} className="hover:bg-ink-50/70">
                     <td className="px-4 py-3 font-medium text-ink-900">{r.user_name}</td>
                     <td className="px-4 py-3 text-ink-600">{r.department}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-600">
-                      {formatLocalTime(r.check_in)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-600">
-                      {formatLocalTime(r.check_out)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-600">
-                      {formatHoursWorked(r.check_in, r.check_out)}
-                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-600">{formatLocalTime(r.check_in)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-600">{formatLocalTime(r.check_out)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-600">{formatHoursWorked(r.check_in, r.check_out)}</td>
                     <td className="px-4 py-3">
-                      <Badge status={r.status} />
+                      <Badge status={r.status} className="text-sm px-3 py-1 rounded-full" />
                     </td>
-                    <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={lateReason || remark}>
+                    <td className="max-w-[220px] table-cell-clamp px-4 py-3 text-sm text-ink-500" title={lateReason || remark}>
                       {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
                     </td>
-                    <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={earlyReason || remark}>
+                    <td className="max-w-[220px] table-cell-clamp px-4 py-3 text-sm text-ink-500" title={earlyReason || remark}>
                       {earlyReason || (!lateReason ? remark : "") || "—"}
                     </td>
-                    <td className="px-4 py-3 text-xs font-medium">
-                      <span className={isSubmitted ? "text-green-600" : "text-red-500"}>
-                        {reportStatus}
-                      </span>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      <span className={isSubmitted ? "text-green-600" : "text-red-500"}>{reportStatus}</span>
                     </td>
                   </tr>
                 );

@@ -163,20 +163,22 @@ export default function UsersPage() {
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold text-ink-900">Users</h1>
-            <p className="text-sm text-ink-500">Manage employees, admins, and their access</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Search placeholder="Search by name, email, mobile" onSearch={(v) => { setSearch(v); setPage(0); }} />
-            <button
-              onClick={openCreateModal}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
-            >
-              <Plus size={16} />
-              Add User
-            </button>
+        <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-card">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-ink-900">Users</h1>
+              <p className="text-sm text-ink-500">Manage employees, admins, and their access</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Search placeholder="Search by name, email, mobile" onSearch={(v) => { setSearch(v); setPage(0); }} />
+              <button
+                onClick={openCreateModal}
+                className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+              >
+                <Plus size={16} />
+                Add User
+              </button>
+            </div>
           </div>
         </div>
 

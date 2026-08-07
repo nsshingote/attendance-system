@@ -108,10 +108,10 @@ export default function AttendanceTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-700px text-left text-xs">
-        <thead>
-          <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
+    <div className="overflow-x-auto rounded-2xl border border-ink-200 bg-white">
+      <table className="w-full min-w-175 text-left text-xs">
+        <thead className="bg-white">
+          <tr className="sticky top-0 z-10 border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
             {showEmployeeName && (
               <th className="px-2 py-2 font-medium">Employee</th>
             )}
@@ -153,10 +153,10 @@ export default function AttendanceTable({
                 <td className="px-2 py-2 whitespace-nowrap">
                   <Badge status={r.status} />
                 </td>
-                <td className="max-w-60 truncate whitespace-nowrap px-2 py-2 text-[10px] text-ink-500" title={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")}>
+                <td className="max-w-60 table-cell-clamp px-2 py-2 text-[10px] text-ink-500" title={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")}>
                   {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
                 </td>
-                <td className="max-w-60 truncate whitespace-nowrap px-2 py-2 text-[10px] text-ink-500" title={earlyReason || (!lateReason ? remark : "")}>
+                <td className="max-w-60 table-cell-clamp px-2 py-2 text-[10px] text-ink-500" title={earlyReason || (!lateReason ? remark : "")}>
                   {earlyReason || (!lateReason ? remark : "") || "—"}
                 </td>
                 <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">

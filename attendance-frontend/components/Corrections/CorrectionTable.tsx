@@ -61,7 +61,7 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
 
   return (
     <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-[760px] text-left text-sm">
+      <table className="w-full min-w-760px text-left text-sm">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
             {canDecide && <th className="px-4 py-3 font-medium">Employee</th>}
@@ -106,7 +106,7 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
                   "—"
                 )}
               </td>
-              <td className="max-w-60 truncate px-3 py-2 text-xs text-ink-600" title={c.reason ?? ""}>
+              <td className="max-w-60 table-cell-clamp px-3 py-2 text-xs text-ink-600" title={c.reason ?? ""}>
                 {c.reason ?? "—"}
               </td>
               <td className="px-4 py-3">
