@@ -43,7 +43,7 @@ export default function UserTable({
 
   return (
     <div className="w-full overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-760px text-left text-sm">
+      <table className="w-full min-w-[680px] text-left text-sm">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
             <th className="px-4 py-3 font-medium">Name</th>
@@ -51,7 +51,7 @@ export default function UserTable({
             <th className="px-4 py-3 font-medium">Department</th>
             <th className="px-4 py-3 font-medium">Role</th>
             <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3 font-medium text-right whitespace-nowrap min-w-170px">
+            <th className="px-3 py-3 font-medium text-right whitespace-nowrap min-w-[130px]">
               Actions
             </th>
           </tr>
@@ -67,7 +67,7 @@ export default function UserTable({
 
               <td className="px-4 py-3 text-ink-700">{u.mobile}</td>
 
-              <td className="px-4 py-3 text-ink-700">{u.department}</td>
+              <td className="max-w-40 truncate px-3 py-3 text-ink-700" title={u.department}>{u.department}</td>
 
               <td className="px-4 py-3 capitalize text-ink-700">
                 {u.role}
@@ -87,8 +87,8 @@ export default function UserTable({
                 </button>
               </td>
 
-              <td className="px-4 py-3 whitespace-nowrap">
-                <div className="flex items-center justify-end gap-2 min-w-170px">
+              <td className="px-3 py-3 whitespace-nowrap">
+                <div className="flex min-w-[130px] items-center justify-end gap-1">
                   <Link
                     href={`/users/${u.id}`}
                     className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800"

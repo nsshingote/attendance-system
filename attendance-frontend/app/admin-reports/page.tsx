@@ -262,8 +262,8 @@ const getTotalDuration = (activities: ReportRow[]) => {
 
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-base font-semibold text-ink-900">Team Reports</h1>
             <p className="text-xs text-ink-500">
@@ -271,11 +271,11 @@ const getTotalDuration = (activities: ReportRow[]) => {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             <select
               value={selectedUserId}
               onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : "")}
-              className="rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+              className="min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
             >
               <option value="">All Employees</option>
               {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
@@ -283,7 +283,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
             <select
               value={selectedDepartmentId}
               onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
-              className="rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+              className="min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
             >
               <option value="">All Departments</option>
               {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -350,7 +350,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
             <p className="text-sm text-ink-500">No reports found.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
+          <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
             <table className="w-full min-w-650px text-left text-xs">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
@@ -379,7 +379,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.subtype_name || "—"}</td>
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.quantity ?? "—"}</td>
                         <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.duration || "—"}</td>
-                        <td className="px-3 py-2 text-ink-700" style={{ wordBreak: "break-word" }}>{activity.description || "—"}</td>
+                        <td className="max-w-64 truncate px-3 py-2 text-ink-700" title={activity.description || ""}>{activity.description || "—"}</td>
                         {index === 0 && <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={group.status} /></td>}
                       </tr>
                     ))}

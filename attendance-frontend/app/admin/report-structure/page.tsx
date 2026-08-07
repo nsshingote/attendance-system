@@ -240,7 +240,7 @@ export default function ReportStructurePage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
+        <div className="rounded-xl border border-ink-200 bg-white p-4 sm:p-6 shadow-card">
           <div className="mb-4">
             <label className="block text-sm font-medium text-ink-700">Select Department</label>
             <select
@@ -269,7 +269,7 @@ export default function ReportStructurePage() {
                     Check the rows that should appear automatically for users in this department.
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
                   <button
                     onClick={() => setShowAddType(true)}
                     className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
@@ -333,7 +333,7 @@ export default function ReportStructurePage() {
 
                 <div className="space-y-4">
                   {allTypes.filter((type) => type.department_id === selectedDept).map((type) => (
-                    <div key={type.id} className="rounded-lg border border-ink-200 p-4">
+                    <div key={type.id} className="rounded-lg border border-ink-200 p-3 sm:p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <p className="font-medium text-ink-900">{type.name}</p>
@@ -341,18 +341,18 @@ export default function ReportStructurePage() {
                         </div>
                         <button
                           onClick={() => handleDeleteType(type.id)}
-                          className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                          className="min-h-11 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 sm:w-auto"
                         >
                           Delete Type
                         </button>
                       </div>
                       <div className="mt-3 space-y-2">
                         {allSubtypes.filter((subtype) => subtype.type_id === type.id && subtype.is_active).map((subtype) => (
-                          <div key={subtype.id} className="flex items-center justify-between rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
+                          <div key={subtype.id} className="flex flex-col gap-2 rounded-lg border border-ink-200 bg-ink-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                             <span className="text-sm text-ink-700">{subtype.name}</span>
                             <button
                               onClick={() => handleDeleteSubtype(subtype.id)}
-                              className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                              className="min-h-10 w-full rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 sm:w-auto"
                             >
                               Delete Subtype
                             </button>

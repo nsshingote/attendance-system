@@ -86,11 +86,48 @@ main {
   padding: 1rem;
 }
 
+/* Consistent form controls and compact, touch-friendly admin layouts. */
+button,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select {
+  min-height: 2.75rem;
+}
+
+textarea {
+  min-height: auto;
+}
+
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.overflow-x-auto > table {
+  min-width: max-content;
+  max-width: none;
+}
+
+/* Keep long table content compact; individual cells expose full text via title. */
+main table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+main table th {
+  white-space: nowrap;
+}
+
 @media (max-width: 768px) {
   .main-content,
   main {
     padding: 0.75rem;
   }
+
+  main h1 { font-size: 1.125rem; }
+  main h2, main h3 { line-height: 1.3; }
+  main .rounded-xl { border-radius: 0.75rem; }
+  main table th, main table td { padding-left: 0.625rem; padding-right: 0.625rem; }
+  main .flex.w-fit { max-width: 100%; overflow-x: auto; }
 }
 
 /* Sidebar fixes */

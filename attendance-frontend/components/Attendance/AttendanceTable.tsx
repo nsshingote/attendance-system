@@ -153,10 +153,10 @@ export default function AttendanceTable({
                 <td className="px-2 py-2 whitespace-nowrap">
                   <Badge status={r.status} />
                 </td>
-                <td className="px-2 py-2 text-[10px] text-ink-500 whitespace-nowrap max-w-60px truncate">
+                <td className="max-w-60 truncate whitespace-nowrap px-2 py-2 text-[10px] text-ink-500" title={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")}>
                   {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
                 </td>
-                <td className="px-2 py-2 text-[10px] text-ink-500 whitespace-nowrap max-w-60px truncate">
+                <td className="max-w-60 truncate whitespace-nowrap px-2 py-2 text-[10px] text-ink-500" title={earlyReason || (!lateReason ? remark : "")}>
                   {earlyReason || (!lateReason ? remark : "") || "—"}
                 </td>
                 <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">

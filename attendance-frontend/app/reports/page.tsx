@@ -166,7 +166,7 @@ export default function ReportsPage() {
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Reports</h1>
             <p className="text-sm text-ink-500">Employee-wise attendance and leave summaries</p>
@@ -176,7 +176,7 @@ export default function ReportsPage() {
             <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
             <button
               onClick={handleDownloadCSV}
-              className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
+              className="min-h-11 flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
             >
               <Download size={15} />
               CSV
@@ -217,7 +217,7 @@ export default function ReportsPage() {
           <Loading />
         ) : tab === "attendance" ? (
           <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full text-left text-sm">
+            <table className="w-full min-w-[820px] text-left text-sm">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
@@ -250,7 +250,7 @@ export default function ReportsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full text-left text-sm">
+            <table className="w-full min-w-[700px] text-left text-sm">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
