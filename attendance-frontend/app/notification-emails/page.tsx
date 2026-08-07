@@ -105,33 +105,52 @@ export default function NotificationEmailsPage() {
             <p className="text-sm text-ink-500">No notification emails configured.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-100">
-                {emails.map((e) => (
-                  <tr key={e.id} className="hover:bg-ink-50/60">
-                    <td className="px-4 py-3 text-ink-600">{e.email}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => handleDelete(e.id)}
-                          className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
-                          aria-label="Delete"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
+          <div className="rounded-xl border border-ink-200 bg-white shadow-card">
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium text-right">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-ink-100">
+                  {emails.map((e) => (
+                    <tr key={e.id} className="hover:bg-ink-50/60">
+                      <td className="px-4 py-3 text-ink-600">{e.email}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => handleDelete(e.id)}
+                            className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
+                            aria-label="Delete"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2 p-2 sm:hidden">
+              {emails.map((e) => (
+                <div key={e.id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm text-ink-700">{e.email}</p>
+                    <button
+                      onClick={() => handleDelete(e.id)}
+                      className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
+                      aria-label="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

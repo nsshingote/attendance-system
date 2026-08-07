@@ -69,12 +69,12 @@ export default function CorrectionsPage() {
   return (
     <AppShell>
       <div className="space-y-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Attendance Corrections</h1>
             <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <div className="relative">
               <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-sm ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
                 <CalendarIcon size={16} />
@@ -105,16 +105,16 @@ export default function CorrectionsPage() {
         </div>
 
         {admin && (
-          <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
+          <div className="flex w-full flex-wrap rounded-lg border border-ink-200 bg-white p-0.5 text-sm sm:w-fit">
             <button
               onClick={() => setTab("all")}
-              className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "all" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+              className={`flex-1 rounded-md px-3.5 py-1.5 font-medium sm:flex-none ${tab === "all" ? "bg-brand-500 text-white" : "text-ink-600"}`}
             >
               All Requests
             </button>
             <button
               onClick={() => setTab("mine")}
-              className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+              className={`flex-1 rounded-md px-3.5 py-1.5 font-medium sm:flex-none ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
             >
               My Requests
             </button>

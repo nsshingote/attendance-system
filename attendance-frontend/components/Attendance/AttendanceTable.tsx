@@ -109,79 +109,117 @@ export default function AttendanceTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-700px text-left text-xs">
-        <thead>
-          <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
-            {showEmployeeName && (
-              <th className="px-2 py-2 font-medium">Employee</th>
-            )}
-            <th className="px-2 py-2 font-medium">Date</th>
-            <th className="px-2 py-2 font-medium">In</th>
-            <th className="px-2 py-2 font-medium">Out</th>
-            <th className="px-2 py-2 font-medium">Hours</th>
-            <th className="px-2 py-2 font-medium">Status</th>
-            <th className="px-2 py-2 font-medium">Late</th>
-            <th className="px-2 py-2 font-medium">Early</th>
-            <th className="px-2 py-2 font-medium">Report</th>
-            {showRequestCorrection && <th className="px-2 py-2 font-medium">Action</th>}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-ink-100">
-          {records.map((r) => {
-            const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
-            const reportStatus = getReportStatus(r.report, r.has_report);
-            
-            return (
-              <tr key={r.id} className="hover:bg-ink-50/60">
-                {showEmployeeName && (
-                  <td className="px-2 py-2 text-ink-800 whitespace-nowrap font-medium">
-                    {r.user_name || "Unknown"}
+    <div className="rounded-lg border border-ink-200 bg-white">
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-700px text-left text-xs">
+          <thead>
+            <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
+              {showEmployeeName && (
+                <th className="px-2 py-2 font-medium">Employee</th>
+              )}
+              <th className="px-2 py-2 font-medium">Date</th>
+              <th className="px-2 py-2 font-medium">In</th>
+              <th className="px-2 py-2 font-medium">Out</th>
+              <th className="px-2 py-2 font-medium">Hours</th>
+              <th className="px-2 py-2 font-medium">Status</th>
+              <th className="px-2 py-2 font-medium">Late</th>
+              <th className="px-2 py-2 font-medium">Early</th>
+              <th className="px-2 py-2 font-medium">Report</th>
+              {showRequestCorrection && <th className="px-2 py-2 font-medium">Action</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-ink-100">
+            {records.map((r) => {
+              const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
+              const reportStatus = getReportStatus(r.report, r.has_report);
+              
+              return (
+                <tr key={r.id} className="hover:bg-ink-50/60">
+                  {showEmployeeName && (
+                    <td className="px-2 py-2 text-ink-800 whitespace-nowrap font-medium">
+                      {r.user_name || "Unknown"}
+                    </td>
+                  )}
+                  <td className="px-2 py-2 text-ink-800 whitespace-nowrap">
+                    {formatDateOnly(r.attendance_date)}
                   </td>
-                )}
-                <td className="px-2 py-2 text-ink-800 whitespace-nowrap">
-                  {formatDateOnly(r.attendance_date)}
-                </td>
-                <td className="px-2 py-2 font-mono text-[11px] text-ink-600 whitespace-nowrap">
-                  {r.check_in ? formatTime(r.check_in) : "—"}
-                </td>
-                <td className="px-2 py-2 font-mono text-[11px] text-ink-600 whitespace-nowrap">
-                  {r.check_out ? formatTime(r.check_out) : "—"}
-                </td>
-                <td className="px-2 py-2 font-mono text-[11px] text-ink-600 whitespace-nowrap">
-                  {formatHoursWorked(r.check_in, r.check_out)}
-                </td>
-                <td className="px-2 py-2 whitespace-nowrap">
-                  <Badge status={r.status} />
-                </td>
-                <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={34} /><span className="hidden">
-                  {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
-                </span></td>
-                <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={34} /><span className="hidden">
-                  {earlyReason || (!lateReason ? remark : "") || "—"}
-                </span></td>
-                <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">
-                  <span className={reportStatus === "✅" ? "text-green-600" : "text-red-500"}>
-                    {reportStatus}
-                  </span>
-                </td>
-                {showRequestCorrection && (
+                  <td className="px-2 py-2 font-mono text-[11px] text-ink-600 whitespace-nowrap">
+                    {r.check_in ? formatTime(r.check_in) : "—"}
+                  </td>
+                  <td className="px-2 py-2 font-mono text-[11px] text-ink-600 whitespace-nowrap">
+                    {r.check_out ? formatTime(r.check_out) : "—"}
+                  </td>
+                  <td className="px-2 py-2 font-mono text-[11px] text-ink-600 whitespace-nowrap">
+                    {formatHoursWorked(r.check_in, r.check_out)}
+                  </td>
                   <td className="px-2 py-2 whitespace-nowrap">
-                    {r.check_out && (
-                      <button
-                        onClick={() => onRequestCorrection?.(r)}
-                        className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
-                      >
-                        Correct
-                      </button>
-                    )}
+                    <Badge status={r.status} />
                   </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={34} /><span className="hidden">
+                    {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
+                  </span></td>
+                  <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={34} /><span className="hidden">
+                    {earlyReason || (!lateReason ? remark : "") || "—"}
+                  </span></td>
+                  <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">
+                    <span className={reportStatus === "✅" ? "text-green-600" : "text-red-500"}>
+                      {reportStatus}
+                    </span>
+                  </td>
+                  {showRequestCorrection && (
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      {r.check_out && (
+                        <button
+                          onClick={() => onRequestCorrection?.(r)}
+                          className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
+                        >
+                          Correct
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="space-y-2 p-2 md:hidden">
+        {records.map((r) => {
+          const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
+          const reportStatus = getReportStatus(r.report, r.has_report);
+          return (
+            <div key={r.id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  {showEmployeeName && <p className="text-sm font-semibold text-ink-900">{r.user_name || "Unknown"}</p>}
+                  <p className="text-[11px] text-ink-500">{formatDateOnly(r.attendance_date)}</p>
+                </div>
+                <Badge status={r.status} />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-ink-700">
+                <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Check In</p><p className="mt-1 font-mono">{r.check_in ? formatTime(r.check_in) : "—"}</p></div>
+                <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Check Out</p><p className="mt-1 font-mono">{r.check_out ? formatTime(r.check_out) : "—"}</p></div>
+                <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Hours</p><p className="mt-1 font-mono">{formatHoursWorked(r.check_in, r.check_out)}</p></div>
+                <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Report</p><p className={`mt-1 font-medium ${reportStatus === "✅" ? "text-green-600" : "text-red-500"}`}>{reportStatus}</p></div>
+              </div>
+              {(lateReason || earlyReason || remark) && (
+                <div className="mt-2 rounded-md bg-ink-50 px-2 py-2 text-[11px] text-ink-600">
+                  {lateReason && <p><span className="font-semibold text-ink-700">Late:</span> {lateReason}</p>}
+                  {earlyReason && <p><span className="font-semibold text-ink-700">Early:</span> {earlyReason}</p>}
+                  {remark && !lateReason && !earlyReason && <p>{remark}</p>}
+                </div>
+              )}
+              {showRequestCorrection && r.check_out && (
+                <button onClick={() => onRequestCorrection?.(r)} className="mt-2 w-full rounded-md bg-brand-50 px-2.5 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100">
+                  Request correction
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

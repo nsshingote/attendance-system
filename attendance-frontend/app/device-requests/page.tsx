@@ -68,50 +68,92 @@ export default function DeviceRequestsPage() {
             <p className="text-sm text-ink-500">No pending device requests.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                  <th className="px-4 py-3 font-medium">User ID</th>
-                  <th className="px-4 py-3 font-medium">Device</th>
-                  <th className="px-4 py-3 font-medium">Browser</th>
-                  <th className="px-4 py-3 font-medium">Requested</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-100">
-                {requests.map((r) => (
-                  <tr key={r.id} className="hover:bg-ink-50/60">
-                    <td className="px-4 py-3 text-ink-700">#{r.user_id}</td>
-                    <td className="px-4 py-3 text-ink-700">{r.device_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-ink-700">{r.browser_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-ink-600">{format(parseISO(r.requested_at), "dd MMM, hh:mm a")}</td>
-                    <td className="px-4 py-3">
-                      <Badge status={r.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1.5">
-                        <button
-                          onClick={() => handleDecide(r.id, "Approved")}
-                          className="rounded-md bg-green-50 p-1.5 text-green-700 hover:bg-green-100"
-                          aria-label="Approve"
-                        >
-                          <Check size={15} />
-                        </button>
-                        <button
-                          onClick={() => handleDecide(r.id, "Rejected")}
-                          className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
-                          aria-label="Reject"
-                        >
-                          <X size={15} />
-                        </button>
-                      </div>
-                    </td>
+          <div className="rounded-xl border border-ink-200 bg-white shadow-card">
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                    <th className="px-4 py-3 font-medium">User ID</th>
+                    <th className="px-4 py-3 font-medium">Device</th>
+                    <th className="px-4 py-3 font-medium">Browser</th>
+                    <th className="px-4 py-3 font-medium">Requested</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-ink-100">
+                  {requests.map((r) => (
+                    <tr key={r.id} className="hover:bg-ink-50/60">
+                      <td className="px-4 py-3 text-ink-700">#{r.user_id}</td>
+                      <td className="px-4 py-3 text-ink-700">{r.device_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-ink-700">{r.browser_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-ink-600">{format(parseISO(r.requested_at), "dd MMM, hh:mm a")}</td>
+                      <td className="px-4 py-3">
+                        <Badge status={r.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            onClick={() => handleDecide(r.id, "Approved")}
+                            className="rounded-md bg-green-50 p-1.5 text-green-700 hover:bg-green-100"
+                            aria-label="Approve"
+                          >
+                            <Check size={15} />
+                          </button>
+                          <button
+                            onClick={() => handleDecide(r.id, "Rejected")}
+                            className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
+                            aria-label="Reject"
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2 p-2 sm:hidden">
+              {requests.map((r) => (
+                <div key={r.id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
+                  <div className="flex items-start justify-between gap-2 border-b border-ink-100 pb-2">
+                    <div>
+                      <p className="text-sm font-semibold text-ink-900">#{r.user_id}</p>
+                      <p className="text-[11px] text-ink-500">{format(parseISO(r.requested_at), "dd MMM, hh:mm a")}</p>
+                    </div>
+                    <Badge status={r.status} />
+                  </div>
+                  <div className="mt-2 space-y-2 text-xs text-ink-700">
+                    <div className="rounded-md bg-ink-50 px-2 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Device</p>
+                      <p className="mt-1">{r.device_name ?? "—"}</p>
+                    </div>
+                    <div className="rounded-md bg-ink-50 px-2 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Browser</p>
+                      <p className="mt-1">{r.browser_name ?? "—"}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => handleDecide(r.id, "Approved")}
+                      className="flex flex-1 items-center justify-center gap-1 rounded-md bg-green-50 px-2.5 py-2 text-xs font-semibold text-green-700 hover:bg-green-100"
+                      aria-label="Approve"
+                    >
+                      <Check size={14} /> Approve
+                    </button>
+                    <button
+                      onClick={() => handleDecide(r.id, "Rejected")}
+                      className="flex flex-1 items-center justify-center gap-1 rounded-md bg-red-50 px-2.5 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                      aria-label="Reject"
+                    >
+                      <X size={14} /> Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
