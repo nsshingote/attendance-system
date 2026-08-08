@@ -44,7 +44,7 @@ export default function UserTable({
   return (
     <div className="w-full rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-left text-xs sm:text-sm">
+        <table className="w-full min-w-720px text-left text-xs sm:text-sm">
           <thead>
             <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
               <th className="px-3 py-3 font-medium sm:px-4">Name</th>
@@ -52,7 +52,7 @@ export default function UserTable({
               <th className="px-3 py-3 font-medium sm:px-4">Department</th>
               <th className="px-3 py-3 font-medium sm:px-4">Role</th>
               <th className="px-3 py-3 font-medium sm:px-4">Status</th>
-              <th className="min-w-[130px] px-3 py-3 text-right font-medium whitespace-nowrap sm:px-3">
+              <th className="min-w-130px px-3 py-3 text-right font-medium whitespace-nowrap sm:px-3">
                 Actions
               </th>
             </tr>
@@ -89,7 +89,7 @@ export default function UserTable({
                 </td>
 
                 <td className="px-3 py-3 whitespace-nowrap sm:px-3">
-                  <div className="flex min-w-[130px] items-center justify-end gap-1">
+                  <div className="flex min-w-130px items-center justify-end gap-1">
                     <Link
                       href={`/users/${u.id}`}
                       className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800"
