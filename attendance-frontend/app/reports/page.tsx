@@ -287,99 +287,66 @@ export default function ReportsPage() {
         {loading ? (
           <Loading />
         ) : tab === "attendance" ? (
-          <div className="rounded-1rem border border-ink-200 bg-white shadow-card">
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-820px text-left text-sm">
-                <thead className="bg-white">
-                  <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                    <th className="px-4 py-3 font-medium">Employee</th>
-                    <th className="px-4 py-3 font-medium">Present</th>
-                    <th className="px-4 py-3 font-medium">Absent</th>
-                    <th className="px-4 py-3 font-medium">Half Day</th>
-                    <th className="px-4 py-3 font-medium">Late</th>
-                    <th className="px-4 py-3 font-medium">Paid Leave</th>
-                    <th className="px-4 py-3 font-medium">LWP</th>
-                    <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
-                    <th className="px-4 py-3 font-medium">Encashed</th>
+          <div className="overflow-x-auto rounded-1rem border border-ink-200 bg-white shadow-card">
+            <table className="w-full min-w-820px text-left text-sm">
+              <thead className="bg-white">
+                <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                  <th className="px-4 py-3 font-medium">Employee</th>
+                  <th className="px-4 py-3 font-medium">Present</th>
+                  <th className="px-4 py-3 font-medium">Absent</th>
+                  <th className="px-4 py-3 font-medium">Half Day</th>
+                  <th className="px-4 py-3 font-medium">Late</th>
+                  <th className="px-4 py-3 font-medium">Paid Leave</th>
+                  <th className="px-4 py-3 font-medium">LWP</th>
+                  <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
+                  <th className="px-4 py-3 font-medium">Encashed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {employeeSummary.map((r) => (
+                  <tr key={r.user_id} className="hover:bg-ink-50/60">
+                    <td className="px-4 py-3 font-medium text-ink-900">{r.name}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.Present}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.Absent}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Half Day"]}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.Late}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.Encashed}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-100">
-                  {employeeSummary.map((r) => (
-                    <tr key={r.user_id} className="hover:bg-ink-50/60">
-                      <td className="px-4 py-3 font-medium text-ink-900">{r.name}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.Present}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.Absent}</td>
-                      <td className="px-4 py-3 text-ink-700">{r["Half Day"]}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.Late}</td>
-                      <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
-                      <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.Encashed}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="space-y-2 p-2 sm:hidden">
-              {employeeSummary.map((r) => (
-                <div key={r.user_id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
-                  <p className="text-sm font-semibold text-ink-900">{r.name}</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-ink-700">
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Present</p><p className="mt-1">{r.Present}</p></div>
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Absent</p><p className="mt-1">{r.Absent}</p></div>
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Half Day</p><p className="mt-1">{r["Half Day"]}</p></div>
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Late</p><p className="mt-1">{r.Late}</p></div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
-          <div className="rounded-1rem border border-ink-200 bg-white shadow-card">
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-700px text-left text-sm">
-                <thead className="bg-white">
-                  <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                    <th className="px-4 py-3 font-medium">Employee</th>
-                    <th className="px-4 py-3 font-medium">Department</th>
-                    <th className="px-4 py-3 font-medium">Paid Leave</th>
-                    <th className="px-4 py-3 font-medium">Unpaid Leave</th>
-                    <th className="px-4 py-3 font-medium">Carried Leave</th>
-                    <th className="px-4 py-3 font-medium">Encashed</th>
-                    <th className="px-4 py-3 font-medium">Remaining</th>
+          <div className="overflow-x-auto rounded-1rem border border-ink-200 bg-white shadow-card">
+            <table className="w-full min-w-700px text-left text-sm">
+              <thead className="bg-white">
+                <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                  <th className="px-4 py-3 font-medium">Employee</th>
+                  <th className="px-4 py-3 font-medium">Department</th>
+                  <th className="px-4 py-3 font-medium">Paid Leave</th>
+                  <th className="px-4 py-3 font-medium">Unpaid Leave</th>
+                  <th className="px-4 py-3 font-medium">Carried Leave</th>
+                  <th className="px-4 py-3 font-medium">Encashed</th>
+                  <th className="px-4 py-3 font-medium">Remaining</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {leaveSummary.map((r) => (
+                  <tr key={r.user_id} className="hover:bg-ink-50/60">
+                    <td className="px-4 py-3 font-medium text-ink-900">{r.name}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.department}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.paid_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.unpaid_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.carried_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.leave_encashed}</td>
+                    <td className="px-4 py-3 font-medium text-ink-900">{r.remaining_leave}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-100">
-                  {leaveSummary.map((r) => (
-                    <tr key={r.user_id} className="hover:bg-ink-50/60">
-                      <td className="px-4 py-3 font-medium text-ink-900">{r.name}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.department}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.paid_leave}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.unpaid_leave}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.carried_leave}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.leave_encashed}</td>
-                      <td className="px-4 py-3 font-medium text-ink-900">{r.remaining_leave}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="space-y-2 p-2 sm:hidden">
-              {leaveSummary.map((r) => (
-                <div key={r.user_id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
-                  <p className="text-sm font-semibold text-ink-900">{r.name}</p>
-                  <p className="mt-1 text-[11px] text-ink-500">{r.department}</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-ink-700">
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Paid Leave</p><p className="mt-1">{r.paid_leave}</p></div>
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Unpaid Leave</p><p className="mt-1">{r.unpaid_leave}</p></div>
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Carried Leave</p><p className="mt-1">{r.carried_leave}</p></div>
-                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Remaining</p><p className="mt-1">{r.remaining_leave}</p></div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
