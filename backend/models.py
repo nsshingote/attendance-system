@@ -165,7 +165,7 @@ class LeaveRequest(Base):
     reason = Column(Text, nullable=True)
     status = Column(Enum("Pending", "Approved", "Rejected", name="leave_status"), default="Pending")
     leave_category = Column(
-        Enum("Paid", "Carried", "Unpaid", name="leave_category"),
+        Enum("Paid", "Carried", "Unpaid", "Privilege", name="leave_category"),
         default="Unpaid",
     )
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)

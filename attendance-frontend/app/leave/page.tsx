@@ -28,7 +28,6 @@ import LeaveEncashment from "@/components/Leave/LeaveEncashment";
 import HalfDayForm from "@/components/Attendance/HalfDayForm";
 import WFHForm from "@/components/Attendance/WFHForm";
 import MonthSelector from "@/components/Calendar/MonthSelector";
-import ExpandableText from "@/components/Common/ExpandableText";
 
 interface LeaveBalance {
   user_id: number;
@@ -118,7 +117,7 @@ export default function LeavePage() {
   const [tab, setTab] = useState<Tab>("mine");
   const [categoryModalLeaveId, setCategoryModalLeaveId] = useState<number | null>(null);
   const [approvalLeaveId, setApprovalLeaveId] = useState<number | null>(null);
-  const [approvalCategory, setApprovalCategory] = useState<"Paid" | "Unpaid">("Paid");
+  const [approvalCategory, setApprovalCategory] = useState<"Paid" | "Unpaid" | "Carried" | "Privilege">("Paid");
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
@@ -204,14 +203,22 @@ export default function LeavePage() {
     fetchAll();
   }, [fetchAll]);
 
-  const handleDecide = async (id: number, status: "Approved" | "Rejected") => {
+  const handleDecide = async (
+    id: number,
+    status: "Approved" | "Rejected",
+    currentCategory?: string
+  ) => {
     if (!id) {
       toast.error("Invalid leave request ID");
       return;
     }
     if (status === "Approved") {
       setApprovalLeaveId(id);
-      setApprovalCategory("Paid");
+      setApprovalCategory(
+        currentCategory === "Privilege" || currentCategory === "Carried"
+          ? currentCategory
+          : "Paid"
+      );
       return;
     }
     try {
@@ -227,7 +234,10 @@ export default function LeavePage() {
   const confirmLeaveApproval = async () => {
     if (!approvalLeaveId) return;
     try {
-      await api.put(`/leave/${approvalLeaveId}/decide`, { status: "Approved", leave_category: approvalCategory });
+      await api.put(`/leave/${approvalLeaveId}/decide`, {
+        status: "Approved",
+        leave_category: approvalCategory,
+      });
       toast.success(`Leave request approved as ${approvalCategory} Leave`);
       setApprovalLeaveId(null);
       fetchAll();
@@ -359,7 +369,7 @@ export default function LeavePage() {
               {showDatePicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] w-[260px] rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
                     <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
@@ -525,9 +535,9 @@ export default function LeavePage() {
                                   : `${format(parseISO(r.from_date), "dd MMM")} – ${format(parseISO(r.to_date), "dd MMM yyyy")}`}
                               </td>
                               <td className="px-4 py-3 text-ink-700">{r.detail}</td>
-                              <td className="max-w-52 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={48} /><span className="hidden">
+                              <td className="max-w-220px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                                 {r.reason ?? "—"}
-                              </span></td>
+                              </td>
                               <td className="px-4 py-3">
                                 <Badge status={r.status} />
                               </td>
@@ -605,9 +615,9 @@ export default function LeavePage() {
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
                           <td className="px-4 py-3 text-ink-700">{SLOT_LABELS[r.slot] ?? r.slot}</td>
-                          <td className="max-w-52 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={48} /><span className="hidden">
+                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                             {r.reason ?? "—"}
-                          </span></td>
+                          </td>
                           <td className="px-4 py-3">
                             <Badge status={r.status} />
                           </td>
@@ -664,9 +674,9 @@ export default function LeavePage() {
                         <tr key={r.id} className="hover:bg-ink-50/60">
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
-                          <td className="max-w-52 px-4 py-3 text-ink-600"><ExpandableText text={r.reason} limit={48} /><span className="hidden">
+                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
                             {r.reason ?? "—"}
-                          </span></td>
+                          </td>
                           <td className="px-4 py-3">
                             <Badge status={r.status} />
                           </td>
@@ -809,11 +819,50 @@ export default function LeavePage() {
         isOpen={approvalLeaveId !== null}
         onClose={() => setApprovalLeaveId(null)}
         title="Approve Leave Request"
-        footer={<><button onClick={() => setApprovalLeaveId(null)} className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600">Cancel</button><button onClick={confirmLeaveApproval} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white">Confirm</button></>}
+        footer={
+          <>
+            <button
+              onClick={() => setApprovalLeaveId(null)}
+              className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmLeaveApproval}
+              className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Confirm
+            </button>
+          </>
+        }
       >
         <p className="mb-4 text-sm text-ink-600">Approve as:</p>
-        <label className="mb-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3"><input type="radio" checked={approvalCategory === "Paid"} onChange={() => setApprovalCategory("Paid")} /> Paid Leave</label>
-        <label className="flex items-center gap-2 rounded-lg border border-ink-200 p-3"><input type="radio" checked={approvalCategory === "Unpaid"} onChange={() => setApprovalCategory("Unpaid")} /> Unpaid Leave</label>
+        <label className="mb-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3">
+          <input type="radio" checked={approvalCategory === "Paid"} onChange={() => setApprovalCategory("Paid")} /> Paid Leave
+        </label>
+        <label className="mb-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3">
+          <input type="radio" checked={approvalCategory === "Unpaid"} onChange={() => setApprovalCategory("Unpaid")} /> Unpaid Leave
+        </label>
+        {(approvalCategory === "Privilege" || approvalCategory === "Carried") && (
+          <label className="flex items-center gap-2 rounded-lg border border-ink-200 p-3">
+            <input
+              type="radio"
+              checked={approvalCategory === "Privilege"}
+              onChange={() => setApprovalCategory("Privilege")}
+            />
+            Privilege Leave
+          </label>
+        )}
+        {approvalCategory === "Carried" && (
+          <label className="mt-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3">
+            <input
+              type="radio"
+              checked={approvalCategory === "Carried"}
+              onChange={() => setApprovalCategory("Carried")}
+            />
+            Carried Leave
+          </label>
+        )}
       </Modal>
 
       <Modal

@@ -64,6 +64,19 @@ LEAVE_TRACKING_START_DATE = date(2026, 8, 1)
 # Leave categories that actually consume the year's balance. Emergency,
 # Sick, Unpaid, and Privilege do NOT draw from this quota.
 BALANCE_CONSUMING_CATEGORIES = ("Paid", "Carried")
+NON_BALANCE_CONSUMING_CATEGORIES = ("Unpaid", "Privilege", "Emergency", "Sick")
+
+
+def count_leave_category_days(leave_requests) -> dict[str, int]:
+    """Count approved leave days by category for summary and reporting."""
+    counts = {category: 0 for category in ("Paid", "Carried", "Unpaid", "Privilege")}
+    for leave_request in leave_requests or []:
+        if getattr(leave_request, "status", None) != "Approved":
+            continue
+        category = getattr(leave_request, "leave_category", None)
+        if category in counts:
+            counts[category] += int(getattr(leave_request, "total_days", 0) or 0)
+    return counts
 
 
 def has_approved_or_pending_paid_leave_this_month(db: Session, user_id: int, on_date: date) -> bool:

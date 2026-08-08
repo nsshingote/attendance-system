@@ -170,7 +170,7 @@ def apply_leave(
     total_days = calculate_total_days(payload.from_date, payload.to_date)
     
     # Validate leave category
-    requested_category = "Unpaid"
+    requested_category = payload.leave_category or "Unpaid"
     
     # Check if leave type exists (if provided)
     if payload.leave_type_id:
@@ -434,9 +434,10 @@ def decide_leave(
         raise HTTPException(status_code=404, detail="Target user not found")
 
     if payload.status == "Approved":
-        if payload.leave_category not in ("Paid", "Unpaid"):
-            raise HTTPException(status_code=400, detail="Choose Paid or Unpaid Leave when approving")
-        leave_request.leave_category = payload.leave_category
+        if payload.leave_category:
+            if payload.leave_category not in ("Paid", "Unpaid", "Carried", "Privilege"):
+                raise HTTPException(status_code=400, detail="Choose a valid leave category when approving")
+            leave_request.leave_category = payload.leave_category
     
     leave_request.status = payload.status
     leave_request.approved_by = current_user.id
@@ -471,7 +472,10 @@ def decide_leave(
                     detail=f"Insufficient carried leave balance. Available: {carried_balance}"
                 )
             target_user.carried_leave -= total_days
-        
+        elif leave_request.leave_category == "Privilege":
+            # Privilege leave does not consume paid/carried balance.
+            pass
+
         # Mark attendance as "On Leave" for the approved leave days
         mark_leave_in_attendance(db, leave_request.user_id, leave_request.from_date, leave_request.to_date)
     

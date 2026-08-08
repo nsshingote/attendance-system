@@ -80,11 +80,69 @@ export default function FeedbackPage() {
 
   const table = (feedbackType: FeedbackType, rows: Feedback[], total: number, page: number, setPage: (value: number) => void) => {
     const positiveType = feedbackType === "positive";
-    return <section className={`overflow-hidden rounded-xl border ${positiveType ? "border-green-200" : "border-red-200"} bg-white shadow-card`}>
-      <header className={`flex items-center justify-between border-b px-4 py-3 ${positiveType ? "border-green-200 bg-green-50/70 text-green-700" : "border-red-200 bg-red-50/70 text-red-700"}`}><div className="flex items-center gap-2 font-semibold">{positiveType ? <ThumbsUp size={19} /> : <ThumbsDown size={19} />}{positiveType ? "Positive Feedback" : "Negative Feedback"}</div><span className={`rounded-md px-2 py-0.5 text-sm font-semibold ${positiveType ? "bg-green-100" : "bg-red-100"}`}>{total}</span></header>
-      <div className="overflow-x-auto"><table className="w-full min-w-130 text-left text-sm"><thead className="bg-ink-50 text-xs text-ink-500"><tr><th className="px-4 py-3 font-medium">By</th><th className="px-4 py-3 font-medium">Feedback</th><th className="px-4 py-3 font-medium">Date</th></tr></thead><tbody className="divide-y divide-ink-100">{rows.map((item) => <tr key={item.id} className="align-top hover:bg-ink-50/60"><td className="whitespace-nowrap px-4 py-3 font-medium text-ink-900">{item.is_anonymous ? "Anonymous" : item.employee_name}</td><td className="px-4 py-3 text-ink-700">{item.description}</td><td className="whitespace-nowrap px-4 py-3 text-xs leading-5 text-ink-600">{dateTime(item.created_at)}{superAdmin && <button onClick={() => remove(item.id)} className="mt-1 flex items-center gap-1 text-red-600"><Trash2 size={12} /> Delete</button>}</td></tr>)}{rows.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-ink-500">No feedback found.</td></tr>}</tbody></table></div>
-      <footer className="flex items-center justify-between gap-2 px-4 py-3 text-sm text-ink-500"><span>Showing {(total ? (page - 1) * PAGE_SIZE + 1 : 0)} to {Math.min(page * PAGE_SIZE, total)} of {total} entries</span><div className="flex gap-1"><button aria-label="Previous page" disabled={page === 1} onClick={() => setPage(page - 1)} className="rounded border border-ink-200 p-1.5 disabled:opacity-40"><ChevronLeft size={16} /></button><span className="rounded bg-brand-500 px-3 py-1.5 text-white">{page}</span><button aria-label="Next page" disabled={page * PAGE_SIZE >= total} onClick={() => setPage(page + 1)} className="rounded border border-ink-200 p-1.5 disabled:opacity-40"><ChevronRight size={16} /></button></div></footer>
-    </section>;
+    return (
+      <section className={`overflow-hidden rounded-xl border ${positiveType ? "border-green-200" : "border-red-200"} bg-white shadow-card`}>
+        <header className={`flex items-center justify-between border-b px-3 py-3 sm:px-4 ${positiveType ? "border-green-200 bg-green-50/70 text-green-700" : "border-red-200 bg-red-50/70 text-red-700"}`}>
+          <div className="flex items-center gap-2 font-semibold">
+            {positiveType ? <ThumbsUp size={19} /> : <ThumbsDown size={19} />}
+            {positiveType ? "Positive Feedback" : "Negative Feedback"}
+          </div>
+          <span className={`rounded-md px-2 py-0.5 text-sm font-semibold ${positiveType ? "bg-green-100" : "bg-red-100"}`}>{total}</span>
+        </header>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-xs sm:text-sm">
+            <thead className="bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
+              <tr>
+                <th className="px-3 py-3 font-medium sm:px-4">By</th>
+                <th className="px-3 py-3 font-medium sm:px-4">Feedback</th>
+                <th className="px-3 py-3 font-medium sm:px-4">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-100">
+              {rows.map((item) => (
+                <tr key={item.id} className="align-top hover:bg-ink-50/60">
+                  <td className="whitespace-nowrap px-3 py-3 font-medium text-ink-900 sm:px-4">
+                    {item.is_anonymous ? "Anonymous" : item.employee_name}
+                  </td>
+                  <td className="px-3 py-3 text-ink-700 sm:px-4">{item.description}</td>
+                  <td className="whitespace-nowrap px-3 py-3 text-[11px] leading-5 text-ink-600 sm:px-4 sm:text-xs">
+                    {dateTime(item.created_at)}
+                    {superAdmin && (
+                      <button onClick={() => remove(item.id)} className="mt-1 flex items-center gap-1 text-red-600">
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-4 py-8 text-center text-ink-500">
+                    No feedback found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <footer className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 text-sm text-ink-500 sm:px-4">
+          <span>
+            Showing {(total ? (page - 1) * PAGE_SIZE + 1 : 0)} to {Math.min(page * PAGE_SIZE, total)} of {total} entries
+          </span>
+          <div className="flex gap-1">
+            <button aria-label="Previous page" disabled={page === 1} onClick={() => setPage(page - 1)} className="rounded border border-ink-200 p-1.5 disabled:opacity-40">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="rounded bg-brand-500 px-3 py-1.5 text-white">{page}</span>
+            <button aria-label="Next page" disabled={page * PAGE_SIZE >= total} onClick={() => setPage(page + 1)} className="rounded border border-ink-200 p-1.5 disabled:opacity-40">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </footer>
+      </section>
+    );
   };
 
   return <AppShell allowedRoles={admin ? ["admin", "superadmin"] : ["user"]}><div className="space-y-5"><div><h1 className="text-2xl font-semibold text-ink-900">Feedback</h1><p className="mt-1 text-sm text-ink-500">{admin ? "Review employee feedback" : "Share feedback with your organization"}</p></div>
