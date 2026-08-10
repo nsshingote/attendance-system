@@ -807,6 +807,23 @@ def attendance_calendar(
     return calendar_days
 
 
+def _add_monthly_summary_counts(summary: dict, status: str, attendance_record) -> None:
+    """Update monthly attendance summary counts for a single attendance record."""
+    if status in ("Present", "Late"):
+        summary["Present"] += 1
+    elif status == "Half Day":
+        summary["Half Day"] += 1
+        summary["Present"] += 1
+    elif status == "Holiday":
+        summary["Holiday"] += 1
+    elif status == "WFH":
+        summary["WFH"] += 1
+        if attendance_record.check_in and attendance_record.check_out:
+            summary["Present"] += 1
+    elif status == "Absent":
+        summary["Absent"] += 1
+
+
 @router.get("/summary/{user_id}")
 def monthly_summary(
     user_id: int,
@@ -848,8 +865,25 @@ def monthly_summary(
         .all()
     }
 
+    approved_leave_dates = set()
+    approved_unpaid_leave_dates = set()
+    for leave in db.query(LeaveRequest).filter(
+        LeaveRequest.user_id == user_id,
+        LeaveRequest.status == "Approved",
+        LeaveRequest.from_date <= end_date,
+        LeaveRequest.to_date >= start_date,
+    ).all():
+        leave_start = max(leave.from_date, start_date)
+        leave_end = min(leave.to_date, end_date)
+        current_date = leave_start
+        while current_date <= leave_end:
+            approved_leave_dates.add(current_date)
+            if leave.leave_category == "Unpaid":
+                approved_unpaid_leave_dates.add(current_date)
+            current_date += timedelta(days=1)
+
     # Summary counts
-    summary = {"Present": 0, "Half Day": 0, "Holiday": 0, "WFH": 0}
+    summary = {"Present": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0}
     
     # Calculate total working hours
     total_hours = 0.0
@@ -857,17 +891,11 @@ def monthly_summary(
     processed_dates = set()
     for r in records:
         status = determine_attendance_status_for_date(db, user_id, r.attendance_date)
+        if r.attendance_date in approved_leave_dates and status != "WFH":
+            status = "On Leave"
         processed_dates.add(r.attendance_date)
-        # Count Present (including Late), plus WFH and Half Day reports
-        if status in ("Present", "Late"):
-            summary["Present"] += 1
-        elif status == "Half Day":
-            summary["Half Day"] += 1
-        elif status == "Holiday":
-            summary["Holiday"] += 1
-        elif status == "WFH":
-            summary["WFH"] += 1
-        
+        _add_monthly_summary_counts(summary, status, r)
+
         # Calculate working hours
         if r.check_in and r.check_out:
             hours = (r.check_out - r.check_in).total_seconds() / 3600
@@ -877,18 +905,10 @@ def monthly_summary(
         summary["WFH"] += 1
 
     # Count leave days in this month (all approved leaves)
-    leave_days = (
-        db.query(func.coalesce(func.sum(LeaveRequest.total_days), 0))
-        .filter(
-            LeaveRequest.user_id == user_id,
-            LeaveRequest.status == "Approved",
-            LeaveRequest.from_date <= end_date,
-            LeaveRequest.to_date >= start_date,
-        )
-        .scalar()
-    )
-    
+    leave_days = len(approved_leave_dates)
     summary["Leave"] = int(leave_days or 0)
+
+    summary["Absent"] += len(approved_unpaid_leave_dates - processed_dates)
     summary["Total Hours"] = round(total_hours, 2)
 
     return summary

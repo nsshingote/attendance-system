@@ -48,12 +48,12 @@ to today. For each month boundary crossed:
 Capped at 60 months per call as a safety limit against runaway loops.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, or_
 
-from models import LeaveRequest, User, LeaveEncashmentRequest
+from models import LeaveRequest, LeaveRequestAllocation, User, LeaveEncashmentRequest
 
 MAX_MONTHS_PER_ACCRUAL_RUN = 60
 
@@ -73,27 +73,57 @@ def count_leave_category_days(leave_requests) -> dict[str, int]:
     for leave_request in leave_requests or []:
         if getattr(leave_request, "status", None) != "Approved":
             continue
+        if hasattr(leave_request, "allocations") and leave_request.allocations:
+            for alloc in leave_request.allocations:
+                if alloc.leave_category in counts:
+                    counts[alloc.leave_category] += 1
+            continue
         category = getattr(leave_request, "leave_category", None)
         if category in counts:
             counts[category] += int(getattr(leave_request, "total_days", 0) or 0)
     return counts
 
 
-def has_approved_or_pending_paid_leave_this_month(db: Session, user_id: int, on_date: date) -> bool:
-    """True if the user already has a Pending or Approved 'Paid' leave
-    request with a from_date falling in the given month."""
-    exists = (
-        db.query(LeaveRequest)
-        .filter(
-            LeaveRequest.user_id == user_id,
-            LeaveRequest.leave_category == "Paid",
-            LeaveRequest.status.in_(["Pending", "Approved"]),
-            extract("year", LeaveRequest.from_date) == on_date.year,
-            extract("month", LeaveRequest.from_date) == on_date.month,
-        )
-        .first()
+def _has_paid_leave_in_month(
+    db: Session,
+    user_id: int,
+    on_date: date,
+    exclude_leave_id: int | None = None,
+) -> bool:
+    query = db.query(LeaveRequest).filter(
+        LeaveRequest.user_id == user_id,
+        LeaveRequest.status.in_(["Pending", "Approved"]),
     )
-    return exists is not None
+    if exclude_leave_id is not None:
+        query = query.filter(LeaveRequest.id != exclude_leave_id)
+
+    legacy_paid_exists = query.filter(
+        LeaveRequest.leave_category == "Paid",
+        extract("year", LeaveRequest.from_date) == on_date.year,
+        extract("month", LeaveRequest.from_date) == on_date.month,
+    ).first()
+    if legacy_paid_exists:
+        return True
+
+    allocated_paid_exists = query.join(LeaveRequest.allocations).filter(
+        LeaveRequestAllocation.leave_category == "Paid",
+        extract("year", LeaveRequestAllocation.allocation_date) == on_date.year,
+        extract("month", LeaveRequestAllocation.allocation_date) == on_date.month,
+    ).first()
+    return allocated_paid_exists is not None
+
+
+def has_approved_or_pending_paid_leave_this_month(db: Session, user_id: int, on_date: date) -> bool:
+    return _has_paid_leave_in_month(db, user_id, on_date)
+
+
+def has_other_approved_or_pending_paid_leave_this_month(
+    db: Session,
+    user_id: int,
+    on_date: date,
+    exclude_leave_id: int | None = None,
+) -> bool:
+    return _has_paid_leave_in_month(db, user_id, on_date, exclude_leave_id=exclude_leave_id)
 
 
 def accrue_monthly_leave(db: Session, user: User) -> User:
@@ -145,9 +175,69 @@ def accrue_monthly_leave(db: Session, user: User) -> User:
     return user
 
 
+def refresh_leave_accrual(db: Session, user: User) -> User:
+    """Compatibility wrapper used by routers: ensure accrual state is up-to-date.
+
+    Some router code expects a function named `refresh_leave_accrual`. The
+    underlying behavior is implemented in `accrue_monthly_leave`; expose a
+    thin wrapper so imports succeed and callers get the same semantics.
+    """
+    return accrue_monthly_leave(db, user)
+
+
 def get_carried_leave_balance(db: Session, user: User) -> int:
     accrue_monthly_leave(db, user)
     return user.carried_leave or 0
+
+
+def _get_date_range(from_date: date, to_date: date) -> list[date]:
+    days = []
+    current_date = from_date
+    while current_date <= to_date:
+        days.append(current_date)
+        current_date += timedelta(days=1)
+    return days
+
+
+def allocate_leave_days(db: Session, user: User, from_date: date, to_date: date, submission_date: date | None = None) -> list[tuple[date, str]]:
+    submission_date = submission_date or date.today()
+    advanced = (from_date - submission_date).days >= 4
+    allocations = []
+
+    if not advanced:
+        return [(day, "Unpaid") for day in _get_date_range(from_date, to_date)]
+
+    carried_balance = get_carried_leave_balance(db, user)
+    paid_months_used: set[tuple[int, int]] = set()
+
+    for allocation_date in _get_date_range(from_date, to_date):
+        month_key = (allocation_date.year, allocation_date.month)
+        if month_key not in paid_months_used and not has_approved_or_pending_paid_leave_this_month(db, user.id, allocation_date):
+            allocations.append((allocation_date, "Paid"))
+            paid_months_used.add(month_key)
+        elif carried_balance > 0:
+            allocations.append((allocation_date, "Carried"))
+            carried_balance -= 1
+        else:
+            allocations.append((allocation_date, "Unpaid"))
+
+    return allocations
+
+
+def summarize_allocations(allocations: list[tuple[date, str]]) -> str:
+    counts: dict[str, int] = {}
+    for _, category in allocations:
+        counts[category] = counts.get(category, 0) + 1
+    if len(counts) == 1:
+        return next(iter(counts))
+    return ", ".join(f"{value} {key}" for key, value in counts.items())
+
+
+def compute_request_category_from_allocations(allocations: list[tuple[date, str]]) -> str:
+    categories = {category for _, category in allocations}
+    if len(categories) == 1:
+        return next(iter(categories))
+    return "Unpaid"
 
 
 def paid_leave_available_this_month(db: Session, user: User, on_date: date | None = None) -> bool:
@@ -164,17 +254,28 @@ def paid_leave_available_this_month(db: Session, user: User, on_date: date | Non
 
 
 def get_used_paid_leave_days(db: Session, user_id: int) -> int:
-    """Sum of total_days for Approved + Paid leave requests, all-time."""
-    used = (
+    """Sum of approved paid leave days across allocations and legacy requests."""
+    paid_allocated = (
+        db.query(func.coalesce(func.count(LeaveRequestAllocation.id), 0))
+        .join(LeaveRequest)
+        .filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status == "Approved",
+            LeaveRequestAllocation.leave_category == "Paid",
+        )
+        .scalar()
+    )
+    legacy_paid = (
         db.query(func.coalesce(func.sum(LeaveRequest.total_days), 0))
         .filter(
             LeaveRequest.user_id == user_id,
             LeaveRequest.status == "Approved",
             LeaveRequest.leave_category == "Paid",
+            ~LeaveRequest.allocations.any(),
         )
         .scalar()
     )
-    return int(used or 0)
+    return int((paid_allocated or 0) + (legacy_paid or 0))
 
 
 def get_leave_year_bounds(year: int):
@@ -200,21 +301,32 @@ def get_leave_year_quota(year: int) -> int:
 
 
 def get_used_balance_days_this_year(db: Session, user_id: int, year: int) -> int:
-    """Sum of total_days across Approved Paid + Carried leave requests
-    whose from_date falls within the given leave year. Emergency, Sick,
-    Unpaid, and Privilege don't consume the balance, so they're excluded."""
+    """Sum of approved Paid/Carried leave days for the year, using allocations when present."""
     start, end = get_leave_year_bounds(year)
-    used = (
+    allocated = (
+        db.query(func.coalesce(func.count(LeaveRequestAllocation.id), 0))
+        .join(LeaveRequest)
+        .filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status == "Approved",
+            LeaveRequestAllocation.leave_category.in_(BALANCE_CONSUMING_CATEGORIES),
+            LeaveRequestAllocation.allocation_date >= start,
+            LeaveRequestAllocation.allocation_date <= end,
+        )
+        .scalar()
+    )
+    legacy = (
         db.query(func.coalesce(func.sum(LeaveRequest.total_days), 0))
         .filter(
             LeaveRequest.user_id == user_id,
             LeaveRequest.status == "Approved",
             LeaveRequest.leave_category.in_(BALANCE_CONSUMING_CATEGORIES),
+            ~LeaveRequest.allocations.any(),
             LeaveRequest.from_date.between(start, end),
         )
         .scalar()
     )
-    return int(used or 0)
+    return int((allocated or 0) + (legacy or 0))
 
 
 def get_encashed_days_this_year(db: Session, user_id: int, year: int) -> int:

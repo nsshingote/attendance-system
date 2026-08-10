@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     total_days INT,
     reason TEXT,
     status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
-    leave_category ENUM('Paid', 'Carried', 'Unpaid', 'Privilege') DEFAULT 'Unpaid',
+    leave_category ENUM('Paid', 'Carried', 'Unpaid', 'Privilege', 'Emergency', 'Sick') DEFAULT 'Unpaid',
     approved_by INT,
     approved_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -108,7 +108,20 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 );
 
 -- ============================================================
--- 7. NOTIFICATION EMAILS TABLE
+-- 7. LEAVE REQUEST ALLOCATIONS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS leave_request_allocations (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    leave_request_id INT NOT NULL,
+    allocation_date DATE NOT NULL,
+    leave_category ENUM('Paid', 'Carried', 'Unpaid', 'Privilege', 'Emergency', 'Sick') NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (leave_request_id) REFERENCES leave_requests(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_leave_request_allocation_date (leave_request_id, allocation_date)
+);
+
+-- ============================================================
+-- 8. NOTIFICATION EMAILS TABLE
 -- ============================================================
 CREATE TABLE IF NOT EXISTS notification_emails (
     id INT PRIMARY KEY AUTO_INCREMENT,

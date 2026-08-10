@@ -165,7 +165,7 @@ class LeaveRequest(Base):
     reason = Column(Text, nullable=True)
     status = Column(Enum("Pending", "Approved", "Rejected", name="leave_status"), default="Pending")
     leave_category = Column(
-        Enum("Paid", "Carried", "Unpaid", "Privilege", name="leave_category"),
+        Enum("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick", name="leave_category"),
         default="Unpaid",
     )
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -177,11 +177,43 @@ class LeaveRequest(Base):
     leave_type = relationship("LeaveType")
     approver = relationship("User", foreign_keys=[approved_by])
     notification_links = relationship("LeaveNotificationEmail", back_populates="leave_request")
+    allocations = relationship(
+        "LeaveRequestAllocation",
+        back_populates="leave_request",
+        cascade="all, delete-orphan",
+        lazy="joined",
+    )
+
+    @property
+    def allocation_summary(self):
+        if not self.allocations:
+            return self.leave_category
+        categories = {alloc.leave_category for alloc in self.allocations}
+        if len(categories) == 1:
+            return categories.pop()
+        return "Mixed"
 
     @property
     def user_name(self):
         """Employee name for leave-request lists; keep the user ID for internal use."""
         return self.user.name if self.user else None
+
+
+class LeaveRequestAllocation(Base):
+    __tablename__ = "leave_request_allocations"
+    __table_args__ = (
+        UniqueConstraint("leave_request_id", "allocation_date", name="uq_leave_request_allocation_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    leave_request_id = Column(Integer, ForeignKey("leave_requests.id"), nullable=False)
+    allocation_date = Column(Date, nullable=False)
+    leave_category = Column(
+        Enum("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick", name="leave_category"),
+        nullable=False,
+    )
+
+    leave_request = relationship("LeaveRequest", back_populates="allocations")
 
 
 class NotificationEmail(Base):

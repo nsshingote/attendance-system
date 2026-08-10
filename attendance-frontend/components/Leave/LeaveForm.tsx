@@ -47,7 +47,7 @@ interface UserOption {
 }
 
 interface LeaveBalance {
-  paid_leave_available_this_month: boolean;
+  paid_leave_available_this_month: number;
   carried_leave: number;
   leave_encashed: number;
   remaining_leave: number;
@@ -139,29 +139,27 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   const onSubmit = async (values: LeaveFormValues) => {
     setSubmitting(true);
     try {
-        // ✅ Build payload WITHOUT user_id first
-        const payload: any = {
-            from_date: values.from_date,
-            to_date: values.to_date,
-            reason: values.reason,
-        };
-        
-        // ✅ Only add user_id if a user is selected (not "Myself")
-        if (targetUserId) {
-            payload.user_id = targetUserId;
-        }
-        
-        await api.post("/leave/", payload);
-        toast.success(
-            targetUserId ? "Leave request submitted on the employee's behalf" : "Leave request submitted"
-        );
-        onSuccess();
+      const payload: any = {
+        from_date: values.from_date,
+        to_date: values.to_date,
+        reason: values.reason,
+      };
+
+      if (targetUserId) {
+        payload.user_id = targetUserId;
+      }
+
+      await api.post("/leave/", payload);
+      toast.success(
+        targetUserId ? "Leave request submitted on the employee's behalf" : "Leave request submitted"
+      );
+      onSuccess();
     } catch (error) {
-        toast.error(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     } finally {
-        setSubmitting(false);
+      setSubmitting(false);
     }
-};
+  };
 
   const handleComposeEmail = async () => {
     const values = getValues();

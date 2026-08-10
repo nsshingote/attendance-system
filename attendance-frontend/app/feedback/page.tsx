@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BellRing, ChevronLeft, ChevronRight, CircleUserRound, MessageSquareMore, Plus, Search, SlidersHorizontal, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { BellRing, ChevronLeft, ChevronRight, CircleUserRound, MessageSquareMore, Plus, SlidersHorizontal, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Common/Modal";
@@ -37,12 +37,11 @@ export default function FeedbackPage() {
   const [month, setMonth] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [search, setSearch] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
 
-  const query = (feedbackType: FeedbackType, page: number) => ({ feedback_type: feedbackType, visibility: visibility || undefined, year: month ? Number(month.slice(0, 4)) : undefined, month: month ? Number(month.slice(5, 7)) : undefined, start_date: startDate || undefined, end_date: endDate ? `${endDate}T23:59:59` : undefined, search: search || undefined, employee_ids: selectedEmployeeIds.length ? selectedEmployeeIds : undefined, sort, page, page_size: PAGE_SIZE });
+  const query = (feedbackType: FeedbackType, page: number) => ({ feedback_type: feedbackType, visibility: visibility || undefined, year: month ? Number(month.slice(0, 4)) : undefined, month: month ? Number(month.slice(5, 7)) : undefined, start_date: startDate || undefined, end_date: endDate ? `${endDate}T23:59:59` : undefined, employee_ids: selectedEmployeeIds.length ? selectedEmployeeIds : undefined, sort, page, page_size: PAGE_SIZE });
   const load = async () => {
     if (!admin) return;
     try {
@@ -55,7 +54,7 @@ export default function FeedbackPage() {
       setStats(positiveResponse.data.stats);
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
-  useEffect(() => { load(); }, [admin, visibility, month, startDate, endDate, search, selectedEmployeeIds, sort, positivePage, negativePage]);
+  useEffect(() => { load(); }, [admin, visibility, month, startDate, endDate, selectedEmployeeIds, sort, positivePage, negativePage]);
   useEffect(() => { if (admin) api.get<EmployeeOption[]>("/users/").then(({ data }) => setEmployees(data)).catch(() => {}); }, [admin]);
 
   const resetPages = () => { setPositivePage(1); setNegativePage(1); };
@@ -91,7 +90,7 @@ export default function FeedbackPage() {
         </header>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-xs sm:text-sm">
+          <table className="w-full table-auto text-left text-xs sm:text-sm">
             <thead className="bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
               <tr>
                 <th className="px-3 py-3 font-medium sm:px-4">By</th>
@@ -102,11 +101,11 @@ export default function FeedbackPage() {
             <tbody className="divide-y divide-ink-100">
               {rows.map((item) => (
                 <tr key={item.id} className="align-top hover:bg-ink-50/60">
-                  <td className="whitespace-nowrap px-3 py-3 font-medium text-ink-900 sm:px-4">
+                  <td className="px-3 py-3 font-medium text-ink-900 sm:px-4">
                     {item.is_anonymous ? "Anonymous" : item.employee_name}
                   </td>
-                  <td className="px-3 py-3 text-ink-700 sm:px-4">{item.description}</td>
-                  <td className="whitespace-nowrap px-3 py-3 text-[11px] leading-5 text-ink-600 sm:px-4 sm:text-xs">
+                  <td className="wrap-break-words px-3 py-3 text-ink-700 sm:px-4">{item.description}</td>
+                  <td className="px-3 py-3 text-[11px] leading-5 text-ink-600 sm:px-4 sm:text-xs">
                     {dateTime(item.created_at)}
                     {superAdmin && (
                       <button onClick={() => remove(item.id)} className="mt-1 flex items-center gap-1 text-red-600">
@@ -146,8 +145,8 @@ export default function FeedbackPage() {
   };
 
   return <AppShell allowedRoles={admin ? ["admin", "superadmin"] : ["user"]}><div className="space-y-5"><div><h1 className="text-2xl font-semibold text-ink-900">Feedback</h1><p className="mt-1 text-sm text-ink-500">{admin ? "Review employee feedback" : "Share feedback with your organization"}</p></div>
-    {admin ? <><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{cards.map(([label, value, Icon, color]) => <div key={label} className="flex items-center gap-4 rounded-xl border border-ink-200 bg-white p-4 shadow-card"><span className={`rounded-full p-3 ${color}`}><Icon size={23} /></span><div><p className="text-sm text-ink-600">{label}</p><p className="mt-1 text-2xl font-semibold text-ink-900">{value}</p></div></div>)}</div>
-      <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card"><div className="grid gap-4 lg:grid-cols-4"><label className="text-sm font-medium text-ink-700">Select Employees<span className="mt-2 block"><EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={(ids) => { setSelectedEmployeeIds(ids); resetPages(); }} /></span></label><label className="text-sm font-medium text-ink-700"><span className="mb-2 flex items-center gap-2"><Search size={16} />Feedback Search</span><input value={search} onChange={(e) => { setSearch(e.target.value); resetPages(); }} placeholder="Search feedback text" className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm font-normal" /></label><label className="text-sm font-medium text-ink-700"><span className="mb-2 flex items-center gap-2"><SlidersHorizontal size={16} />Sort By</span><select value={sort} onChange={(e) => { setSort(e.target.value as "newest" | "oldest"); resetPages(); }} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm font-normal"><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label><label className="text-sm font-medium text-ink-700">Feedback Type<select value={visibility} onChange={(e) => { setVisibility(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm font-normal"><option value="">All Feedback</option><option value="anonymous">Anonymous</option><option value="known">Known</option></select></label></div><div className="mt-4 grid gap-4 sm:grid-cols-3"><label className="text-sm font-medium text-ink-700">From<input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm font-normal" /></label><label className="text-sm font-medium text-ink-700">To<input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm font-normal" /></label><label className="text-sm font-medium text-ink-700">Month<input type="month" value={month} onChange={(e) => { setMonth(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm font-normal" /></label></div></div>
-      <div className="grid gap-5 xl:grid-cols-2">{table("positive", positive, positiveTotal, positivePage, setPositivePage)}{table("negative", negative, negativeTotal, negativePage, setNegativePage)}</div><p className="flex items-center justify-center gap-2 text-sm text-ink-500"><BellRing size={16} />Anonymous feedback does not reveal the identity of the sender.</p></> : <div className="flex flex-wrap gap-3"><button onClick={() => setType("positive")} className="flex items-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white hover:bg-green-700"><Plus size={18} />Positive Feedback</button><button onClick={() => setType("negative")} className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700"><Plus size={18} />Negative Feedback</button></div>}
+    {admin ? <><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">{cards.map(([label, value, Icon, color]) => <div key={label} className="flex items-center gap-2 rounded-xl border border-ink-200 bg-white p-2 shadow-card sm:gap-4 sm:p-4"><span className={`rounded-full p-2 sm:p-3 ${color}`}><Icon size={16} className="sm:hidden" /><Icon size={23} className="hidden sm:block" /></span><div><p className="text-[11px] text-ink-600 sm:text-sm">{label}</p><p className="mt-0.5 text-base font-semibold text-ink-900 sm:mt-1 sm:text-2xl">{value}</p></div></div>)}</div>
+      <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card"><div className="grid grid-cols-3 gap-2 sm:gap-4"><label className="text-[11px] font-medium text-ink-700 sm:text-sm">Select Employees<span className="mt-2 block"><EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={(ids) => { setSelectedEmployeeIds(ids); resetPages(); }} /></span></label><label className="text-[11px] font-medium text-ink-700 sm:text-sm"><span className="mb-2 flex items-center gap-2"><SlidersHorizontal size={16} />Sort By</span><select value={sort} onChange={(e) => { setSort(e.target.value as "newest" | "oldest"); resetPages(); }} className="w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm"><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label><label className="text-[11px] font-medium text-ink-700 sm:text-sm">Feedback Type<select value={visibility} onChange={(e) => { setVisibility(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm"><option value="">All Feedback</option><option value="anonymous">Anonymous</option><option value="known">Known</option></select></label></div><div className="mt-4 grid grid-cols-3 gap-2 sm:gap-4"><label className="text-[11px] font-medium text-ink-700 sm:text-sm">From<input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label><label className="text-[11px] font-medium text-ink-700 sm:text-sm">To<input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label><label className="text-[11px] font-medium text-ink-700 sm:text-sm">Month<input type="month" value={month} onChange={(e) => { setMonth(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label></div></div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{table("positive", positive, positiveTotal, positivePage, setPositivePage)}{table("negative", negative, negativeTotal, negativePage, setNegativePage)}</div><p className="flex items-center justify-center gap-2 text-sm text-ink-500"><BellRing size={16} />Anonymous feedback does not reveal the identity of the sender.</p></> : <div className="flex flex-wrap gap-3"><button onClick={() => setType("positive")} className="flex items-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white hover:bg-green-700"><Plus size={18} />Positive Feedback</button><button onClick={() => setType("negative")} className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700"><Plus size={18} />Negative Feedback</button></div>}
     </div><Modal isOpen={!!type} onClose={() => setType(null)} title={`${type === "positive" ? "Positive" : "Negative"} Feedback`}><div className="space-y-4"><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe your feedback" rows={5} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /><div><p className="mb-2 text-sm font-medium">Send as</p><label className="mr-4 text-sm"><input type="radio" checked={anonymous} onChange={() => setAnonymous(true)} /> Anonymous</label><label className="text-sm"><input type="radio" checked={!anonymous} onChange={() => setAnonymous(false)} /> Known</label></div><button onClick={submit} className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${type === "positive" ? "bg-green-600" : "bg-red-600"}`}>Submit Feedback</button></div></Modal></AppShell>;
 }

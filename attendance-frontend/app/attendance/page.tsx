@@ -48,7 +48,7 @@ export default function AttendancePage() {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
 
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [summary, setSummary] = useState({ Present: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0 });
+  const [summary, setSummary] = useState({ Present: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0, WFH: 0 });
   const [loading, setLoading] = useState(true);
 
   const [correctionModal, setCorrectionModal] = useState<AttendanceRecord | null>(null);
@@ -106,6 +106,7 @@ setSummary(
     Absent: 0,
     Holiday: 0,
     Leave: 0,
+    WFH: 0,
   }
 );
     } catch (error) {

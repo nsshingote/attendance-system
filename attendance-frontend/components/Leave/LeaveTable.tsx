@@ -24,6 +24,7 @@ export interface LeaveRow {
   reason: string | null;
   status: string;
   leave_category: string;
+  allocation_summary?: string;
 }
 
 interface LeaveTableProps {
@@ -31,15 +32,18 @@ interface LeaveTableProps {
   canDecide?: boolean;
   onDecide?: (id: number, status: "Approved" | "Rejected", currentCategory?: string) => void;
   onChangeCategory?: (id: number) => void;
+  onEditAllocations?: (id: number) => void;
 }
 
 const CATEGORY_CLASS: Record<string, string> = {
   Paid: "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200",
   Carried: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200",
   Unpaid: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200",
+  Privilege: "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200",
+  Mixed: "bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200",
 };
 
-export default function LeaveTable({ requests, canDecide, onDecide, onChangeCategory }: LeaveTableProps) {
+export default function LeaveTable({ requests, canDecide, onDecide, onChangeCategory, onEditAllocations }: LeaveTableProps) {
   if (requests.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center">
@@ -81,10 +85,10 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
               <td className="px-3 py-3 whitespace-nowrap sm:px-4">
                 <span
                   className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    CATEGORY_CLASS[r.leave_category] ?? "bg-ink-100 text-ink-600"
+                    CATEGORY_CLASS[r.allocation_summary ?? r.leave_category] ?? "bg-ink-100 text-ink-600"
                   }`}
                 >
-                  {r.leave_category}
+                  {r.allocation_summary || r.leave_category}
                 </span>
               </td>
               <td className="max-w-48 px-3 py-3 text-ink-600 sm:px-4">
@@ -122,6 +126,15 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                         aria-label="Grant privilege leave"
                       >
                         Privilege
+                      </button>
+                    )}
+                    {canDecide && (
+                      <button
+                        onClick={() => onEditAllocations?.(r.id)}
+                        className="rounded-md bg-sky-50 px-2 py-1.5 text-[11px] font-medium text-sky-700 hover:bg-sky-100"
+                        aria-label="Edit allocations"
+                      >
+                        Edit
                       </button>
                     )}
                   </div>

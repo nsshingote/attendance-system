@@ -25,10 +25,11 @@ interface ChartData {
 
 const COLORS: Record<string, string> = {
   Present: "#22c55e",
+  WFH: "#06b6d4",
   "Half Day": "#8b5cf6",
   Leave: "#f59e0b",
   Holidays: "#3b82f6",
-  "Total Hours": "#06b6d4",
+  "Total Hours": "#0ea5e9",
 };
 
 export default function AttendanceChart({ userId, year, month }: AttendanceChartProps) {
@@ -46,6 +47,7 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
 
         const chartData: ChartData[] = [
           { name: "Present", value: summary.Present || 0, color: COLORS.Present },
+          { name: "WFH", value: summary.WFH || 0, color: COLORS.WFH },
           { name: "Half Day", value: summary["Half Day"] || 0, color: COLORS["Half Day"] },
           { name: "Leave", value: summary.Leave || 0, color: COLORS.Leave },
           { name: "Holidays", value: summary.Holiday || 0, color: COLORS.Holidays },

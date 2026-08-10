@@ -179,6 +179,17 @@ class LeaveTypeOut(ORMBase):
     total_days: int
 
 
+class LeaveRequestAllocationOut(ORMBase):
+    id: int
+    allocation_date: date
+    leave_category: str
+
+
+class LeaveRequestAllocationIn(BaseModel):
+    allocation_date: date
+    leave_category: str
+
+
 class LeaveRequestCreate(BaseModel):
     leave_type_id: Optional[int] = None
     from_date: date
@@ -198,6 +209,10 @@ class LeaveCategoryOverride(BaseModel):
     leave_category: str  # admin can set this to "Privilege" (or any valid category)
 
 
+class LeaveAllocationOverride(BaseModel):
+    allocations: List[LeaveRequestAllocationIn]
+
+
 class LeaveRequestOut(ORMBase):
     id: int
     user_id: int
@@ -209,6 +224,8 @@ class LeaveRequestOut(ORMBase):
     reason: Optional[str] = None
     status: str
     leave_category: str
+    allocation_summary: Optional[str] = None
+    allocations: Optional[List[LeaveRequestAllocationOut]] = None
     approved_by: Optional[int] = None
     approved_at: Optional[datetime] = None 
     created_at: datetime
@@ -500,6 +517,7 @@ class MonthlySummaryResponse(BaseModel):
     half_day: int
     late: int
     holiday: int
+    wfh: int
 
 # =========================================================
 # REPORT SYSTEM SCHEMAS

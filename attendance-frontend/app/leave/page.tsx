@@ -118,6 +118,9 @@ export default function LeavePage() {
   const [categoryModalLeaveId, setCategoryModalLeaveId] = useState<number | null>(null);
   const [approvalLeaveId, setApprovalLeaveId] = useState<number | null>(null);
   const [approvalCategory, setApprovalCategory] = useState<"Paid" | "Unpaid" | "Carried" | "Privilege">("Paid");
+  const [allocationModalLeaveId, setAllocationModalLeaveId] = useState<number | null>(null);
+  const [allocationModalOpen, setAllocationModalOpen] = useState(false);
+  const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string }[]>([]);
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
@@ -231,6 +234,33 @@ export default function LeavePage() {
     }
   };
 
+  const openAllocationModal = (id: number) => {
+    setAllocationModalLeaveId(id);
+    setAllocationModalOpen(true);
+    // find leave in lists
+    const all = [...myRequests, ...allRequests];
+    const leave = all.find((l: any) => l.id === id);
+    if (!leave) {
+      setAllocationRows([]);
+      return;
+    }
+    // build rows: if server returned allocations, use them; otherwise derive from range
+    if (Array.isArray((leave as any).allocations) && (leave as any).allocations.length > 0) {
+      setAllocationRows(
+        (leave as any).allocations.map((a: any) => ({ allocation_date: a.allocation_date, leave_category: a.leave_category }))
+      );
+      return;
+    }
+    // derive dates
+    const from = new Date(leave.from_date);
+    const to = new Date(leave.to_date);
+    const rows: { allocation_date: string; leave_category: string }[] = [];
+    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+      rows.push({ allocation_date: d.toISOString().split("T")[0], leave_category: leave.leave_category || "Unpaid" });
+    }
+    setAllocationRows(rows);
+  };
+
   const confirmLeaveApproval = async () => {
     if (!approvalLeaveId) return;
     try {
@@ -295,7 +325,7 @@ export default function LeavePage() {
       type: "Leave" as const,
       from_date: r.from_date,
       to_date: r.to_date,
-      detail: r.leave_category,
+      detail: r.allocation_summary || r.leave_category,
       reason: r.reason,
       status: r.status,
     })),
@@ -546,6 +576,65 @@ export default function LeavePage() {
                         </tbody>
                       </table>
                     )}
+                    {/* Allocation editor modal for admins */}
+                    <Modal isOpen={allocationModalOpen} onClose={() => setAllocationModalOpen(false)} title="Edit Allocations">
+                      <div className="space-y-3">
+                        <div className="max-h-64 overflow-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="px-3 py-2 text-left">Date</th>
+                                <th className="px-3 py-2 text-left">Category</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {allocationRows.map((r, idx) => (
+                                <tr key={r.allocation_date} className="border-b">
+                                  <td className="px-3 py-2">{new Date(r.allocation_date).toLocaleDateString()}</td>
+                                  <td className="px-3 py-2">
+                                    <select
+                                      value={r.leave_category}
+                                      onChange={(e) => {
+                                        const copy = [...allocationRows];
+                                        copy[idx] = { ...copy[idx], leave_category: e.target.value };
+                                        setAllocationRows(copy);
+                                      }}
+                                      className="rounded border px-2 py-1 text-sm"
+                                    >
+                                      <option>Paid</option>
+                                      <option>Carried</option>
+                                      <option>Unpaid</option>
+                                      <option>Privilege</option>
+                                      <option>Emergency</option>
+                                      <option>Sick</option>
+                                    </select>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setAllocationModalOpen(false)} className="rounded border px-3 py-1">Cancel</button>
+                          <button
+                            onClick={async () => {
+                              if (!allocationModalLeaveId) return;
+                              try {
+                                await api.put(`/leave/${allocationModalLeaveId}/allocations`, { allocations: allocationRows });
+                                toast.success('Allocations updated');
+                                setAllocationModalOpen(false);
+                                fetchAll();
+                              } catch (err) {
+                                toast.error(getErrorMessage(err));
+                              }
+                            }}
+                            className="rounded bg-brand-500 px-3 py-1 text-white"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </Modal>
 
                     {/* Encashment Requests section */}
                     {myEncashmentRequests.length > 0 && (
@@ -587,6 +676,7 @@ export default function LeavePage() {
                 canDecide={admin}
                 onDecide={handleDecide}
                 onChangeCategory={(id) => setCategoryModalLeaveId(id)}
+                onEditAllocations={(id) => openAllocationModal(id)}
               />
             )}
 
