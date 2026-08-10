@@ -24,6 +24,7 @@ interface EmployeeSummaryRow {
   Present: number;
   Late: number;
   "Half Day": number;
+  WFH: number;
   Absent: number;
   "Paid Leave": number;
   "Carried Leave Used": number;
@@ -84,6 +85,7 @@ export default function ReportsPage() {
           r.Absent,
           r["Half Day"],
           r.Late,
+          r.WFH,
           r["Paid Leave"],
           r["Carried Leave Used"],
           r.LWP,
@@ -107,7 +109,7 @@ export default function ReportsPage() {
     }
 
     const headers = tab === "attendance"
-      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "Paid Leave", "Carried Leave Used", "LWP", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
+      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Paid Leave", "Carried Leave Used", "LWP", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
       : ["Name", "Department", "Paid Leave", "Unpaid Leave", "Carried Leave", "Encashed", "Remaining"];
     const escapeCsv = (value: string | number) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
@@ -134,6 +136,7 @@ export default function ReportsPage() {
         Absent: r.Absent,
         "Half Day": r["Half Day"],
         Late: r.Late,
+        WFH: r.WFH,
         "Paid Leave": r["Paid Leave"],
         "Carried Leave Used": r["Carried Leave Used"],
         LWP: r.LWP,
@@ -180,6 +183,7 @@ export default function ReportsPage() {
         "Absent",
         "Half Day",
         "Late",
+        "WFH",
         "Paid Leave",
         "Carried Leave Used",
         "LWP",
@@ -194,6 +198,7 @@ export default function ReportsPage() {
         r.Absent,
         r["Half Day"],
         r.Late,
+        r.WFH,
         r["Paid Leave"],
         r["Carried Leave Used"],
         r.LWP,
@@ -296,6 +301,7 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">Absent</th>
                   <th className="px-4 py-3 font-medium">Half Day</th>
                   <th className="px-4 py-3 font-medium">Late</th>
+                  <th className="px-4 py-3 font-medium">WFH</th>
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
                   <th className="px-4 py-3 font-medium">LWP</th>
                   <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
@@ -310,6 +316,7 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r.Absent}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Half Day"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Late}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.WFH}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>

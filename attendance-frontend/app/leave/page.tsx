@@ -116,8 +116,6 @@ export default function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("mine");
   const [categoryModalLeaveId, setCategoryModalLeaveId] = useState<number | null>(null);
-  const [approvalLeaveId, setApprovalLeaveId] = useState<number | null>(null);
-  const [approvalCategory, setApprovalCategory] = useState<"Paid" | "Unpaid" | "Carried" | "Privilege">("Paid");
   const [allocationModalLeaveId, setAllocationModalLeaveId] = useState<number | null>(null);
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
   const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string }[]>([]);
@@ -208,20 +206,10 @@ export default function LeavePage() {
 
   const handleDecide = async (
     id: number,
-    status: "Approved" | "Rejected",
-    currentCategory?: string
+    status: "Approved" | "Rejected"
   ) => {
     if (!id) {
       toast.error("Invalid leave request ID");
-      return;
-    }
-    if (status === "Approved") {
-      setApprovalLeaveId(id);
-      setApprovalCategory(
-        currentCategory === "Privilege" || currentCategory === "Carried"
-          ? currentCategory
-          : "Paid"
-      );
       return;
     }
     try {
@@ -245,9 +233,9 @@ export default function LeavePage() {
       return;
     }
     // build rows: if server returned allocations, use them; otherwise derive from range
-    if (Array.isArray((leave as any).allocations) && (leave as any).allocations.length > 0) {
+    if (leave.allocations && leave.allocations.length > 0) {
       setAllocationRows(
-        (leave as any).allocations.map((a: any) => ({ allocation_date: a.allocation_date, leave_category: a.leave_category }))
+        leave.allocations.map((a) => ({ allocation_date: a.allocation_date, leave_category: a.leave_category }))
       );
       return;
     }
@@ -259,21 +247,6 @@ export default function LeavePage() {
       rows.push({ allocation_date: d.toISOString().split("T")[0], leave_category: leave.leave_category || "Unpaid" });
     }
     setAllocationRows(rows);
-  };
-
-  const confirmLeaveApproval = async () => {
-    if (!approvalLeaveId) return;
-    try {
-      await api.put(`/leave/${approvalLeaveId}/decide`, {
-        status: "Approved",
-        leave_category: approvalCategory,
-      });
-      toast.success(`Leave request approved as ${approvalCategory} Leave`);
-      setApprovalLeaveId(null);
-      fetchAll();
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
   };
 
   const handleGrantPrivilege = async () => {
@@ -576,66 +549,6 @@ export default function LeavePage() {
                         </tbody>
                       </table>
                     )}
-                    {/* Allocation editor modal for admins */}
-                    <Modal isOpen={allocationModalOpen} onClose={() => setAllocationModalOpen(false)} title="Edit Allocations">
-                      <div className="space-y-3">
-                        <div className="max-h-64 overflow-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b">
-                                <th className="px-3 py-2 text-left">Date</th>
-                                <th className="px-3 py-2 text-left">Category</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {allocationRows.map((r, idx) => (
-                                <tr key={r.allocation_date} className="border-b">
-                                  <td className="px-3 py-2">{new Date(r.allocation_date).toLocaleDateString()}</td>
-                                  <td className="px-3 py-2">
-                                    <select
-                                      value={r.leave_category}
-                                      onChange={(e) => {
-                                        const copy = [...allocationRows];
-                                        copy[idx] = { ...copy[idx], leave_category: e.target.value };
-                                        setAllocationRows(copy);
-                                      }}
-                                      className="rounded border px-2 py-1 text-sm"
-                                    >
-                                      <option>Paid</option>
-                                      <option>Carried</option>
-                                      <option>Unpaid</option>
-                                      <option>Privilege</option>
-                                      <option>Emergency</option>
-                                      <option>Sick</option>
-                                    </select>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => setAllocationModalOpen(false)} className="rounded border px-3 py-1">Cancel</button>
-                          <button
-                            onClick={async () => {
-                              if (!allocationModalLeaveId) return;
-                              try {
-                                await api.put(`/leave/${allocationModalLeaveId}/allocations`, { allocations: allocationRows });
-                                toast.success('Allocations updated');
-                                setAllocationModalOpen(false);
-                                fetchAll();
-                              } catch (err) {
-                                toast.error(getErrorMessage(err));
-                              }
-                            }}
-                            className="rounded bg-brand-500 px-3 py-1 text-white"
-                          >
-                            Save
-                          </button>
-                        </div>
-                      </div>
-                    </Modal>
-
                     {/* Encashment Requests section */}
                     {myEncashmentRequests.length > 0 && (
                       <>
@@ -905,54 +818,26 @@ export default function LeavePage() {
         )}
       </Modal>
 
-      <Modal
-        isOpen={approvalLeaveId !== null}
-        onClose={() => setApprovalLeaveId(null)}
-        title="Approve Leave Request"
-        footer={
-          <>
-            <button
-              onClick={() => setApprovalLeaveId(null)}
-              className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmLeaveApproval}
-              className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Confirm
-            </button>
-          </>
-        }
-      >
-        <p className="mb-4 text-sm text-ink-600">Approve as:</p>
-        <label className="mb-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3">
-          <input type="radio" checked={approvalCategory === "Paid"} onChange={() => setApprovalCategory("Paid")} /> Paid Leave
-        </label>
-        <label className="mb-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3">
-          <input type="radio" checked={approvalCategory === "Unpaid"} onChange={() => setApprovalCategory("Unpaid")} /> Unpaid Leave
-        </label>
-        {(approvalCategory === "Privilege" || approvalCategory === "Carried") && (
-          <label className="flex items-center gap-2 rounded-lg border border-ink-200 p-3">
-            <input
-              type="radio"
-              checked={approvalCategory === "Privilege"}
-              onChange={() => setApprovalCategory("Privilege")}
-            />
-            Privilege Leave
-          </label>
-        )}
-        {approvalCategory === "Carried" && (
-          <label className="mt-3 flex items-center gap-2 rounded-lg border border-ink-200 p-3">
-            <input
-              type="radio"
-              checked={approvalCategory === "Carried"}
-              onChange={() => setApprovalCategory("Carried")}
-            />
-            Carried Leave
-          </label>
-        )}
+      <Modal isOpen={allocationModalOpen} onClose={() => setAllocationModalOpen(false)} title="Edit Allocations">
+        <div className="space-y-3">
+          <div className="max-h-64 overflow-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b"><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Category</th></tr></thead>
+              <tbody>
+                {allocationRows.map((row, index) => (
+                  <tr key={row.allocation_date} className="border-b">
+                    <td className="px-3 py-2">{new Date(row.allocation_date).toLocaleDateString()}</td>
+                    <td className="px-3 py-2"><select value={row.leave_category} onChange={(event) => setAllocationRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, leave_category: event.target.value } : item))} className="rounded border px-2 py-1 text-sm"><option>Paid</option><option>Carried</option><option>Unpaid</option><option>Privilege</option><option>Emergency</option><option>Sick</option></select></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setAllocationModalOpen(false)} className="rounded border px-3 py-1">Cancel</button>
+            <button onClick={async () => { if (!allocationModalLeaveId) return; try { await api.put(`/leave/${allocationModalLeaveId}/allocations`, { allocations: allocationRows }); toast.success("Allocations updated"); setAllocationModalOpen(false); fetchAll(); } catch (error) { toast.error(getErrorMessage(error)); } }} className="rounded bg-brand-500 px-3 py-1 text-white">Save</button>
+          </div>
+        </div>
       </Modal>
 
       <Modal

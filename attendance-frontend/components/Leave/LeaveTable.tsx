@@ -25,12 +25,13 @@ export interface LeaveRow {
   status: string;
   leave_category: string;
   allocation_summary?: string;
+  allocations?: { allocation_date: string; leave_category: string }[];
 }
 
 interface LeaveTableProps {
   requests: LeaveRow[];
   canDecide?: boolean;
-  onDecide?: (id: number, status: "Approved" | "Rejected", currentCategory?: string) => void;
+  onDecide?: (id: number, status: "Approved" | "Rejected") => void;
   onChangeCategory?: (id: number) => void;
   onEditAllocations?: (id: number) => void;
 }
@@ -104,7 +105,7 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                     {r.status === "Pending" && (
                       <>
                         <button
-                          onClick={() => onDecide?.(r.id, "Approved", r.leave_category)}
+                          onClick={() => onDecide?.(r.id, "Approved")}
                           className="rounded-md bg-green-50 p-1.5 text-green-700 hover:bg-green-100"
                           aria-label="Approve"
                         >

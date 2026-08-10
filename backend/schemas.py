@@ -202,7 +202,6 @@ class LeaveRequestCreate(BaseModel):
 
 class LeaveDecision(BaseModel):
     status: str  # "Approved" or "Rejected"
-    leave_category: Optional[str] = None  # Optional category override when approving
 
 
 class LeaveCategoryOverride(BaseModel):

@@ -541,19 +541,25 @@ def decide_leave(
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
 
-    if payload.status == "Approved":
-        if payload.leave_category:
-            if payload.leave_category not in ("Paid", "Unpaid", "Carried", "Privilege"):
-                raise HTTPException(status_code=400, detail="Choose a valid leave category when approving")
-            if not leave_request.allocations:
-                leave_request.leave_category = payload.leave_category
-            # If allocations already exist, preserve them and ignore the ad hoc approval category.
-    
     leave_request.status = payload.status
     leave_request.approved_by = current_user.id
     leave_request.approved_at = datetime.now()
     
     if payload.status == "Approved":
+        # New requests are allocated on submission. Give legacy requests the
+        # same automatic Paid -> Carried -> Unpaid allocation on approval,
+        # while preserving explicit exception categories from older records.
+        if not leave_request.allocations:
+            if leave_request.leave_category in {"Privilege", "Emergency", "Sick"}:
+                allocations = [(day, leave_request.leave_category) for day in _get_date_range(leave_request.from_date, leave_request.to_date)]
+            else:
+                allocations = allocate_leave_days(db, target_user, leave_request.from_date, leave_request.to_date)
+            leave_request.allocations = [
+                LeaveRequestAllocation(allocation_date=allocation_date, leave_category=leave_category)
+                for allocation_date, leave_category in allocations
+            ]
+            leave_request.leave_category = compute_request_category_from_allocations(allocations)
+
         # Apply sandwich rule before validating/deducting balances so any
         # inserted Sunday allocations are considered.
         _apply_sandwich_rule_on_request(db, leave_request, target_user)

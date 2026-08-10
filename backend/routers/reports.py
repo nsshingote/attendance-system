@@ -25,7 +25,12 @@ from models import (
     ReportDefaultRow, UserDailyRow, DailyReportData, UserDepartment, ActivityLog, WFHRequest,
     PastReportSubmissionRequest
 )
-from utils.leave_calculator import get_used_paid_leave_days, get_remaining_leave, accrue_monthly_leave
+from utils.leave_calculator import (
+    get_used_paid_leave_days,
+    get_remaining_leave,
+    accrue_monthly_leave,
+    count_leave_category_days,
+)
 from utils.logger import log_activity
 from utils.attendance_status import determine_attendance_status_for_date
 from utils.date_helpers import iso_with_offset
@@ -423,15 +428,11 @@ def employee_wise_summary(
             )
             .all()
         )
-        paid_leave_days = sum(
-            (lr.total_days or 0) for lr in leave_requests_this_month if lr.leave_category == "Paid"
-        )
-        carried_leave_used_days = sum(
-            (lr.total_days or 0) for lr in leave_requests_this_month if lr.leave_category == "Carried"
-        )
-        lwp_days = sum(
-            (lr.total_days or 0) for lr in leave_requests_this_month if lr.leave_category == "Unpaid"
-        )
+        category_counts = count_leave_category_days(leave_requests_this_month)
+        paid_leave_days = category_counts["Paid"]
+        carried_leave_used_days = category_counts["Carried"]
+        lwp_days = category_counts["Unpaid"]
+        privilege_leave_days = category_counts["Privilege"]
 
         used_paid_this_month = paid_leave_days > 0
         has_encashment_on_record = (
@@ -455,6 +456,7 @@ def employee_wise_summary(
                 "LWP": lwp_days,
                 "Carry Forward Balance": user.carried_leave or 0,
                 "Used Paid Leave This Month": used_paid_this_month,
+                "Privilege Leave": privilege_leave_days,
                 "Encashed": 1 if has_encashment_on_record else 0,
             }
         )
@@ -490,8 +492,10 @@ def leave_summary(
                 LeaveRequest.to_date >= start_date,
             )
         approved_leaves = leave_query.all()
-        paid_leave = sum((leave.total_days or 0) for leave in approved_leaves if leave.leave_category == "Paid")
-        unpaid_leave = sum((leave.total_days or 0) for leave in approved_leaves if leave.leave_category == "Unpaid")
+        category_counts = count_leave_category_days(approved_leaves)
+        paid_leave = category_counts["Paid"]
+        unpaid_leave = category_counts["Unpaid"]
+        privilege_leave = category_counts["Privilege"]
         results.append(
             {
                 "user_id": user.id,
@@ -501,6 +505,7 @@ def leave_summary(
                 "used_leave": used,
                 "paid_leave": paid_leave,
                 "unpaid_leave": unpaid_leave,
+                "privilege_leave": privilege_leave,
                 "leave_encashed": user.leave_encashed or 0,
                 "remaining_leave": remaining,
             }
@@ -868,22 +873,14 @@ def save_report_data(
 ):
     """Save or update report data for a specific date and subtype."""
     
-    existing_for_date = db.query(DailyReportData).filter(
-        DailyReportData.user_id == current_user.id,
-        DailyReportData.attendance_date == payload.attendance_date,
-    ).first()
     if payload.attendance_date < date.today():
-        request_type = "Edit Report" if existing_for_date else "Missing Report"
-        # The edit grace period is based on the report date, not its submission time.
-        direct_edit_allowed = bool(existing_for_date and payload.attendance_date >= date.today() - timedelta(days=7))
         approval = db.query(PastReportSubmissionRequest).filter(
             PastReportSubmissionRequest.user_id == current_user.id,
             PastReportSubmissionRequest.attendance_date == payload.attendance_date,
-            PastReportSubmissionRequest.request_type == request_type,
             PastReportSubmissionRequest.status == "Approved",
         ).first()
-        if not direct_edit_allowed and not approval:
-            raise HTTPException(status_code=403, detail="Approval is required before submitting or editing this past-day report")
+        if not approval:
+            raise HTTPException(status_code=403, detail="Approval is required before submitting a past-day report")
 
     department_id = _get_user_department_id(db, current_user.id, payload.department_id)
     department = db.query(Department).filter(Department.id == department_id).first()
@@ -1010,19 +1007,16 @@ def request_past_report_submission(
     if not reason:
         raise HTTPException(status_code=422, detail="A reason is required")
 
-    has_report = db.query(DailyReportData.id).filter(DailyReportData.user_id == current_user.id, DailyReportData.attendance_date == attendance_date).first()
-    request_type = "Edit Report" if has_report else "Missing Report"
     request = db.query(PastReportSubmissionRequest).filter(
         PastReportSubmissionRequest.user_id == current_user.id,
         PastReportSubmissionRequest.attendance_date == attendance_date,
-        PastReportSubmissionRequest.request_type == request_type,
     ).first()
     if request and request.status == "Approved":
         return {"id": request.id, "status": request.status, "message": "This date is already approved"}
-    if request and request.status == "Pending":
-        raise HTTPException(status_code=409, detail="A request for this report is already pending")
+    if request and request.status == "Submitted":
+        raise HTTPException(status_code=409, detail="A report has already been submitted for this approved date")
     if request is None:
-        request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date, request_type=request_type)
+        request = PastReportSubmissionRequest(user_id=current_user.id, attendance_date=attendance_date)
         db.add(request)
     request.reason = reason
     request.status = "Pending"
@@ -1030,7 +1024,7 @@ def request_past_report_submission(
     request.reviewed_at = None
     db.commit()
     db.refresh(request)
-    return {"id": request.id, "status": request.status, "request_type": request.request_type, "message": "Past report submission request sent"}
+    return {"id": request.id, "status": request.status, "message": "Past report submission request sent"}
 
 
 @router.get("/past-submission-requests")
@@ -1038,7 +1032,7 @@ def list_past_report_submission_requests(
     db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
     rows = db.query(PastReportSubmissionRequest).order_by(PastReportSubmissionRequest.requested_at.desc()).all()
-    return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "request_type": row.request_type, "status": row.status} for row in rows]
+    return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]
 
 
 @router.get("/past-submission-requests/mine/approved")
@@ -1049,15 +1043,7 @@ def list_my_approved_past_report_dates(
         PastReportSubmissionRequest.user_id == current_user.id,
         PastReportSubmissionRequest.status == "Approved",
     ).order_by(PastReportSubmissionRequest.attendance_date.asc()).all()
-    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat(), "request_type": row.request_type} for row in rows]
-
-
-@router.get("/past-submission-requests/mine")
-def list_my_past_report_requests(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
-):
-    rows = db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.user_id == current_user.id).all()
-    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat(), "request_type": row.request_type, "status": row.status} for row in rows]
+    return [{"id": row.id, "attendance_date": row.attendance_date.isoformat()} for row in rows]
 
 
 @router.post("/past-submission-requests/{request_id}/complete")
@@ -1077,13 +1063,7 @@ def complete_past_report_submission(
     ).first()
     if not submitted:
         raise HTTPException(status_code=409, detail="Submit the report before completing this approval")
-    request.status = "Completed"
-    if request.request_type == "Edit Report":
-        log_activity(
-            db,
-            current_user.id,
-            f"Edited report for {request.attendance_date.isoformat()} after approved edit request #{request.id}; reason: {request.reason or '-'}",
-        )
+    request.status = "Submitted"
     db.commit()
     return {"message": "Past report submission completed"}
 
@@ -1605,7 +1585,7 @@ def get_fields(
 @router.get("/default-rows")
 def get_default_rows(
     department_id: int = Query(...),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
 ):
     """Get default rows for a department."""
