@@ -11,7 +11,7 @@ from typing import List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 
 from auth import get_current_user, require_roles, require_admin
@@ -659,6 +659,8 @@ def get_all_attendance(
     year: int,
     month: int,
     date_value: Optional[date] = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
     employee_ids: Optional[List[int]] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -668,24 +670,38 @@ def get_all_attendance(
         Attendance,
         User.name,
         User.department
-    ).join(User, Attendance.user_id == User.id).filter(
-        func.extract('year', Attendance.attendance_date) == year,
-        func.extract('month', Attendance.attendance_date) == month
-    )
+    ).join(User, Attendance.user_id == User.id)
 
     target_start = None
     target_end = None
-    if date_value is not None:
+    if from_date is not None and to_date is not None:
+        if from_date > to_date:
+            raise HTTPException(status_code=400, detail="from_date cannot be after to_date")
+        query = query.filter(
+            Attendance.attendance_date >= from_date,
+            Attendance.attendance_date <= to_date,
+        )
+        target_start, target_end = from_date, to_date
+    elif date_value is not None:
         query = query.filter(Attendance.attendance_date == date_value)
         target_start = target_end = date_value
     else:
+        query = query.filter(
+            func.extract('year', Attendance.attendance_date) == year,
+            func.extract('month', Attendance.attendance_date) == month
+        )
         target_start, target_end = _get_month_date_range(year, month)
 
     if employee_ids:
         query = query.filter(Attendance.user_id.in_(employee_ids))
 
     if target_start is not None and target_end is not None:
-        _mark_absent_records_for_date_range(db, target_start, target_end)
+        _mark_absent_records_for_date_range(
+            db,
+            target_start,
+            target_end,
+            set(employee_ids) if employee_ids else None,
+        )
 
     query = query.order_by(Attendance.attendance_date, User.name)
     
@@ -827,19 +843,32 @@ def _add_monthly_summary_counts(summary: dict, status: str, attendance_record) -
 @router.get("/summary/{user_id}")
 def monthly_summary(
     user_id: int,
-    year: int,
-    month: int,
+    year: Optional[int] = Query(None, ge=2020),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role == "user" and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    start_date = date(year, month, 1)
-    if month == 12:
-        end_date = date(year + 1, 1, 1)
+    if from_date and to_date:
+        if from_date > to_date:
+            raise HTTPException(status_code=400, detail="from_date cannot be after to_date")
+        start_date = from_date
+        end_date = to_date + timedelta(days=1)
     else:
-        end_date = date(year, month + 1, 1)
+        if year is None or month is None:
+            raise HTTPException(
+                status_code=400,
+                detail="year and month are required unless from_date and to_date are provided",
+            )
+        start_date = date(year, month, 1)
+        if month == 12:
+            end_date = date(year + 1, 1, 1)
+        else:
+            end_date = date(year, month + 1, 1)
 
     _mark_absent_records_for_date_range(db, start_date, end_date - timedelta(days=1), {user_id})
 
@@ -874,7 +903,7 @@ def monthly_summary(
         LeaveRequest.to_date >= start_date,
     ).all():
         leave_start = max(leave.from_date, start_date)
-        leave_end = min(leave.to_date, end_date)
+        leave_end = min(leave.to_date, end_date - timedelta(days=1))
         current_date = leave_start
         while current_date <= leave_end:
             approved_leave_dates.add(current_date)
@@ -1085,7 +1114,7 @@ def all_half_day_requests(
     current_user: User = Depends(require_roles("admin", "superadmin")),
 ):
     """Admin gets all half day requests with optional month filter."""
-    query = db.query(HalfDayRequestModel)
+    query = db.query(HalfDayRequestModel).options(joinedload(HalfDayRequestModel.user))
     if status_filter:
         query = query.filter(HalfDayRequestModel.status == status_filter)
     if month and year:
@@ -1121,7 +1150,7 @@ def get_user_half_day_requests(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    query = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.user_id == user_id)
+    query = db.query(HalfDayRequestModel).options(joinedload(HalfDayRequestModel.user)).filter(HalfDayRequestModel.user_id == user_id)
     if month and year:
         start_date = date(year, month, 1)
         if month == 12:
@@ -1360,7 +1389,7 @@ def all_wfh_requests(
     current_user: User = Depends(require_roles("admin", "superadmin")),
 ):
     """Admin gets all WFH requests, optional status/month filter."""
-    query = db.query(WFHRequestModel)
+    query = db.query(WFHRequestModel).options(joinedload(WFHRequestModel.user))
     if status_filter:
         query = query.filter(WFHRequestModel.status == status_filter)
     if month and year:
@@ -1386,7 +1415,7 @@ def get_user_wfh_requests(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    query = db.query(WFHRequestModel).filter(WFHRequestModel.user_id == user_id)
+    query = db.query(WFHRequestModel).options(joinedload(WFHRequestModel.user)).filter(WFHRequestModel.user_id == user_id)
     if month and year:
         start_date = date(year, month, 1)
         end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)

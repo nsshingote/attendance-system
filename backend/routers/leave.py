@@ -9,7 +9,7 @@ Leave requests, approvals, balances, and encashment.
 
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func, extract
 from typing import Optional, List
 
@@ -218,7 +218,7 @@ def get_encashment_requests_root(
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
     """Admin gets all encashment requests."""
-    query = db.query(LeaveEncashmentRequest)
+    query = db.query(LeaveEncashmentRequest).options(joinedload(LeaveEncashmentRequest.user))
     if status_filter:
         query = query.filter(LeaveEncashmentRequest.status == status_filter)
     else:
@@ -984,6 +984,13 @@ def override_leave_allocations(
         target_user.carried_leave = (target_user.carried_leave or 0) + old_carried_days - new_carried_days
 
     # Replace allocations (preserve ordering)
+    # Delete existing allocation rows first and flush so the DB sees the
+    # deletes before we INSERT new rows. This avoids UNIQUE constraint
+    # failures when allocation_date values overlap with existing rows.
+    for old_alloc in list(leave_request.allocations):
+        db.delete(old_alloc)
+    db.flush()
+
     leave_request.allocations = [
         LeaveRequestAllocation(allocation_date=d, leave_category=c)
         for d, c in sorted(allocation_map.items())

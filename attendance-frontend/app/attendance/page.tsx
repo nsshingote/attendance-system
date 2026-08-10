@@ -43,6 +43,8 @@ export default function AttendancePage() {
   // Date filter state
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
@@ -69,7 +71,10 @@ export default function AttendancePage() {
     try {
       // Build params with date filter if selected
       const params: any = { year, month };
-      if (selectedDate) {
+      if (fromDate && toDate) {
+        params.from_date = fromDate;
+        params.to_date = toDate;
+      } else if (selectedDate) {
         params.date_value = selectedDate;
       }
 
@@ -78,14 +83,14 @@ export default function AttendancePage() {
       const summaryUserId = selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId;
 
       const [recordsRes, summaryRes] = await Promise.all([
-  api.get<AttendanceRecord[]>(attendanceUrl, { params, paramsSerializer: { indexes: null } }),
-  api.get(
-    `/attendance/summary/${
-      summaryUserId
-    }`,
-    { params: { year, month } }
-  ).catch(() => ({ data: {} })),
-]);
+        api.get<AttendanceRecord[]>(attendanceUrl, { params, paramsSerializer: { indexes: null } }),
+        api.get(
+          `/attendance/summary/${
+            summaryUserId
+          }`,
+          { params: { year, month } }
+        ).catch(() => ({ data: {} })),
+      ]);
 
 const recordsWithReport = (recordsRes.data || []).map((record: any) => ({
   ...record,
@@ -115,7 +120,7 @@ setSummary(
     } finally {
       setLoading(false);
     }
-  }, [selectedUserIds, year, month, admin, session?.userId, selectedDate]);
+  }, [selectedUserIds, year, month, admin, session?.userId, selectedDate, fromDate, toDate]);
 
   useEffect(() => {
     fetchData();
@@ -124,6 +129,8 @@ setSummary(
   // Clear date filter
   const applyDateFilter = (dateValue: string) => {
     setSelectedDate(dateValue);
+    setFromDate("");
+    setToDate("");
     if (dateValue) {
       const parsed = new Date(dateValue);
       setYear(parsed.getFullYear());
@@ -134,6 +141,11 @@ setSummary(
   const clearDateFilter = () => {
     setSelectedDate("");
     setShowDatePicker(false);
+  };
+
+  const clearRangeFilter = () => {
+    setFromDate("");
+    setToDate("");
   };
 
   const submitCorrection = async () => {
@@ -171,7 +183,41 @@ setSummary(
                 <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} />
               )}
 
-              {/* Date Picker Button */}
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">
+                  From
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => {
+                      setFromDate(e.target.value);
+                      setSelectedDate("");
+                    }}
+                    className="h-10 rounded-lg border border-ink-200 bg-white px-2 py-1 text-sm"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">
+                  To
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => {
+                      setToDate(e.target.value);
+                      setSelectedDate("");
+                    }}
+                    className="h-10 rounded-lg border border-ink-200 bg-white px-2 py-1 text-sm"
+                  />
+                </label>
+                {(fromDate || toDate) && (
+                  <button
+                    onClick={clearRangeFilter}
+                    className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600 hover:bg-ink-50"
+                  >
+                    Clear Range
+                  </button>
+                )}
+              </div>
+
               <div className="relative min-w-45">
                 <button
                   onClick={() => setShowDatePicker(!showDatePicker)}
@@ -254,8 +300,9 @@ setSummary(
                 onChange={(y, m) => {
                   setYear(y);
                   setMonth(m);
-                  // Clear date filter when month changes
+                  // Clear date/date-range filters when month changes
                   if (selectedDate) clearDateFilter();
+                  if (fromDate || toDate) clearRangeFilter();
                 }}
               />
             </div>

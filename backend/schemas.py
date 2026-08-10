@@ -242,6 +242,7 @@ class LeaveEncashmentDecision(BaseModel):
 class LeaveEncashmentOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     days: int
     status: str
     approved_by: Optional[int] = None
@@ -282,6 +283,7 @@ class HalfDayDecision(BaseModel):
 class HalfDayOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     attendance_date: date
     slot: str
     reason: Optional[str] = None
@@ -313,6 +315,7 @@ class WFHDecision(BaseModel):
 class WFHOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     attendance_date: date
     reason: Optional[str] = None
     status: str

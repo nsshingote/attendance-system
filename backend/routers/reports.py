@@ -410,12 +410,16 @@ def employee_wise_summary(
             status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
             if status == "Holiday":
                 continue
-            # Late is a property of an office-attendance day, not a mutually
-            # exclusive attendance bucket. Count it in both statistics.
-            if status == "Late":
+            # Count Half Day and WFH days as Present for reporting summaries.
+            if status in {"Present", "Late", "Half Day", "WFH"}:
                 summary["Present"] += 1
+            if status == "Late":
                 summary["Late"] += 1
-            else:
+            elif status == "Half Day":
+                summary["Half Day"] += 1
+            elif status == "WFH":
+                summary["WFH"] += 1
+            elif status not in {"Present", "Holiday"}:
                 summary[status] = summary.get(status, 0) + 1
 
         leave_requests_this_month = (

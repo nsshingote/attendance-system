@@ -272,6 +272,10 @@ class LeaveEncashmentRequest(Base):
     user = relationship("User", foreign_keys=[user_id])
     approver = relationship("User", foreign_keys=[approved_by])
 
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
+
 
 class HalfDayRequest(Base):
     __tablename__ = "half_day_requests"
@@ -289,6 +293,10 @@ class HalfDayRequest(Base):
     user = relationship("User", foreign_keys=[user_id])
     approver = relationship("User", foreign_keys=[approved_by])
 
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
+
 class WFHRequest(Base):
     __tablename__ = "wfh_requests"
 
@@ -303,6 +311,10 @@ class WFHRequest(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     approver = relationship("User", foreign_keys=[approved_by])
+
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
