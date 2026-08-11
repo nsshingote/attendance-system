@@ -426,9 +426,13 @@ export default function AttendancePage() {
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>("");
+  const [calendarSelectedStatus, setCalendarSelectedStatus] = useState<string>("Present");
+  const [calendarSelectedUserId, setCalendarSelectedUserId] = useState<number | null>(null);
+  const [savingCalendarOverride, setSavingCalendarOverride] = useState(false);
 
   const [records, setRecords] = useState<PageAttendanceRecord[]>([]);
-  const [summary, setSummary] = useState({ Present: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0, WFH: 0 });
+  const [summary, setSummary] = useState({ Present: 0, Late: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0, WFH: 0 });
   const [loading, setLoading] = useState(true);
 
   const [correctionModal, setCorrectionModal] = useState<PageAttendanceRecord | null>(null);
@@ -444,14 +448,44 @@ export default function AttendancePage() {
 
   const admin = isAdmin(session?.role);
 
+  const normalizeOverrideStatus = (status: string) => {
+    return status === "Extra Working Day" ? "Present" : status;
+  };
+
+  const saveSelectedCalendarOverride = async () => {
+    if (!calendarSelectedDate || !calendarSelectedUserId) {
+      toast.error("Choose a user and date before applying an override.");
+      return;
+    }
+
+    setSavingCalendarOverride(true);
+    try {
+      const payload = {
+        status: normalizeOverrideStatus(calendarSelectedStatus),
+        check_in: null,
+        check_out: null,
+      };
+      await api.put(`/attendance/user/${calendarSelectedUserId}/date/${calendarSelectedDate}`, payload);
+      toast.success("Attendance override saved");
+      setCalendarSelectedStatus(normalizeOverrideStatus(calendarSelectedStatus));
+      setCalendarRefreshKey((key) => key + 1);
+      await fetchData();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setSavingCalendarOverride(false);
+    }
+  };
+
   const handleSaveManualOverride = async () => {
     if (!manualOverrideModal) return;
     setSubmittingOverride(true);
 
     try {
-      const payload: any = { status: overrideStatus };
+      const normalizedOverrideStatus = normalizeOverrideStatus(overrideStatus);
+      const payload: any = { status: normalizedOverrideStatus };
 
-      if (overrideStatus === "On Leave") {
+      if (normalizedOverrideStatus === "On Leave") {
         payload.leave_category = leaveCategory;
         payload.check_in = null;
         payload.check_out = null;
@@ -559,6 +593,7 @@ setRecords(recordsWithReport || []);
 setSummary(
   summaryRes.data || {
     Present: 0,
+    Late: 0,
     "Half Day": 0,
     Absent: 0,
     Holiday: 0,
@@ -677,16 +712,13 @@ setSummary(
                 </button>
               </div>
 
-              <MonthSelector
-                year={year}
-                month={month}
-                onChange={(y, m) => {
-                  setYear(y);
-                  setMonth(m);
-                  // Clear date-range filter when month changes
-                  if (fromDate || toDate) clearRangeFilter();
-                }}
-              />
+              {view === "calendar" && (
+                <MonthSelector
+                  year={year}
+                  month={month}
+                  onChange={(y, m) => { setYear(y); setMonth(m); }}
+                />
+              )}
             </div>
           </div>
 
@@ -715,25 +747,56 @@ setSummary(
                   month={month}
                   canOverride={admin && selectedUserIds.length === 1}
                   refreshKey={calendarRefreshKey}
-                  onOverrideDate={(day) => {
-                    const userId = selectedUserIds[0];
-                    const status = ["Present", "Late", "Half Day", "WFH", "Absent"].includes(day.status ?? "")
-                      ? day.status!
-                      : "Absent";
-                    setManualOverrideModal({
-                      id: 0,
-                      user_id: userId,
-                      attendance_date: day.date,
-                      check_in: null,
-                      check_out: null,
-                      status,
-                      ip_address: null,
-                      leave_category: day.leave_category,
-                    });
-                    setOverrideStatus(status);
+                  selectedDate={calendarSelectedDate || undefined}
+                  onSelectDay={(day) => {
+                    const nextStatus = day.status === "Extra Working Day" ? "Present" : (day.status || "Present");
+                    setCalendarSelectedDate(day.date);
+                    setCalendarSelectedStatus(nextStatus);
+                    setCalendarSelectedUserId(selectedUserIds.length === 1 ? selectedUserIds[0] : null);
                   }}
                 />
               </div>
+
+              {calendarSelectedDate && calendarSelectedUserId && (
+                <div className="mx-auto max-w-md md:max-w-lg rounded-xl border border-ink-200 bg-white p-4 shadow-card">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink-900">Override Status</p>
+                      <p className="text-xs text-ink-500">
+                        {new Date(calendarSelectedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                      </p>
+                    </div>
+                    <span className="rounded-md bg-ink-100 px-2 py-1 text-xs font-medium text-ink-700">Employee #{calendarSelectedUserId}</span>
+                  </div>
+                  <label className="block text-sm font-medium text-ink-700">
+                    Status
+                    <select
+                      value={calendarSelectedStatus}
+                      onChange={(e) => setCalendarSelectedStatus(e.target.value)}
+                      className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {[
+                        "Present",
+                        "Late",
+                        "Absent",
+                        "WFH",
+                        "Half Day",
+                        "Extra Working Day",
+                      ].map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={saveSelectedCalendarOverride}
+                    disabled={savingCalendarOverride}
+                    className="mt-3 inline-flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-ink-200"
+                  >
+                    {savingCalendarOverride ? "Saving..." : "Apply Override"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

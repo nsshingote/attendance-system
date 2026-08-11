@@ -32,6 +32,7 @@ interface UserDetail {
 
 interface AttendanceSummary {
   Present: number;
+  Late: number;
   "Half Day": number;
   Holiday: number;
   Absent: number;
@@ -50,6 +51,7 @@ type SelectedCalendarDay = {
 
 const defaultAttendanceSummary: AttendanceSummary = {
   Present: 0,
+  Late: 0,
   "Half Day": 0,
   Holiday: 0,
   Absent: 0,
@@ -75,21 +77,51 @@ export default function UserDetailPage() {
   const [rangeLoading, setRangeLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedDay, setSelectedDay] = useState<SelectedCalendarDay | null>(null);
+  const [selectedOverrideStatus, setSelectedOverrideStatus] = useState("Present");
+  const [savingSelectedOverride, setSavingSelectedOverride] = useState(false);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
   const handleSelectDay = (day: SelectedCalendarDay) => {
     setSelectedDate(day.date);
     setSelectedDay(day);
+    const incoming = day.status === "Extra Working Day" ? "Present" : (day.status || "Present");
+    setSelectedOverrideStatus(incoming);
   };
 
   const handleSelectedDateChange = (value: string) => {
     setSelectedDate(value);
     setSelectedDay(null);
+    setSelectedOverrideStatus("Present");
 
     if (!value) return;
     const parsed = new Date(value);
     if (!Number.isNaN(parsed.getTime())) {
       setYear(parsed.getFullYear());
       setMonth(parsed.getMonth() + 1);
+    }
+  };
+
+  const saveSelectedDateOverride = async () => {
+    if (!selectedDate || !user) return;
+
+    setSavingSelectedOverride(true);
+    try {
+      const normalizedStatus = selectedOverrideStatus === "Extra Working Day" ? "Present" : selectedOverrideStatus;
+      await api.put(`/attendance/user/${user.id}/date/${selectedDate}`, {
+        status: normalizedStatus,
+        check_in: null,
+        check_out: null,
+      });
+
+      toast.success("Override saved");
+      setSelectedOverrideStatus(normalizedStatus);
+      setCalendarRefreshKey((value) => value + 1);
+      await loadAttendanceSummary();
+      await loadUserData();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setSavingSelectedOverride(false);
     }
   };
 
@@ -215,7 +247,7 @@ export default function UserDetailPage() {
                   }}
                 />
               </div>
-              <UserAttendanceChart userId={user.id} year={year} month={month} />
+              <UserAttendanceChart key={calendarRefreshKey} userId={user.id} year={year} month={month} />
             </div>
 
             {/* Average Working Hours */}
@@ -292,6 +324,7 @@ export default function UserDetailPage() {
                   selectedDate={selectedDate || undefined}
                   onSelectDay={handleSelectDay}
                   canOverride
+                  refreshKey={calendarRefreshKey}
                 />
               </div>
             </div>
@@ -345,9 +378,41 @@ export default function UserDetailPage() {
                   </div>
                 )}
 
-                <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-600">
-                  Override actions are shown here when a date is selected. Use the attendance page for detailed override controls.
-                </div>
+                {selectedDate && (
+                  <div className="rounded-2xl border border-ink-200 bg-white p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-ink-900">Override Status</span>
+                      <span className="rounded-md bg-ink-100 px-2 py-1 text-xs font-medium text-ink-700">{selectedDate}</span>
+                    </div>
+                    <label className="block text-sm font-medium text-ink-700">
+                      Final status for selected date
+                      <select
+                        value={selectedOverrideStatus}
+                        onChange={(e) => setSelectedOverrideStatus(e.target.value)}
+                        className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                      >
+                        {[
+                          "Present",
+                          "Late",
+                          "Absent",
+                          "WFH",
+                          "Half Day",
+                          "Extra Working Day",
+                        ].map((status) => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={saveSelectedDateOverride}
+                      disabled={savingSelectedOverride}
+                      className="mt-3 inline-flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-ink-200"
+                    >
+                      {savingSelectedOverride ? "Saving..." : "Apply Override"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

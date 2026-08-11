@@ -72,6 +72,8 @@ export default function AdminReportsPage() {
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reports, setReports] = useState<ReportGroup[]>([]);
@@ -99,10 +101,10 @@ export default function AdminReportsPage() {
     const requestId = ++latestRequestId.current;
     setLoading(true);
     try {
-      const params: { year: number; month: number; employee_ids?: number[]; department_id?: number; date_value?: string } = { year, month };
+      const params: { employee_ids?: number[]; department_id?: number; from_date?: string; to_date?: string } = {};
       if (selectedUserIds.length) params.employee_ids = selectedUserIds;
       if (selectedDepartmentId) params.department_id = selectedDepartmentId;
-      if (selectedDate) params.date_value = selectedDate;
+      if (fromDate && toDate) { params.from_date = fromDate; params.to_date = toDate; }
 
       const { data } = await api.get<ReportRow[]>("/reports/all", { params, paramsSerializer: { indexes: null } });
       // Requests can finish out of order when filters are changed quickly.  Do
@@ -110,14 +112,10 @@ export default function AdminReportsPage() {
       if (requestId !== latestRequestId.current) return;
 
       const filteredData = data.filter((report) => {
-        const reportMonth = Number(report.attendance_date.slice(5, 7));
-        const reportYear = Number(report.attendance_date.slice(0, 4));
         return (
-          reportYear === year &&
-          reportMonth === month &&
           (selectedUserIds.length === 0 || selectedUserIds.includes(report.user_id)) &&
           (!selectedDepartmentId || report.department_id === selectedDepartmentId) &&
-          (!selectedDate || report.attendance_date === selectedDate)
+          (!fromDate || !toDate || (report.attendance_date >= fromDate && report.attendance_date <= toDate))
         );
       });
       const groups = new Map<string, ReportGroup>();
@@ -158,12 +156,9 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     fetchReports();
-  }, [selectedUserIds, selectedDepartmentId, selectedDate, year, month]);
+  }, [selectedUserIds, selectedDepartmentId, fromDate, toDate]);
 
-  const clearDateFilter = () => {
-    setSelectedDate("");
-    setShowDatePicker(false);
-  };
+  const clearDateFilter = () => { setSelectedDate(""); setShowDatePicker(false); };
 
   const reviewPastSubmissionRequest = async (id: number, status: "Approved" | "Rejected") => {
     try {
@@ -243,7 +238,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `daily_reports_${year}_${month}_${selectedUserName || "all"}.csv`;
+    link.download = `daily_reports_${selectedUserName || "all"}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success("CSV exported successfully!");
@@ -258,7 +253,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Daily Reports");
-    XLSX.writeFile(workbook, `daily_reports_${year}_${month}_${selectedUserName || "all"}.xlsx`);
+    XLSX.writeFile(workbook, `daily_reports_${selectedUserName || "all"}.xlsx`);
     toast.success("Excel exported successfully!");
   };
 
@@ -275,6 +270,8 @@ const getTotalDuration = (activities: ReportRow[]) => {
 
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
+            <label className="text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
+            <label className="text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
             <select
               value={selectedDepartmentId}
               onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
@@ -346,7 +343,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-650px text-left text-xs">
+            <table className="w-full min-w-650px table-fixed text-left text-xs">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
                   <th className="px-3 py-2 font-medium">Employee</th>
@@ -366,7 +363,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
                     {group.activities.map((activity, index) => (
                       <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
                         {index === 0 && <>
-                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top font-medium text-ink-900 whitespace-nowrap">{group.user_name}</td>
+                          <td rowSpan={group.activities.length + 1} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>
                           <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
                           <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
                         </>}

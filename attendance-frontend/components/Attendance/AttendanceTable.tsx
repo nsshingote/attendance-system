@@ -117,7 +117,7 @@ export default function AttendanceTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-700px text-left text-xs">
+      <table className="w-full min-w-700px table-fixed text-left text-xs">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
             {showEmployeeName && (
@@ -142,7 +142,7 @@ export default function AttendanceTable({
             return (
               <tr key={r.id} className="hover:bg-ink-50/60">
                 {showEmployeeName && (
-                  <td className="px-2 py-2 text-ink-800 whitespace-nowrap font-medium">
+                  <td className="w-28 max-w-32 wrap-break-word whitespace-normal px-2 py-2 font-medium text-ink-800">
                     {r.user_name || "Unknown"}
                   </td>
                 )}

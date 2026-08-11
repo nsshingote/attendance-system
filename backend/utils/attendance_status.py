@@ -33,10 +33,12 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     """
     # A manual admin override is the final status, including on a date that
     # also has WFH, holiday, or leave workflow data.
+    # Historical data may contain more than one row for a date.  A manual
+    # override is authoritative even when an older automatic row also exists.
     attendance = db.query(Attendance).filter(
         Attendance.user_id == user_id,
         Attendance.attendance_date == target_date
-    ).first()
+    ).order_by(Attendance.manual_override.desc(), Attendance.id.desc()).first()
     if attendance and getattr(attendance, "manual_override", False):
         return attendance.status
 
@@ -155,10 +157,10 @@ def calculate_half_day(check_in: datetime, check_out: datetime, db: Session) -> 
 
 def update_summary_counts(summary: dict, status: str) -> None:
     """Update monthly summary counters from a final attendance status."""
-    if status in {"Present", "Late"}:
+    if status == "Present":
         summary["Present"] += 1
-        if status == "Late":
-            summary["Late"] += 1
+    elif status == "Late":
+        summary["Late"] += 1
     elif status == "Half Day":
         summary["Half Day"] += 1
         summary["Present"] += 1

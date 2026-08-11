@@ -921,12 +921,18 @@ def attendance_calendar(
 
         if day_records:
             if aggregated_all:
-                any_present = any(r.check_in or r.check_out for r in day_records)
-                day["status"] = "Present" if any_present else "Absent"
+                final_statuses = {
+                    determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+                    for record in day_records
+                }
+                day["status"] = "Present" if final_statuses.intersection({"Present", "Late", "Half Day", "WFH"}) else "Absent"
                 day["check_in"] = None
                 day["check_out"] = None
             else:
-                record = day_records[0]
+                record = max(
+                    day_records,
+                    key=lambda item: (bool(item.manual_override), item.check_in is not None, item.check_out is not None, item.id),
+                )
                 day["status"] = determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
                 day["leave_category"] = manual_leave_categories.get(record.id)
                 day["is_manual_override"] = bool(record.manual_override)
@@ -1035,13 +1041,22 @@ def monthly_summary(
             current_date += timedelta(days=1)
 
     # Summary counts
-    summary = {"Present": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0}
+    summary = {"Present": 0, "Late": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0}
 
     # Calculate total working hours
     total_hours = 0.0
 
+    records_by_date = {}
+    for record in records:
+        existing = records_by_date.get(record.attendance_date)
+        if existing is None or (
+            (bool(record.manual_override), record.check_in is not None, record.check_out is not None, record.id)
+            > (bool(existing.manual_override), existing.check_in is not None, existing.check_out is not None, existing.id)
+        ):
+            records_by_date[record.attendance_date] = record
+
     processed_dates = set()
-    for r in records:
+    for r in records_by_date.values():
         status = determine_attendance_status_for_date(db, user_id, r.attendance_date)
         processed_dates.add(r.attendance_date)
         _add_monthly_summary_counts(summary, status, r)
@@ -1212,6 +1227,29 @@ def _sync_manual_override_leave(
     db.delete(manual_leave)
 
 
+def _clear_legacy_leave_requests_on_override(db: Session, record: Attendance) -> None:
+    """When an attendance override supersedes an original leave/LWP date,
+    remove the overlapping regular leave request so the final report status is
+    derived from the attendance row rather than a stale leave entitlement.
+    """
+    if not record or not record.attendance_date:
+        return
+
+    legacy = (
+        db.query(LeaveRequest)
+        .filter(
+            LeaveRequest.user_id == record.user_id,
+            LeaveRequest.status.in_(["Pending", "Approved"]),
+            LeaveRequest.from_date <= record.attendance_date,
+            LeaveRequest.to_date >= record.attendance_date,
+            LeaveRequest.manual_override_attendance_id.is_(None),
+        )
+        .all()
+    )
+    for leave_request in legacy:
+        db.delete(leave_request)
+
+
 @router.put("/{attendance_id}", response_model=AttendanceOut)
 def manual_update(
     attendance_id: int,
@@ -1244,6 +1282,7 @@ def manual_update(
             record.check_out = None
             _apply_manual_override_leave(db, record, leave_category or "Paid")
         else:
+            _clear_legacy_leave_requests_on_override(db, record)
             _sync_manual_override_leave(db, record)
     record.updated_by = current_user.id
 
@@ -1316,6 +1355,7 @@ def manual_update_by_user_date(
             record.check_out = None
             _apply_manual_override_leave(db, record, leave_category or "Paid")
         else:
+            _clear_legacy_leave_requests_on_override(db, record)
             _sync_manual_override_leave(db, record)
 
     record.updated_by = current_user.id

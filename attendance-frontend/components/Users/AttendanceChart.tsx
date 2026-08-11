@@ -163,6 +163,7 @@ interface ChartData {
 
 const COLORS: Record<string, string> = {
   Present: "#047857",
+  Late: "#86EFAC",
   WFH: "#8B5CF6",
   "Half Day": "#FACC15",
   Leave: "#DC2626",
@@ -184,12 +185,13 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
         console.log("📊 User chart data:", summary);
 
         const chartData: ChartData[] = [
-          { name: "Present", value: summary.Present || 0, color: COLORS.Present },
-          { name: "WFH", value: summary.WFH || 0, color: COLORS.WFH },
-          { name: "Half Day", value: summary["Half Day"] || 0, color: COLORS["Half Day"] },
-          { name: "Leave", value: summary.Leave || 0, color: COLORS.Leave },
-          { name: "Holidays", value: summary.Holiday || 0, color: COLORS.Holidays },
-          { name: "Total Hours", value: summary["Total Hours"] || 0, color: COLORS["Total Hours"] },
+          { name: "Present", value: Number(summary.Present || 0), color: COLORS.Present },
+          { name: "Late", value: Number(summary.Late || 0), color: COLORS.Late },
+          { name: "WFH", value: Number(summary.WFH || 0), color: COLORS.WFH },
+          { name: "Half Day", value: Number(summary["Half Day"] || 0), color: COLORS["Half Day"] },
+          { name: "Leave", value: Number(summary.Leave || 0), color: COLORS.Leave },
+          { name: "Holidays", value: Number(summary.Holiday || 0), color: COLORS.Holidays },
+          { name: "Total Hours", value: Number(summary["Total Hours"] || 0), color: COLORS["Total Hours"] },
         ];
 
         console.log("📊 Processed chartData:", chartData);

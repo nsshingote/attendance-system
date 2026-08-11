@@ -44,7 +44,8 @@ export default function UserTable({
   return (
     <div className="w-full rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-720px text-left text-xs sm:text-sm">
+        <table className="w-full min-w-720px table-fixed text-left text-xs sm:text-sm">
+          <colgroup><col className="w-[22%]" /><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[16%]" /></colgroup>
           <thead>
             <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
               <th className="px-3 py-3 font-medium sm:px-4">Name</th>
@@ -62,13 +63,13 @@ export default function UserTable({
             {users.map((u) => (
               <tr key={u.id} className="hover:bg-ink-50/60">
                 <td className="px-3 py-3 sm:px-4">
-                  <p className="font-medium text-ink-900">{u.name}</p>
-                  <p className="text-[11px] text-ink-500 sm:text-xs">{u.designation}</p>
+                  <p className="wrap-break-word whitespace-normal font-medium text-ink-900">{u.name}</p>
+                  <p className="wrap-break-word whitespace-normal text-[11px] text-ink-500 sm:text-xs">{u.designation}</p>
                 </td>
 
                 <td className="px-3 py-3 text-ink-700 sm:px-4">{u.mobile}</td>
 
-                <td className="max-w-40 truncate px-3 py-3 text-ink-700 sm:px-4" title={u.department}>{u.department}</td>
+                <td className="wrap-break-word whitespace-normal px-3 py-3 text-ink-700 sm:px-4" title={u.department}>{u.department}</td>
 
                 <td className="px-3 py-3 capitalize text-ink-700 sm:px-4">
                   {u.role}

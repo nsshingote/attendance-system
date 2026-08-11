@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent, type TouchEvent, type PointerEvent } from "react";
-import { BellRing, ChevronLeft, ChevronRight, CircleUserRound, MessageSquareMore, Plus, SlidersHorizontal, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { BellRing, ChevronLeft, ChevronRight, CircleUserRound, Download, MessageSquareMore, Plus, SlidersHorizontal, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Common/Modal";
@@ -15,8 +15,8 @@ type FeedbackType = "positive" | "negative";
 
 const PAGE_SIZE = 5;
 
-function dateTime(value: string) {
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }).format(new Date(value));
+function dateOnly(value: string) {
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
 }
 
 export default function FeedbackPage() {
@@ -34,14 +34,14 @@ export default function FeedbackPage() {
   const [negativePage, setNegativePage] = useState(1);
   const [stats, setStats] = useState({ total: 0, positive: 0, negative: 0, anonymous: 0 });
   const [visibility, setVisibility] = useState("");
-  const [month, setMonth] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
+  const [submitting, setSubmitting] = useState(false);
 
-  const query = (feedbackType: FeedbackType, page: number) => ({ feedback_type: feedbackType, visibility: visibility || undefined, year: month ? Number(month.slice(0, 4)) : undefined, month: month ? Number(month.slice(5, 7)) : undefined, start_date: startDate || undefined, end_date: endDate ? `${endDate}T23:59:59` : undefined, employee_ids: selectedEmployeeIds.length ? selectedEmployeeIds : undefined, sort, page, page_size: PAGE_SIZE });
+  const query = (feedbackType: FeedbackType, page: number, pageSize = PAGE_SIZE) => ({ feedback_type: feedbackType, visibility: visibility || undefined, start_date: startDate || undefined, end_date: endDate ? `${endDate}T23:59:59` : undefined, employee_ids: selectedEmployeeIds.length ? selectedEmployeeIds : undefined, sort, page, page_size: pageSize });
   const load = async () => {
     if (!admin) return;
     try {
@@ -54,49 +54,72 @@ export default function FeedbackPage() {
       setStats(positiveResponse.data.stats);
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
-  useEffect(() => { load(); }, [admin, visibility, month, startDate, endDate, selectedEmployeeIds, sort, positivePage, negativePage]);
+  useEffect(() => { load(); }, [admin, visibility, startDate, endDate, selectedEmployeeIds, sort, positivePage, negativePage]);
   useEffect(() => { if (admin) api.get<EmployeeOption[]>("/users/").then(({ data }) => setEmployees(data)).catch(() => {}); }, [admin]);
 
   const resetPages = () => { setPositivePage(1); setNegativePage(1); };
-  const submitTouchHandled = useRef(false);
-  const submit = async () => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!type || !description.trim()) { toast.error("Description is required"); return; }
+    if (submitting) return;
     if (!window.confirm("Are you sure you want to submit?")) return;
-    try { await api.post("/feedback/", { feedback_type: type, description, is_anonymous: anonymous }); toast.success("Feedback submitted"); setDescription(""); setAnonymous(false); setType(null); }
-    catch (error) { toast.error(getErrorMessage(error)); }
-  };
-  const handleSubmitButton = async (
-    event: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement> | PointerEvent<HTMLButtonElement>
-  ) => {
-    if (event.type === "touchstart" || event.type === "pointerdown") {
-      if ((event as PointerEvent<HTMLButtonElement>).pointerType === "touch" || event.type === "touchstart") {
-        submitTouchHandled.current = false;
-        return;
-      }
-    }
 
-    if (event.type === "touchend" || event.type === "pointerup") {
-      const isTouch = event.type === "touchend" || (event as PointerEvent<HTMLButtonElement>).pointerType === "touch";
-      if (isTouch) {
-        event.preventDefault();
-        if (submitTouchHandled.current) return;
-        submitTouchHandled.current = true;
-        await submit();
-        return;
-      }
-    }
-
-    if (event.type === "click") {
-      if (submitTouchHandled.current) {
-        submitTouchHandled.current = false;
-        return;
-      }
-      await submit();
+    setSubmitting(true);
+    try {
+      await api.post("/feedback/", { feedback_type: type, description, is_anonymous: anonymous });
+      toast.success("Feedback submitted");
+      setDescription("");
+      setAnonymous(false);
+      setType(null);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setSubmitting(false);
     }
   };
+
   const remove = async (id: number) => {
     if (!window.confirm("Delete this feedback permanently?")) return;
     try { await api.delete(`/feedback/${id}`); toast.success("Feedback deleted"); load(); } catch (error) { toast.error(getErrorMessage(error)); }
+  };
+
+  const downloadCsv = async () => {
+    try {
+      const fetchAll = async (feedbackType: FeedbackType) => {
+        const rows: Feedback[] = [];
+        let page = 1;
+        let total = 0;
+        do {
+          const response = await api.get<FeedbackResponse>("/feedback/", {
+            params: query(feedbackType, page, 100),
+            paramsSerializer: { indexes: null },
+          });
+          rows.push(...response.data.items);
+          total = response.data.total;
+          page += 1;
+        } while (rows.length < total);
+        return rows;
+      };
+      const [positiveRows, negativeRows] = await Promise.all([fetchAll("positive"), fetchAll("negative")]);
+      const rows = [...positiveRows, ...negativeRows];
+      if (!rows.length) { toast.error("No feedback to export"); return; }
+      const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
+      const csvRows = rows.map((item) => [
+        item.is_anonymous ? "Anonymous" : (item.employee_name || "Unknown"),
+        item.feedback_type === "positive" ? "Positive" : "Negative",
+        item.description,
+        dateOnly(item.created_at),
+      ]);
+      const csv = [["Name", "Feedback Type", "Feedback", "Date"], ...csvRows]
+        .map((row) => row.map(escapeCsv).join(","))
+        .join("\r\n");
+      const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "feedback.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) { toast.error(getErrorMessage(error)); }
   };
 
   const cards = [
@@ -141,7 +164,7 @@ export default function FeedbackPage() {
                   </td>
                   <td className="max-w-[16rem] min-w-0 wrap-break-word whitespace-normal px-3 py-3 text-ink-700 sm:px-4 sm:py-3">{item.description}</td>
                   <td className="px-3 py-3 text-[11px] leading-5 text-ink-600 sm:px-4 sm:py-3 sm:text-xs">
-                    {dateTime(item.created_at)}
+                    {dateOnly(item.created_at)}
                     {superAdmin && (
                       <button onClick={() => remove(item.id)} className="mt-1 flex items-center gap-1 text-red-600">
                         <Trash2 size={12} /> Delete
@@ -181,19 +204,14 @@ export default function FeedbackPage() {
 
   return <AppShell allowedRoles={admin ? ["admin", "superadmin"] : ["user"]}><div className="space-y-5"><div><h1 className="text-2xl font-semibold text-ink-900">Feedback</h1><p className="mt-1 text-sm text-ink-500">{admin ? "Review employee feedback" : "Share feedback with your organization"}</p></div>
     {admin ? <><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">{cards.map(([label, value, Icon, color]) => <div key={label} className="flex items-center gap-2 rounded-xl border border-ink-200 bg-white p-2 shadow-card sm:gap-4 sm:p-4"><span className={`rounded-full p-2 sm:p-3 ${color}`}><Icon size={16} className="sm:hidden" /><Icon size={23} className="hidden sm:block" /></span><div><p className="text-[11px] text-ink-600 sm:text-sm">{label}</p><p className="mt-0.5 text-base font-semibold text-ink-900 sm:mt-1 sm:text-2xl">{value}</p></div></div>)}</div>
-      <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card"><div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4"><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">Select Employees<span className="mt-2 block"><EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={(ids) => { setSelectedEmployeeIds(ids); resetPages(); }} /></span></label><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm"><span className="mb-2 flex items-center gap-2"><SlidersHorizontal size={16} />Sort By</span><select value={sort} onChange={(e) => { setSort(e.target.value as "newest" | "oldest"); resetPages(); }} className="w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm"><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">Feedback Type<select value={visibility} onChange={(e) => { setVisibility(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm"><option value="">All Feedback</option><option value="anonymous">Anonymous</option><option value="known">Known</option></select></label></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4"><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">From<input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">To<input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">Month<input type="month" value={month} onChange={(e) => { setMonth(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label></div></div>
+      <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card"><div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,.75fr)_minmax(0,.85fr)] sm:gap-4"><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">Select Employees<span className="mt-2 block"><EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={(ids) => { setSelectedEmployeeIds(ids); resetPages(); }} /></span></label><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm"><span className="mb-2 flex items-center gap-2"><SlidersHorizontal size={16} />Sort By</span><select value={sort} onChange={(e) => { setSort(e.target.value as "newest" | "oldest"); resetPages(); }} className="w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm"><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label><label className="min-w-0 text-[11px] font-medium text-ink-700 sm:text-sm">Feedback Type<select value={visibility} onChange={(e) => { setVisibility(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm"><option value="">All Feedback</option><option value="anonymous">Anonymous</option><option value="known">Known</option></select></label></div><div className="mt-4 flex flex-wrap items-end gap-3"><label className="min-w-0 flex-1 text-[11px] font-medium text-ink-700 sm:text-sm">From<input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label><label className="min-w-0 flex-1 text-[11px] font-medium text-ink-700 sm:text-sm">To<input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); resetPages(); }} className="mt-2 w-full rounded-lg border border-ink-200 px-2 py-2 text-[11px] font-normal sm:px-3 sm:text-sm" /></label><button type="button" onClick={downloadCsv} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"><Download size={16} /> CSV</button></div></div>
       <div className="grid grid-cols-2 gap-3 sm:gap-4">{table("positive", positive, positiveTotal, positivePage, setPositivePage)}{table("negative", negative, negativeTotal, negativePage, setNegativePage)}</div><p className="flex items-center justify-center gap-2 text-sm text-ink-500"><BellRing size={16} />Anonymous feedback does not reveal the identity of the sender.</p></> : <div className="flex flex-wrap gap-3"><button type="button" onClick={() => setType("positive")} className="flex items-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white hover:bg-green-700 cursor-pointer" style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer" }}><Plus size={18} />Positive Feedback</button><button type="button" onClick={() => setType("negative")} className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 cursor-pointer" style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer" }}><Plus size={18} />Negative Feedback</button></div>}
-    </div><Modal isOpen={!!type} onClose={() => setType(null)} title={`${type === "positive" ? "Positive" : "Negative"} Feedback`}><div className="space-y-4"><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe your feedback" rows={5} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /><div><p className="mb-2 text-sm font-medium">Send as</p><label className="mr-4 text-sm"><input type="radio" checked={anonymous} onChange={() => setAnonymous(true)} /> Anonymous</label><label className="text-sm"><input type="radio" checked={!anonymous} onChange={() => setAnonymous(false)} /> Known</label></div><button
-            type="button"
-            onPointerDown={handleSubmitButton}
-            onPointerUp={handleSubmitButton}
-            onPointerCancel={() => { submitTouchHandled.current = false; }}
-            onTouchStart={handleSubmitButton}
-            onTouchEnd={handleSubmitButton}
-            onClick={handleSubmitButton}
+    </div><Modal isOpen={!!type} onClose={() => setType(null)} title={`${type === "positive" ? "Positive" : "Negative"} Feedback`}><form className="space-y-4" onSubmit={submit}><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe your feedback" rows={5} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /><div><p className="mb-2 text-sm font-medium">Send as</p><label className="mr-4 text-sm"><input type="radio" checked={anonymous} onChange={() => setAnonymous(true)} /> Anonymous</label><label className="text-sm"><input type="radio" checked={!anonymous} onChange={() => setAnonymous(false)} /> Known</label></div><button
+            type="submit"
+            disabled={submitting}
             style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer" }}
-            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white ${type === "positive" ? "bg-green-600" : "bg-red-600"}`}
+            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${type === "positive" ? "bg-green-600" : "bg-red-600"}`}
           >
-            Submit Feedback
-          </button></div></Modal></AppShell>;
+            {submitting ? "Submitting..." : "Submit Feedback"}
+          </button></form></Modal></AppShell>;
 }

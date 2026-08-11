@@ -56,6 +56,52 @@ from schemas import (
 router = APIRouter()
 
 
+LEAVE_CATEGORIES = ("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick")
+
+
+def _count_final_leave_category_days(
+    db: Session,
+    user_id: int,
+    leave_requests: list[LeaveRequest],
+    start_date: date,
+    end_date: date,
+) -> dict[str, int]:
+    """Count leave categories only for dates whose final attendance is On Leave.
+
+    Leave requests are entitlement records, while Attendance is the source of
+    truth for a day's final status.  This prevents an original Paid/LWP leave
+    allocation from being counted after an admin overrides that day to Present,
+    Late, WFH, Half Day, or Absent.
+    """
+    categories_by_date: dict[date, str] = {}
+    for leave_request in leave_requests:
+        allocated_categories = {
+            allocation.allocation_date: allocation.leave_category
+            for allocation in leave_request.allocations
+            if start_date <= allocation.allocation_date < end_date
+        }
+        if not allocated_categories:
+            current_date = max(leave_request.from_date, start_date)
+            final_date = min(leave_request.to_date, end_date - timedelta(days=1))
+            while current_date <= final_date:
+                allocated_categories[current_date] = leave_request.leave_category
+                current_date += timedelta(days=1)
+
+        is_manual_leave = leave_request.manual_override_attendance_id is not None
+        for leave_date, category in allocated_categories.items():
+            if category not in LEAVE_CATEGORIES:
+                continue
+            if determine_attendance_status_for_date(db, user_id, leave_date) != "On Leave":
+                continue
+            if is_manual_leave or leave_date not in categories_by_date:
+                categories_by_date[leave_date] = category
+
+    counts = {category: 0 for category in LEAVE_CATEGORIES}
+    for category in categories_by_date.values():
+        counts[category] += 1
+    return counts
+
+
 # ============================================================
 # HELPER FUNCTIONS FOR REPORT FORMATTING
 # ============================================================
@@ -393,15 +439,14 @@ def employee_wise_summary(
             )
             .all()
         )
-        # Legacy duplicate Absent rows must not inflate monthly totals. Count
-        # exactly one best record for each user/date, preferring a real
-        # check-in/out over a synthetic absence and then the newest row.
+        # Legacy duplicate rows must not inflate monthly totals. Count exactly
+        # one record per date; a manual override is always the final status.
         records_by_date = {}
         for record in raw_records:
             existing = records_by_date.get(record.attendance_date)
             if existing is None or (
-                (record.check_in is not None, record.check_out is not None, record.id)
-                > (existing.check_in is not None, existing.check_out is not None, existing.id)
+                (bool(record.manual_override), record.check_in is not None, record.check_out is not None, record.id)
+                > (bool(existing.manual_override), existing.check_in is not None, existing.check_out is not None, existing.id)
             ):
                 records_by_date[record.attendance_date] = record
         records = records_by_date.values()
@@ -422,7 +467,9 @@ def employee_wise_summary(
             )
             .all()
         )
-        category_counts = count_leave_category_days(leave_requests_this_month)
+        category_counts = _count_final_leave_category_days(
+            db, user.id, leave_requests_this_month, start_date, end_date
+        )
         paid_leave_days = category_counts["Paid"]
         carried_leave_used_days = category_counts["Carried"]
         lwp_days = category_counts["Unpaid"]
@@ -490,7 +537,12 @@ def leave_summary(
                 LeaveRequest.to_date >= start_date,
             )
         approved_leaves = leave_query.all()
-        category_counts = count_leave_category_days(approved_leaves)
+        if year and month:
+            category_counts = _count_final_leave_category_days(
+                db, user.id, approved_leaves, start_date, end_date
+            )
+        else:
+            category_counts = count_leave_category_days(approved_leaves)
         paid_leave = category_counts["Paid"]
         unpaid_leave = category_counts["Unpaid"]
         privilege_leave = category_counts["Privilege"]
@@ -526,6 +578,8 @@ def get_all_reports(
     employee_ids: Optional[List[int]] = Query(None),
     department_id: Optional[int] = Query(None),
     date_value: Optional[date] = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -535,7 +589,14 @@ def get_all_reports(
     # set.  In particular, do not silently ignore an unknown department ID.
     query = db.query(DailyReportData).join(User, DailyReportData.user_id == User.id)
     
-    if year and month:
+    if from_date and to_date:
+        if from_date > to_date:
+            raise HTTPException(status_code=400, detail="from_date cannot be after to_date")
+        query = query.filter(
+            DailyReportData.attendance_date >= from_date,
+            DailyReportData.attendance_date <= to_date,
+        )
+    elif year and month:
         start_date = date(year, month, 1)
         if month == 12:
             end_date = date(year + 1, 1, 1)

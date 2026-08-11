@@ -137,7 +137,7 @@ export default function TodayAttendanceTable() {
         </div>
       ) : (
         <div className="w-full max-w-full overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-sm">
+          <table className="w-full min-w-[700px] table-fixed text-left text-sm">
             <thead>
               <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                 <th className="px-4 py-3 font-medium">Employee</th>
@@ -159,7 +159,7 @@ export default function TodayAttendanceTable() {
                 
                 return (
                   <tr key={r.user_id} className="hover:bg-ink-50/60">
-                    <td className="px-4 py-3 font-medium text-ink-900">{r.user_name}</td>
+                    <td className="max-w-36 wrap-break-word whitespace-normal px-4 py-3 font-medium text-ink-900">{r.user_name}</td>
                     <td className="px-4 py-3 text-ink-600">{r.department}</td>
                     <td className="px-4 py-3 font-mono text-xs text-ink-600">
                       {formatLocalTime(r.check_in)}
