@@ -197,6 +197,8 @@ interface CalendarDay {
   label?: string;
   check_in?: string;
   check_out?: string;
+  leave_category?: string | null;
+  is_manual_override?: boolean;
 }
 
 interface UserCalendarProps {
@@ -205,6 +207,9 @@ interface UserCalendarProps {
   year: number;
   month: number;
   selectedDate?: string;
+  canOverride?: boolean;
+  onOverrideDate?: (day: CalendarDay) => void;
+  refreshKey?: number;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -218,9 +223,10 @@ const STATUS_COLORS: Record<string, string> = {
   "Weekly Off": "bg-gray-300 text-ink-500",
 };
 
-export default function UserCalendar({ userId, employeeIds, year, month, selectedDate }: UserCalendarProps) {
+export default function UserCalendar({ userId, employeeIds, year, month, selectedDate, canOverride = false, onOverrideDate, refreshKey = 0 }: UserCalendarProps) {
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
 
   useEffect(() => {
     const fetchCalendar = async () => {
@@ -238,7 +244,7 @@ export default function UserCalendar({ userId, employeeIds, year, month, selecte
     };
 
     fetchCalendar();
-  }, [userId, employeeIds, year, month]);
+  }, [userId, employeeIds, year, month, refreshKey]);
 
   if (loading) {
     return <Loading />;
@@ -289,6 +295,9 @@ export default function UserCalendar({ userId, employeeIds, year, month, selecte
   const getDayClassName = (day: CalendarDay) => {
     if (!day.date) return "bg-transparent";
 
+    if (day.is_manual_override && day.status) {
+      return STATUS_COLORS[day.status] || "bg-ink-200 text-ink-500";
+    }
     // Holiday (from holiday table)
     if (day.day_type === "holiday") {
       return "bg-blue-400 text-white";
@@ -335,16 +344,42 @@ export default function UserCalendar({ userId, employeeIds, year, month, selecte
             const isSelected = selectedDate === day.date;
 
             return (
-              <div
+              <button
+                type="button"
                 key={`${weekIndex}-${dayIndex}`}
+                disabled={!day.date || !canOverride}
+                onClick={() => day.date && canOverride && setSelectedDay(day)}
                 className={`aspect-square w-full max-w-44px mx-auto flex items-center justify-center text-xs rounded-md ${className} ${isSelected ? "ring-2 ring-brand-500 ring-offset-1" : ""}`}
+                title={day.leave_category ? `${day.status} — ${day.leave_category}` : day.status}
               >
                 {dayNum || ""}
-              </div>
+              </button>
             );
           })
         )}
       </div>
+
+      {canOverride && selectedDay && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-ink-200 bg-white px-3 py-2 text-sm shadow-sm">
+          <span className="text-ink-600">
+            {format(new Date(`${selectedDay.date}T00:00:00`), "d MMM")}: {selectedDay.status}
+            {selectedDay.leave_category ? ` (${selectedDay.leave_category})` : ""}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setSelectedDay(null)} className="text-ink-500 hover:text-ink-700">Cancel</button>
+            <button
+              type="button"
+              onClick={() => {
+                onOverrideDate?.(selectedDay);
+                setSelectedDay(null);
+              }}
+              className="rounded-md bg-brand-500 px-3 py-1.5 font-medium text-white hover:bg-brand-600"
+            >
+              Override
+            </button>
+          </div>
+        </div>
+      )}
 
       <CalendarLegend />
     </div>

@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     attendance_date DATE NOT NULL,
     check_in DATETIME,
     check_out DATETIME,
-    status ENUM('Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'On Leave') DEFAULT 'Present',
+    status ENUM('Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'WFH', 'On Leave') DEFAULT 'Present',
     ip_address VARCHAR(45),
     reason VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -119,9 +119,11 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     approved_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     notify_emails TEXT,
+    manual_override_attendance_id INT UNIQUE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE SET NULL,
-    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (manual_override_attendance_id) REFERENCES attendance(id) ON DELETE CASCADE
 );
 
 -- ============================================================

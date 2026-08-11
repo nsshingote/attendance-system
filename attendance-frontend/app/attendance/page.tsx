@@ -403,6 +403,7 @@ interface ReportData {
 
 type PageAttendanceRecord = AttendanceRecord & {
   user_id: number;
+  leave_category?: string | null;
 };
 
 export default function AttendancePage() {
@@ -426,8 +427,10 @@ export default function AttendancePage() {
   const [correctionModal, setCorrectionModal] = useState<PageAttendanceRecord | null>(null);
   const [manualOverrideModal, setManualOverrideModal] = useState<PageAttendanceRecord | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<string>("Present");
+  const [overrideLeaveCategory, setOverrideLeaveCategory] = useState<string>("Unpaid");
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
   const [submittingOverride, setSubmittingOverride] = useState(false);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
   const admin = isAdmin(session?.role);
 
@@ -438,39 +441,16 @@ export default function AttendancePage() {
     try {
       await api.put(`/attendance/user/${manualOverrideModal.user_id}/date/${manualOverrideModal.attendance_date}`, {
         status: overrideStatus,
+        ...(overrideStatus === "On Leave" ? { leave_category: overrideLeaveCategory } : {}),
       });
       toast.success("Attendance override saved");
       setManualOverrideModal(null);
+      setCalendarRefreshKey((key) => key + 1);
       fetchData();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setSubmittingOverride(false);
-    }
-  };
-
-  const handleToggleWorkingSunday = async (record: PageAttendanceRecord) => {
-    if (!record.user_id) return;
-
-    try {
-      if (record.is_working_sunday) {
-        await api.delete("/attendance/working-sunday", {
-          params: {
-            user_id: record.user_id,
-            work_date: record.attendance_date,
-          },
-        });
-        toast.success("Working Sunday unmarked");
-      } else {
-        await api.post("/attendance/working-sunday", {
-          user_id: record.user_id,
-          work_date: record.attendance_date,
-        });
-        toast.success("Working Sunday marked");
-      }
-      fetchData();
-    } catch (error) {
-      toast.error(getErrorMessage(error));
     }
   };
 
@@ -647,17 +627,37 @@ setSummary(
               onManualOverride={(record) => {
                 setManualOverrideModal(record);
                 setOverrideStatus(record.status);
+                setOverrideLeaveCategory(record.leave_category ?? "Unpaid");
               }}
-              onToggleWorkingSunday={handleToggleWorkingSunday}
             />
           ) : (
             <div className="space-y-3">
               <div className="mx-auto max-w-md md:max-w-lg">
                 <UserCalendar
                   userId={selectedUserIds.length === 1 ? selectedUserIds[0] : -1}
-                  employeeIds={selectedUserIds}
+                  employeeIds={selectedUserIds.length > 1 ? selectedUserIds : undefined}
                   year={year}
                   month={month}
+                  canOverride={admin && selectedUserIds.length === 1}
+                  refreshKey={calendarRefreshKey}
+                  onOverrideDate={(day) => {
+                    const userId = selectedUserIds[0];
+                    const status = ["Present", "Late", "Half Day", "WFH", "Absent", "On Leave"].includes(day.status ?? "")
+                      ? day.status!
+                      : "Absent";
+                    setManualOverrideModal({
+                      id: 0,
+                      user_id: userId,
+                      attendance_date: day.date,
+                      check_in: null,
+                      check_out: null,
+                      status,
+                      ip_address: null,
+                      leave_category: day.leave_category,
+                    });
+                    setOverrideStatus(status);
+                    setOverrideLeaveCategory(day.leave_category ?? "Unpaid");
+                  }}
                 />
               </div>
             </div>
@@ -724,7 +724,7 @@ setSummary(
                   "Late",
                   "Half Day",
                   "Absent",
-                  "Holiday",
+                  "WFH",
                   "On Leave",
                 ].map((status) => (
                   <option key={status} value={status}>
@@ -733,6 +733,21 @@ setSummary(
                 ))}
               </select>
             </div>
+            {overrideStatus === "On Leave" && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-ink-700">Leave category</label>
+                <select
+                  value={overrideLeaveCategory}
+                  onChange={(e) => setOverrideLeaveCategory(e.target.value)}
+                  className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="Paid">Paid</option>
+                  <option value="Carried">Carried</option>
+                  <option value="Unpaid">LWP / Unpaid</option>
+                  <option value="Privilege">Privilege</option>
+                </select>
+              </div>
+            )}
             <p className="text-xs text-ink-500">
               This override is persistent and will be used instead of automatic status calculation for this record.
             </p>

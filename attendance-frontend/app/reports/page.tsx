@@ -29,6 +29,9 @@ interface EmployeeSummaryRow {
   "Paid Leave": number;
   "Carried Leave Used": number;
   LWP: number;
+  "Privilege Leave": number;
+  "Emergency Leave": number;
+  "Sick Leave": number;
   "Carry Forward Balance": number;
   "Used Paid Leave This Month": boolean;
   Encashed: number;
@@ -42,6 +45,9 @@ interface LeaveSummaryRow {
   used_leave: number;
   paid_leave: number;
   unpaid_leave: number;
+  privilege_leave: number;
+  emergency_leave: number;
+  sick_leave: number;
   leave_encashed: number;
   remaining_leave: number;
 }
@@ -89,6 +95,9 @@ export default function ReportsPage() {
           r["Paid Leave"],
           r["Carried Leave Used"],
           r.LWP,
+          r["Privilege Leave"],
+          r["Emergency Leave"],
+          r["Sick Leave"],
           r["Carry Forward Balance"],
           r["Used Paid Leave This Month"] ? "Yes" : "No",
           r.Encashed,
@@ -98,6 +107,9 @@ export default function ReportsPage() {
           r.department,
           r.paid_leave,
           r.unpaid_leave,
+          r.privilege_leave,
+          r.emergency_leave,
+          r.sick_leave,
           r.carried_leave,
           r.leave_encashed,
           r.remaining_leave,
@@ -109,8 +121,8 @@ export default function ReportsPage() {
     }
 
     const headers = tab === "attendance"
-      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Paid Leave", "Carried Leave Used", "LWP", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
-      : ["Name", "Department", "Paid Leave", "Unpaid Leave", "Carried Leave", "Encashed", "Remaining"];
+      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Paid Leave", "Carried Leave Used", "LWP", "Privilege Leave", "Emergency Leave", "Sick Leave", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
+      : ["Name", "Department", "Paid Leave", "Unpaid Leave", "Privilege Leave", "Emergency Leave", "Sick Leave", "Carried Leave", "Encashed", "Remaining"];
     const escapeCsv = (value: string | number) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
@@ -140,6 +152,9 @@ export default function ReportsPage() {
         "Paid Leave": r["Paid Leave"],
         "Carried Leave Used": r["Carried Leave Used"],
         LWP: r.LWP,
+        "Privilege Leave": r["Privilege Leave"],
+        "Emergency Leave": r["Emergency Leave"],
+        "Sick Leave": r["Sick Leave"],
         "Carry Forward Balance": r["Carry Forward Balance"],
         "Used Paid Leave This Month": r["Used Paid Leave This Month"] ? "Yes" : "No",
         Encashed: r.Encashed,
@@ -158,6 +173,9 @@ export default function ReportsPage() {
         Department: r.department,
         "Paid Leave": r.paid_leave,
         "Unpaid Leave": r.unpaid_leave,
+        "Privilege Leave": r.privilege_leave,
+        "Emergency Leave": r.emergency_leave,
+        "Sick Leave": r.sick_leave,
         "Carried Leave": r.carried_leave,
         Encashed: r.leave_encashed,
         Remaining: r.remaining_leave,
@@ -187,6 +205,9 @@ export default function ReportsPage() {
         "Paid Leave",
         "Carried Leave Used",
         "LWP",
+        "Privilege Leave",
+        "Emergency Leave",
+        "Sick Leave",
         "Carry Forward Balance",
         "Used Paid Leave This Month",
         "Encashed",
@@ -202,6 +223,9 @@ export default function ReportsPage() {
         r["Paid Leave"],
         r["Carried Leave Used"],
         r.LWP,
+        r["Privilege Leave"],
+        r["Emergency Leave"],
+        r["Sick Leave"],
         r["Carry Forward Balance"],
         r["Used Paid Leave This Month"] ? "Yes" : "No",
         r.Encashed,
@@ -219,12 +243,15 @@ export default function ReportsPage() {
         return;
       }
       const doc = new jsPDF({ orientation: "landscape" });
-      const columns = ["Name", "Department", "Paid Leave", "Unpaid Leave", "Carried Leave", "Encashed", "Remaining"];
+      const columns = ["Name", "Department", "Paid Leave", "Unpaid Leave", "Privilege Leave", "Emergency Leave", "Sick Leave", "Carried Leave", "Encashed", "Remaining"];
       const rows = leaveSummary.map((r) => [
         r.name,
         r.department,
         r.paid_leave,
         r.unpaid_leave,
+        r.privilege_leave,
+        r.emergency_leave,
+        r.sick_leave,
         r.carried_leave,
         r.leave_encashed,
         r.remaining_leave,
@@ -304,6 +331,9 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">WFH</th>
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
                   <th className="px-4 py-3 font-medium">LWP</th>
+                  <th className="px-4 py-3 font-medium">Privilege</th>
+                  <th className="px-4 py-3 font-medium">Emergency</th>
+                  <th className="px-4 py-3 font-medium">Sick</th>
                   <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
                   <th className="px-4 py-3 font-medium">Encashed</th>
                 </tr>
@@ -319,6 +349,9 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r.WFH}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Privilege Leave"]}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Emergency Leave"]}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Sick Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Encashed}</td>
                   </tr>
@@ -335,6 +368,9 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">Department</th>
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
                   <th className="px-4 py-3 font-medium">Unpaid Leave</th>
+                  <th className="px-4 py-3 font-medium">Privilege Leave</th>
+                  <th className="px-4 py-3 font-medium">Emergency Leave</th>
+                  <th className="px-4 py-3 font-medium">Sick Leave</th>
                   <th className="px-4 py-3 font-medium">Carried Leave</th>
                   <th className="px-4 py-3 font-medium">Encashed</th>
                   <th className="px-4 py-3 font-medium">Remaining</th>
@@ -347,6 +383,9 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r.department}</td>
                     <td className="px-4 py-3 text-ink-700">{r.paid_leave}</td>
                     <td className="px-4 py-3 text-ink-700">{r.unpaid_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.privilege_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.emergency_leave}</td>
+                    <td className="px-4 py-3 text-ink-700">{r.sick_leave}</td>
                     <td className="px-4 py-3 text-ink-700">{r.carried_leave}</td>
                     <td className="px-4 py-3 text-ink-700">{r.leave_encashed}</td>
                     <td className="px-4 py-3 font-medium text-ink-900">{r.remaining_leave}</td>

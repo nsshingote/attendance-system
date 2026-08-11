@@ -71,7 +71,7 @@ class Attendance(Base):
     check_in = Column(DateTime, nullable=True)
     check_out = Column(DateTime, nullable=True)
     status = Column(
-        Enum("Present", "Late", "Half Day", "Absent", "Holiday", "On Leave", name="attendance_status"),
+        Enum("Present", "Late", "Half Day", "Absent", "Holiday", "WFH", "On Leave", name="attendance_status"),
         default="Present",
     )
     ip_address = Column(String(45), nullable=True)
@@ -175,6 +175,12 @@ class LeaveRequest(Base):
     approved_at = Column(DateTime, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
     notify_emails = Column(Text, nullable=True)
+    # Set only for the single-day leave created by an admin attendance override.
+    # Keeping this link lets the override be changed or removed without touching
+    # a normal employee leave request.
+    manual_override_attendance_id = Column(
+        Integer, ForeignKey("attendance.id", ondelete="CASCADE"), nullable=True, unique=True
+    )
 
     user = relationship("User", back_populates="leave_requests", foreign_keys=[user_id])
     leave_type = relationship("LeaveType")

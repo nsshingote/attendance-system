@@ -24,6 +24,7 @@ from models import (
     Holiday,
     HalfDayRequest as HalfDayRequestModel,
     LeaveRequest,
+    LeaveRequestAllocation,
     DailyReportData,
     DailyReport,
     WFHRequest as WFHRequestModel,
@@ -43,10 +44,21 @@ from schemas import (
     WorkingSundayCreate,
     WorkingSundayOut,
 )
-from utils.attendance_status import calculate_status, calculate_half_day, is_weekly_off, determine_attendance_status_for_date
+from utils.attendance_status import (
+    calculate_status,
+    calculate_half_day,
+    is_weekly_off,
+    determine_attendance_status_for_date,
+    update_summary_counts,
+)
 from utils.email_service import send_wfh_decision_notification
 from utils.calender import build_month_calendar
 from utils.date_helpers import iso_with_offset
+from utils.leave_calculator import (
+    LEAVE_TRACKING_START_DATE,
+    accrue_monthly_leave,
+    has_approved_or_pending_paid_leave_this_month,
+)
 
 router = APIRouter()
 
@@ -291,6 +303,17 @@ def _load_approved_leave_keys_for_users(db: Session, user_ids: Set[int], start_d
             current += timedelta(days=1)
 
     return approved_leave_keys
+
+
+def _load_manual_override_leave_categories(db: Session, attendance_ids: Set[int]) -> dict[int, str]:
+    if not attendance_ids:
+        return {}
+    return {
+        leave.manual_override_attendance_id: leave.leave_category
+        for leave in db.query(LeaveRequest).filter(
+            LeaveRequest.manual_override_attendance_id.in_(attendance_ids)
+        ).all()
+    }
 
 
 def _get_active_user_ids(db: Session) -> Set[int]:
@@ -636,6 +659,7 @@ def my_attendance(
     holiday_dates = _load_holiday_dates(db, attendance_dates)
     report_keys = _load_report_keys_for_users(db, {current_user.id}, attendance_dates)
     working_sunday_keys = _load_working_sunday_keys_for_users(db, {current_user.id}, attendance_dates)
+    manual_leave_categories = _load_manual_override_leave_categories(db, {attendance.id for attendance in records})
 
     results = []
     for attendance in records:
@@ -646,6 +670,7 @@ def my_attendance(
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
             "status": _determine_attendance_status_for_record(db, attendance, approved_wfh_keys, holiday_dates),
+            "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
             "created_at": iso_with_offset(attendance.created_at),
@@ -696,6 +721,7 @@ def user_attendance(
     holiday_dates = _load_holiday_dates(db, attendance_dates)
     report_keys = _load_report_keys_for_users(db, {user_id}, attendance_dates)
     working_sunday_keys = _load_working_sunday_keys_for_users(db, {user_id}, attendance_dates)
+    manual_leave_categories = _load_manual_override_leave_categories(db, {attendance.id for attendance in records})
 
     results = []
     for attendance in records:
@@ -706,6 +732,7 @@ def user_attendance(
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
             "status": _determine_attendance_status_for_record(db, attendance, approved_wfh_keys, holiday_dates),
+            "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
             "created_at": iso_with_offset(attendance.created_at),
@@ -777,6 +804,9 @@ def get_all_attendance(
     holiday_dates = _load_holiday_dates(db, attendance_dates)
 
     working_sunday_keys = _load_working_sunday_keys_for_users(db, user_ids, attendance_dates)
+    manual_leave_categories = _load_manual_override_leave_categories(
+        db, {attendance.id for attendance, _, _ in results}
+    )
 
     # Format the response with user details
     formatted_results = []
@@ -792,6 +822,7 @@ def get_all_attendance(
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
             "status": _determine_attendance_status_for_record(db, attendance, approved_wfh_keys, holiday_dates),
+            "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
             "has_report": has_report,
@@ -852,6 +883,7 @@ def attendance_calendar(
         records_query = records_query.filter(Attendance.user_id.in_(employee_ids))
 
     records = records_query.all()
+    manual_leave_categories = _load_manual_override_leave_categories(db, {record.id for record in records})
 
     # Create a map of date -> attendance records for the calendar.
     records_by_date = {}
@@ -875,6 +907,8 @@ def attendance_calendar(
             else:
                 record = day_records[0]
                 day["status"] = determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+                day["leave_category"] = manual_leave_categories.get(record.id)
+                day["is_manual_override"] = bool(record.manual_override)
                 day["check_in"] = iso_with_offset(record.check_in)
                 day["check_out"] = iso_with_offset(record.check_out)
         else:
@@ -886,25 +920,18 @@ def attendance_calendar(
                 day["status"] = "Absent"
             day["check_in"] = None
             day["check_out"] = None
+            day["leave_category"] = None
+            day["is_manual_override"] = False
 
     return calendar_days
 
 
 def _add_monthly_summary_counts(summary: dict, status: str, attendance_record) -> None:
     """Update monthly attendance summary counts for a single attendance record."""
-    if status in ("Present", "Late"):
-        summary["Present"] += 1
-    elif status == "Half Day":
-        summary["Half Day"] += 1
-        summary["Present"] += 1
-    elif status == "Holiday":
+    if status == "Holiday":
         summary["Holiday"] += 1
-    elif status == "WFH":
-        summary["WFH"] += 1
-        if attendance_record.check_in and attendance_record.check_out:
-            summary["Present"] += 1
-    elif status == "Absent":
-        summary["Absent"] += 1
+        return
+    update_summary_counts(summary, status)
 
 
 @router.get("/summary/{user_id}")
@@ -979,16 +1006,14 @@ def monthly_summary(
             current_date += timedelta(days=1)
 
     # Summary counts
-    summary = {"Present": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0}
-    
+    summary = {"Present": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0}
+
     # Calculate total working hours
     total_hours = 0.0
-    
+
     processed_dates = set()
     for r in records:
         status = determine_attendance_status_for_date(db, user_id, r.attendance_date)
-        if r.attendance_date in approved_leave_dates and status != "WFH":
-            status = "On Leave"
         processed_dates.add(r.attendance_date)
         _add_monthly_summary_counts(summary, status, r)
 
@@ -1000,11 +1025,12 @@ def monthly_summary(
     for wfh_date in approved_wfh_dates - processed_dates:
         summary["WFH"] += 1
 
-    # Count leave days in this month (all approved leaves)
-    leave_days = len(approved_leave_dates)
-    summary["Leave"] = int(leave_days or 0)
+    for leave_date in approved_leave_dates - processed_dates:
+        if leave_date in approved_wfh_dates:
+            continue
+        summary["Leave"] += 1
+        summary["Absent"] += 1
 
-    summary["Absent"] += len(approved_unpaid_leave_dates - processed_dates)
     summary["Total Hours"] = round(total_hours, 2)
 
     return summary
@@ -1013,6 +1039,95 @@ def monthly_summary(
 # ============================================================
 # ADMIN MANUAL UPDATE
 # ============================================================
+MANUAL_LEAVE_CATEGORIES = {"Paid", "Privilege", "Carried", "Unpaid"}
+
+
+def _sync_manual_override_leave(
+    db: Session,
+    record: Attendance,
+    leave_category: Optional[str],
+    current_user: User,
+) -> None:
+    """Create, update, or remove the leave record owned by an attendance override."""
+    if record.id is None:
+        db.flush()
+    manual_leave = db.query(LeaveRequest).filter(
+        LeaveRequest.manual_override_attendance_id == record.id
+    ).first()
+
+    if record.status != "On Leave":
+        if manual_leave:
+            if manual_leave.leave_category == "Carried":
+                user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
+                user.carried_leave = (user.carried_leave or 0) + 1
+            elif manual_leave.leave_category == "Privilege":
+                user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
+                user.annual_leave = (user.annual_leave or 0) + 1
+            db.delete(manual_leave)
+        return
+
+    if leave_category not in MANUAL_LEAVE_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail="A valid leave category is required when status is On Leave.",
+        )
+
+    user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
+    old_category = manual_leave.leave_category if manual_leave else None
+    if (
+        leave_category == "Paid"
+        and old_category != "Paid"
+        and (
+            record.attendance_date < LEAVE_TRACKING_START_DATE
+            or has_approved_or_pending_paid_leave_this_month(db, record.user_id, record.attendance_date)
+        )
+    ):
+        raise HTTPException(status_code=400, detail="No Paid leave balance is available for this override.")
+
+    old_carried_days = 1 if old_category == "Carried" else 0
+    new_carried_days = 1 if leave_category == "Carried" else 0
+    available_carried = (user.carried_leave or 0) + old_carried_days
+    if new_carried_days > available_carried:
+        raise HTTPException(status_code=400, detail="Insufficient carried leave balance for this override.")
+    user.carried_leave = (user.carried_leave or 0) + old_carried_days - new_carried_days
+
+    old_privilege_days = 1 if old_category == "Privilege" else 0
+    new_privilege_days = 1 if leave_category == "Privilege" else 0
+    available_privilege = (user.annual_leave or 0) + old_privilege_days
+    if new_privilege_days > available_privilege:
+        raise HTTPException(status_code=400, detail="Insufficient privilege leave balance for this override.")
+    user.annual_leave = (user.annual_leave or 0) + old_privilege_days - new_privilege_days
+
+    if manual_leave:
+        for allocation in list(manual_leave.allocations):
+            db.delete(allocation)
+        db.flush()
+        manual_leave.leave_category = leave_category
+        manual_leave.approved_by = current_user.id
+        manual_leave.approved_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        manual_leave.allocations = [
+            LeaveRequestAllocation(allocation_date=record.attendance_date, leave_category=leave_category)
+        ]
+        return
+
+    manual_leave = LeaveRequest(
+        user_id=record.user_id,
+        from_date=record.attendance_date,
+        to_date=record.attendance_date,
+        total_days=1,
+        reason="Manual attendance override",
+        status="Approved",
+        leave_category=leave_category,
+        approved_by=current_user.id,
+        approved_at=datetime.now(ZoneInfo("Asia/Kolkata")),
+        manual_override_attendance_id=record.id,
+    )
+    manual_leave.allocations = [
+        LeaveRequestAllocation(allocation_date=record.attendance_date, leave_category=leave_category)
+    ]
+    db.add(manual_leave)
+
+
 @router.put("/{attendance_id}", response_model=AttendanceOut)
 def manual_update(
     attendance_id: int,
@@ -1026,6 +1141,10 @@ def manual_update(
         raise HTTPException(status_code=404, detail="Attendance record not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    leave_category = update_data.pop("leave_category", None)
+    if update_data.get("status") == "On Leave":
+        target_user = db.query(User).filter(User.id == record.user_id).first()
+        accrue_monthly_leave(db, target_user)
     for field, value in update_data.items():
         setattr(record, field, value)
     # If admin provided a status, mark this as a manual override so automatic calc won't replace it
@@ -1033,6 +1152,7 @@ def manual_update(
         record.manual_override = True
         record.manual_override_by = current_user.id
         record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        _sync_manual_override_leave(db, record, leave_category, current_user)
     record.updated_by = current_user.id
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance #{attendance_id}"))
@@ -1046,6 +1166,7 @@ def manual_update(
         "check_in": iso_with_offset(record.check_in),
         "check_out": iso_with_offset(record.check_out),
         "status": _format_attendance_status(record, db),
+        "leave_category": _load_manual_override_leave_categories(db, {record.id}).get(record.id),
         "ip_address": record.ip_address,
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
@@ -1075,6 +1196,9 @@ def manual_update_by_user_date(
 
     record = db.query(Attendance).filter(Attendance.user_id == user_id, Attendance.attendance_date == target_date).first()
     update_data = payload.model_dump(exclude_unset=True)
+    leave_category = update_data.pop("leave_category", None)
+    if update_data.get("status") == "On Leave":
+        accrue_monthly_leave(db, user)
     if record:
         for field, value in update_data.items():
             setattr(record, field, value)
@@ -1092,6 +1216,7 @@ def manual_update_by_user_date(
         record.manual_override = True
         record.manual_override_by = current_user.id
         record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        _sync_manual_override_leave(db, record, leave_category, current_user)
 
     record.updated_by = current_user.id
     db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance for user #{user_id} on {target_date}"))
@@ -1105,6 +1230,7 @@ def manual_update_by_user_date(
         "check_in": iso_with_offset(record.check_in),
         "check_out": iso_with_offset(record.check_out),
         "status": _format_attendance_status(record, db),
+        "leave_category": _load_manual_override_leave_categories(db, {record.id}).get(record.id),
         "ip_address": record.ip_address,
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),

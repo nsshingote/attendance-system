@@ -69,18 +69,33 @@ NON_BALANCE_CONSUMING_CATEGORIES = ("Unpaid", "Privilege", "Emergency", "Sick")
 
 def count_leave_category_days(leave_requests) -> dict[str, int]:
     """Count approved leave days by category for summary and reporting."""
-    counts = {category: 0 for category in ("Paid", "Carried", "Unpaid", "Privilege")}
+    categories = ("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick")
+    counts = {category: 0 for category in categories}
+    # A manual attendance override may intentionally supersede an approved
+    # leave on the same date. Count that date once, using the manual category.
+    # Normal leave requests do not overlap each other.
+    days_by_date = {}
     for leave_request in leave_requests or []:
         if getattr(leave_request, "status", None) != "Approved":
             continue
         if hasattr(leave_request, "allocations") and leave_request.allocations:
             for alloc in leave_request.allocations:
-                if alloc.leave_category in counts:
-                    counts[alloc.leave_category] += 1
+                if alloc.leave_category not in counts:
+                    continue
+                is_manual = bool(getattr(leave_request, "manual_override_attendance_id", None))
+                if is_manual or alloc.allocation_date not in days_by_date:
+                    days_by_date[alloc.allocation_date] = alloc.leave_category
             continue
         category = getattr(leave_request, "leave_category", None)
         if category in counts:
-            counts[category] += int(getattr(leave_request, "total_days", 0) or 0)
+            current_date = leave_request.from_date
+            while current_date <= leave_request.to_date:
+                is_manual = bool(getattr(leave_request, "manual_override_attendance_id", None))
+                if is_manual or current_date not in days_by_date:
+                    days_by_date[current_date] = category
+                current_date += timedelta(days=1)
+    for category in days_by_date.values():
+        counts[category] += 1
     return counts
 
 

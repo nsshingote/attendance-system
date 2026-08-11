@@ -31,6 +31,15 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     Determine attendance status for a user on a specific date.
     Returns: 'Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'WFH', or 'On Leave'
     """
+    # A manual admin override is the final status, including on a date that
+    # also has WFH, holiday, or leave workflow data.
+    attendance = db.query(Attendance).filter(
+        Attendance.user_id == user_id,
+        Attendance.attendance_date == target_date
+    ).first()
+    if attendance and getattr(attendance, "manual_override", False):
+        return attendance.status
+
     # Check if approved WFH exists for this date
     wfh = db.query(WFHRequest).filter(
         WFHRequest.user_id == user_id,
@@ -44,16 +53,6 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     holiday = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
     if holiday:
         return "Holiday"
-
-    # Get attendance record
-    attendance = db.query(Attendance).filter(
-        Attendance.user_id == user_id,
-        Attendance.attendance_date == target_date
-    ).first()
-
-    # Respect manual admin override if present
-    if attendance and getattr(attendance, "manual_override", False):
-        return attendance.status
 
     if attendance and attendance.status == "On Leave":
         return "On Leave"
@@ -146,6 +145,25 @@ def calculate_half_day(check_in: datetime, check_out: datetime, db: Session) -> 
         return False
     hours = calculate_working_hours(check_in, check_out)
     return hours < 4.5
+
+
+def update_summary_counts(summary: dict, status: str) -> None:
+    """Update monthly summary counters from a final attendance status."""
+    if status in {"Present", "Late"}:
+        summary["Present"] += 1
+        if status == "Late":
+            summary["Late"] += 1
+    elif status == "Half Day":
+        summary["Half Day"] += 1
+        summary["Present"] += 1
+    elif status == "WFH":
+        summary["WFH"] += 1
+        summary["Present"] += 1
+    elif status == "On Leave":
+        summary["Leave"] += 1
+        summary["Absent"] += 1
+    elif status == "Absent":
+        summary["Absent"] += 1
 
 
 def is_weekly_off(target_date: date, db: Session) -> bool:

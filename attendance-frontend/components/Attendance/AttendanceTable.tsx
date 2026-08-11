@@ -17,6 +17,7 @@ export interface AttendanceRecord {
   check_in: string | null;
   check_out: string | null;
   status: string;
+  leave_category?: string | null;
   ip_address: string | null;
   reason?: string | null;
   report?: string | null;

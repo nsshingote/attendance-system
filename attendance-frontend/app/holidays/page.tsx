@@ -21,16 +21,45 @@ interface Holiday {
   holiday_name: string;
 }
 
+interface UserOption {
+  id: number;
+  name: string;
+}
+
+function getUpcomingSundayOptions(): string[] {
+  const options: string[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const dayOfWeek = today.getDay();
+  const daysUntilSunday = (7 - dayOfWeek) % 7;
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() + (daysUntilSunday === 0 ? 0 : daysUntilSunday));
+
+  for (let index = 0; index < 12; index += 1) {
+    const current = new Date(startDate);
+    current.setDate(startDate.getDate() + index * 7);
+    options.push(current.toISOString().split("T")[0]);
+  }
+
+  return options;
+}
+
 export default function HolidaysPage() {
   const session = getSession();
   const admin = isAdmin(session?.role);
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [newDate, setNewDate] = useState("");
   const [newName, setNewName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number | "">("");
+  const [selectedSunday, setSelectedSunday] = useState("");
+  const [workingSundaySubmitting, setWorkingSundaySubmitting] = useState(false);
+  const [upcomingSundays] = useState<string[]>(() => getUpcomingSundayOptions());
 
   const fetchHolidays = useCallback(async () => {
     setLoading(true);
@@ -47,6 +76,26 @@ export default function HolidaysPage() {
   useEffect(() => {
     fetchHolidays();
   }, [fetchHolidays]);
+
+  useEffect(() => {
+    if (!admin) return;
+    api
+      .get<UserOption[]>("/users/")
+      .then(({ data }) => {
+        setUsers(data);
+        if (data.length && !selectedUserId) {
+          setSelectedUserId(data[0].id);
+        }
+      })
+      .catch(() => {});
+  }, [admin]);
+
+  useEffect(() => {
+    if (!upcomingSundays.length) return;
+    if (!selectedSunday) {
+      setSelectedSunday(upcomingSundays[0]);
+    }
+  }, [selectedSunday, upcomingSundays]);
 
   const handleAdd = async () => {
     if (!newDate || !newName) {
@@ -79,6 +128,48 @@ export default function HolidaysPage() {
     }
   };
 
+  const handleMarkWorkingSunday = async () => {
+    if (!selectedUserId || !selectedSunday) {
+      toast.error("Please choose an employee and Sunday date");
+      return;
+    }
+
+    setWorkingSundaySubmitting(true);
+    try {
+      const { data } = await api.post("/attendance/working-sunday", {
+        user_id: Number(selectedUserId),
+        work_date: selectedSunday,
+      });
+      toast.success(data?.message || "Working Sunday marked");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setWorkingSundaySubmitting(false);
+    }
+  };
+
+  const handleUnmarkWorkingSunday = async () => {
+    if (!selectedUserId || !selectedSunday) {
+      toast.error("Please choose an employee and Sunday date");
+      return;
+    }
+
+    setWorkingSundaySubmitting(true);
+    try {
+      const { data } = await api.delete("/attendance/working-sunday", {
+        params: {
+          user_id: Number(selectedUserId),
+          work_date: selectedSunday,
+        },
+      });
+      toast.success(data?.message || "Working Sunday unmarked");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setWorkingSundaySubmitting(false);
+    }
+  };
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -97,6 +188,61 @@ export default function HolidaysPage() {
             </button>
           )}
         </div>
+
+        {admin && (
+          <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card">
+            <div className="mb-3">
+              <h2 className="text-sm font-semibold text-ink-900">Mark Working Sunday</h2>
+              <p className="text-sm text-ink-500">Choose an employee and a current or upcoming Sunday to allow remote attendance on that day.</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink-700">Employee</label>
+                <select
+                  value={selectedUserId}
+                  onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : "")}
+                  className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+                >
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink-700">Sunday Date</label>
+                <select
+                  value={selectedSunday}
+                  onChange={(event) => setSelectedSunday(event.target.value)}
+                  className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+                >
+                  {upcomingSundays.map((date) => (
+                    <option key={date} value={date}>
+                      {format(parseISO(date), "EEE, dd MMM yyyy")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  onClick={handleMarkWorkingSunday}
+                  disabled={workingSundaySubmitting}
+                  className="rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-60"
+                >
+                  {workingSundaySubmitting ? "Working..." : "Mark"}
+                </button>
+                <button
+                  onClick={handleUnmarkWorkingSunday}
+                  disabled={workingSundaySubmitting}
+                  className="rounded-lg border border-ink-200 px-3.5 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-60"
+                >
+                  {workingSundaySubmitting ? "Working..." : "Unmark"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <Loading />

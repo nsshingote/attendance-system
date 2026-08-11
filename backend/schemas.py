@@ -131,6 +131,7 @@ class AttendanceOut(ORMBase):
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
     status: str
+    leave_category: Optional[str] = None
     ip_address: Optional[str] = None
     reason: Optional[str] = None
     created_at: datetime
@@ -142,6 +143,7 @@ class AttendanceManualUpdate(BaseModel):
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
     status: Optional[str] = None
+    leave_category: Optional[str] = None
 
 
 class WorkingSundayCreate(BaseModel):

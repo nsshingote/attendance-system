@@ -32,7 +32,7 @@ from utils.leave_calculator import (
     count_leave_category_days,
 )
 from utils.logger import log_activity
-from utils.attendance_status import determine_attendance_status_for_date
+from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts
 from utils.date_helpers import iso_with_offset
 from zoneinfo import ZoneInfo
 
@@ -405,22 +405,12 @@ def employee_wise_summary(
             ):
                 records_by_date[record.attendance_date] = record
         records = records_by_date.values()
-        summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0}
+        summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0, "Leave": 0}
         for r in records:
             status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
             if status == "Holiday":
                 continue
-            # Count Half Day and WFH days as Present for reporting summaries.
-            if status in {"Present", "Late", "Half Day", "WFH"}:
-                summary["Present"] += 1
-            if status == "Late":
-                summary["Late"] += 1
-            elif status == "Half Day":
-                summary["Half Day"] += 1
-            elif status == "WFH":
-                summary["WFH"] += 1
-            elif status not in {"Present", "Holiday"}:
-                summary[status] = summary.get(status, 0) + 1
+            update_summary_counts(summary, status)
 
         leave_requests_this_month = (
             db.query(LeaveRequest)
@@ -437,6 +427,8 @@ def employee_wise_summary(
         carried_leave_used_days = category_counts["Carried"]
         lwp_days = category_counts["Unpaid"]
         privilege_leave_days = category_counts["Privilege"]
+        emergency_leave_days = category_counts["Emergency"]
+        sick_leave_days = category_counts["Sick"]
 
         used_paid_this_month = paid_leave_days > 0
         has_encashment_on_record = (
@@ -461,6 +453,8 @@ def employee_wise_summary(
                 "Carry Forward Balance": user.carried_leave or 0,
                 "Used Paid Leave This Month": used_paid_this_month,
                 "Privilege Leave": privilege_leave_days,
+                "Emergency Leave": emergency_leave_days,
+                "Sick Leave": sick_leave_days,
                 "Encashed": 1 if has_encashment_on_record else 0,
             }
         )
@@ -500,6 +494,8 @@ def leave_summary(
         paid_leave = category_counts["Paid"]
         unpaid_leave = category_counts["Unpaid"]
         privilege_leave = category_counts["Privilege"]
+        emergency_leave = category_counts["Emergency"]
+        sick_leave = category_counts["Sick"]
         results.append(
             {
                 "user_id": user.id,
@@ -510,6 +506,8 @@ def leave_summary(
                 "paid_leave": paid_leave,
                 "unpaid_leave": unpaid_leave,
                 "privilege_leave": privilege_leave,
+                "emergency_leave": emergency_leave,
+                "sick_leave": sick_leave,
                 "leave_encashed": user.leave_encashed or 0,
                 "remaining_leave": remaining,
             }
