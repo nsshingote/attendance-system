@@ -160,6 +160,7 @@ export default function AdminReportsPage() {
 
   const clearDateFilter = () => { setSelectedDate(""); setShowDatePicker(false); };
 
+
   const reviewPastSubmissionRequest = async (id: number, status: "Approved" | "Rejected") => {
     try {
       await api.put(`/reports/past-submission-requests/${id}`, { status });
@@ -280,7 +281,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
               <option value="">All Departments</option>
               {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
             </select>
-            <div className="relative">
+            <div className="hidden">
               <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
                 <CalendarIcon size={13} />
                 {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
@@ -299,10 +300,6 @@ const getTotalDuration = (activities: ReportRow[]) => {
                 </>
               )}
             </div>
-            <MonthSelector year={year} month={month} onChange={(nextYear, nextMonth) => {
-              setYear(nextYear);
-              setMonth(nextMonth);
-            }} />
             <button onClick={handleExportCSV} className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
               <Download size={13} /> CSV
             </button>

@@ -428,6 +428,7 @@ export default function AttendancePage() {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>("");
   const [calendarSelectedStatus, setCalendarSelectedStatus] = useState<string>("Present");
+  const [calendarLeaveCategory, setCalendarLeaveCategory] = useState<string>("Paid");
   const [calendarSelectedUserId, setCalendarSelectedUserId] = useState<number | null>(null);
   const [savingCalendarOverride, setSavingCalendarOverride] = useState(false);
 
@@ -464,6 +465,7 @@ export default function AttendancePage() {
         status: normalizeOverrideStatus(calendarSelectedStatus),
         check_in: null,
         check_out: null,
+        ...(calendarSelectedStatus === "On Leave" ? { leave_category: calendarLeaveCategory } : {}),
       };
       await api.put(`/attendance/user/${calendarSelectedUserId}/date/${calendarSelectedDate}`, payload);
       toast.success("Attendance override saved");
@@ -772,7 +774,10 @@ setSummary(
                     Status
                     <select
                       value={calendarSelectedStatus}
-                      onChange={(e) => setCalendarSelectedStatus(e.target.value)}
+                      onChange={(e) => {
+                        setCalendarSelectedStatus(e.target.value);
+                        if (e.target.value !== "On Leave") setCalendarLeaveCategory("Paid");
+                      }}
                       className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                     >
                       {[
@@ -781,12 +786,23 @@ setSummary(
                         "Absent",
                         "WFH",
                         "Half Day",
+                        "On Leave",
                         "Extra Working Day",
                       ].map((status) => (
                         <option key={status} value={status}>{status}</option>
                       ))}
                     </select>
                   </label>
+                  {calendarSelectedStatus === "On Leave" && (
+                    <label className="mt-3 block text-sm font-medium text-ink-700">
+                      Leave category
+                      <select value={calendarLeaveCategory} onChange={(e) => setCalendarLeaveCategory(e.target.value)} className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
+                        <option value="Paid">Paid</option>
+                        <option value="Unpaid">Unpaid</option>
+                        <option value="Carried">Carried</option>
+                      </select>
+                    </label>
+                  )}
                   <button
                     type="button"
                     onClick={saveSelectedCalendarOverride}

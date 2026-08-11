@@ -55,8 +55,7 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
 
   return (
     <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-760px table-fixed text-left text-xs sm:text-sm">
-        <colgroup>{canDecide && <col className="w-[16%]" />}<col className="w-[11%]" /><col className="w-[11%]" /><col className="w-[7%]" /><col className="w-[13%]" /><col className="w-[24%]" /><col className="w-[10%]" />{canDecide && <col className="w-[18%]" />}</colgroup>
+      <table className="w-full min-w-[900px] text-left text-xs sm:text-sm">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
             {canDecide && <th className="px-3 py-3 font-medium sm:px-4">Employee</th>}

@@ -323,7 +323,7 @@ export default function UserDetailPage() {
                   month={month}
                   selectedDate={selectedDate || undefined}
                   onSelectDay={handleSelectDay}
-                  canOverride
+                  canOverride={false}
                   refreshKey={calendarRefreshKey}
                 />
               </div>
@@ -378,7 +378,7 @@ export default function UserDetailPage() {
                   </div>
                 )}
 
-                {selectedDate && (
+                {false && selectedDate && (
                   <div className="rounded-2xl border border-ink-200 bg-white p-4">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-sm font-semibold text-ink-900">Override Status</span>
@@ -397,6 +397,7 @@ export default function UserDetailPage() {
                           "Absent",
                           "WFH",
                           "Half Day",
+                          "On Leave",
                           "Extra Working Day",
                         ].map((status) => (
                           <option key={status} value={status}>{status}</option>
