@@ -750,6 +750,11 @@ setSummary(
                   canOverride={admin && selectedUserIds.length === 1}
                   refreshKey={calendarRefreshKey}
                   selectedDate={calendarSelectedDate || undefined}
+                  showStatus={true}
+                  onOverrideSaved={() => {
+                    setCalendarRefreshKey((k) => k + 1);
+                    fetchData();
+                  }}
                   onSelectDay={(day) => {
                     const nextStatus = day.status === "Extra Working Day" ? "Present" : (day.status || "Present");
                     setCalendarSelectedDate(day.date);

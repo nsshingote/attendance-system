@@ -8,7 +8,7 @@
  * Shows colored tiles for each day based on attendance status.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
@@ -38,6 +38,8 @@ interface UserCalendarProps {
   onOverrideDate?: (day: CalendarDay) => void;
   onSelectDay?: (day: CalendarDay) => void;
   refreshKey?: number;
+  showStatus?: boolean;
+  onOverrideSaved?: () => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -53,9 +55,14 @@ const STATUS_COLORS: Record<string, string> = {
   "Extra Working Day": "bg-blue-500 text-white",
 };
 
-export default function UserCalendar({ userId, employeeIds, departmentId, year, month, selectedDate, canOverride = false, onOverrideDate, onSelectDay, refreshKey = 0 }: UserCalendarProps) {
+export default function UserCalendar({ userId, employeeIds, departmentId, year, month, selectedDate, canOverride = false, onOverrideDate, onSelectDay, refreshKey = 0, showStatus = false, onOverrideSaved }: UserCalendarProps) {
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
+  // internalDate holds selection when parent doesn't control `selectedDate`
+  const [internalDate, setInternalDate] = useState<string>("");
+  const [savingOverride, setSavingOverride] = useState(false);
+  const overrideSelectRef = useRef<HTMLSelectElement | null>(null);
+  const leaveCategoryRef = useRef<HTMLSelectElement | null>(null);
 
   useEffect(() => {
     const fetchCalendar = async () => {
@@ -81,13 +88,11 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
     fetchCalendar();
   }, [userId, employeeIds, departmentId, year, month, refreshKey]);
 
-  useEffect(() => {
-    if (!selectedDate || days.length === 0) return;
-    const selected = days.find((day) => day.date === selectedDate);
-    if (selected) {
-      onSelectDay?.(selected);
-    }
-  }, [selectedDate, days, onSelectDay]);
+  // derive selected date locally — parent `selectedDate` takes precedence
+  const selectedDateLocal = selectedDate ?? internalDate;
+
+  // derive selected day from days + selectedDateLocal
+  const selectedDayLocal: CalendarDay | null = days.find((d) => d.date === selectedDateLocal) || null;
 
   if (loading) {
     return <Loading />;
@@ -190,17 +195,21 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
           week.map((day, dayIndex) => {
             const dayNum = getDayText(day);
             const className = getDayClassName(day);
-            const isSelected = selectedDate === day.date;
+            const isSelected = (showStatus ? selectedDateLocal : selectedDate) === day.date;
 
             return (
               <button
                 type="button"
                 key={`${weekIndex}-${dayIndex}`}
-                disabled={!day.date || !canOverride}
+                disabled={!day.date}
                 onClick={() => {
-                  if (!day.date || !canOverride) return;
+                  if (!day.date) return;
                   onSelectDay?.(day);
-                  onOverrideDate?.(day);
+                  if (canOverride) onOverrideDate?.(day);
+                  // if embedded status is shown, update local selection
+                  if (showStatus) {
+                    setInternalDate(day.date);
+                  }
                 }}
                 className={`flex h-9 w-9 items-center justify-center text-xs rounded-md ${className} ${isSelected ? "ring-2 ring-brand-500 ring-offset-1" : ""}`}
                 aria-label={day.working_day_label ?? day.status ?? day.date}
@@ -214,6 +223,117 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
       </div>
 
       <CalendarLegend />
+
+      {showStatus && (
+        <div className="mt-4 space-y-4">
+          <div className="rounded-2xl border border-ink-200 bg-ink-50 p-4">
+            <label className="block text-sm font-medium text-ink-700">
+              Select date
+              <input
+                type="date"
+                value={selectedDateLocal}
+                onChange={(e) => setInternalDate(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+              />
+            </label>
+            <p className="mt-3 text-sm text-ink-500">Selected date</p>
+            <p className="mt-2 text-lg font-semibold text-ink-900">
+              {selectedDateLocal ? new Date(selectedDateLocal).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "No date selected"}
+            </p>
+          </div>
+
+          {selectedDayLocal ? (
+            <div className="rounded-2xl border border-ink-200 bg-white p-4">
+              <div className="space-y-3 text-sm text-ink-600">
+                <p>
+                  <span className="font-medium text-ink-900">Status:</span> {selectedDayLocal.status || "Unknown"}
+                </p>
+                {selectedDayLocal.leave_category && (
+                  <p>
+                    <span className="font-medium text-ink-900">Leave category:</span> {selectedDayLocal.leave_category}
+                  </p>
+                )}
+                {selectedDayLocal.working_day_label && (
+                  <p>
+                    <span className="font-medium text-ink-900">Day type:</span> {selectedDayLocal.working_day_label}
+                  </p>
+                )}
+              </div>
+              {canOverride && (
+                <div className="mt-3 space-y-3">
+                  <label className="block text-sm font-medium text-ink-700">
+                    Final status for selected date
+                    <select
+                      key={selectedDateLocal}
+                      defaultValue={selectedDayLocal ? (selectedDayLocal.status === "Extra Working Day" ? "Present" : (selectedDayLocal.status || "Present")) : "Present"}
+                      ref={overrideSelectRef}
+                      className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {["Present", "Late", "Absent", "WFH", "Half Day", "On Leave", "Extra Working Day"].map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-sm font-medium text-ink-700">
+                    Leave category
+                    <select
+                      key={`leave-${selectedDateLocal}`}
+                      defaultValue={selectedDayLocal?.leave_category || "Paid"}
+                      ref={leaveCategoryRef}
+                      className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="Paid">Paid</option>
+                      <option value="Unpaid">Unpaid</option>
+                      <option value="Carried">Carried</option>
+                    </select>
+                  </label>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!selectedDateLocal) return;
+                        // Determine target user id: prefer explicit userId > 0, else if single employeeIds use that
+                        let targetUserId = userId && userId > 0 ? userId : undefined;
+                        if (!targetUserId && employeeIds && employeeIds.length === 1) targetUserId = employeeIds[0];
+                        if (!targetUserId) {
+                          toast.error("Choose a single employee to apply override.");
+                          return;
+                        }
+
+                        setSavingOverride(true);
+                          try {
+                            const normalized = (overrideSelectRef.current?.value === "Extra Working Day" ? "Present" : overrideSelectRef.current?.value) || "Present";
+                            const payload: { status: string; check_in: null | string; check_out: null | string; leave_category?: string } = { status: normalized, check_in: null, check_out: null };
+                            if (normalized === "On Leave") payload.leave_category = leaveCategoryRef.current?.value || "Paid";
+                            await api.put(`/attendance/user/${targetUserId}/date/${selectedDateLocal}`, payload);
+                          toast.success("Override saved");
+                          // update local day data
+                          setDays((prev) => prev.map(d => d.date === selectedDateLocal ? { ...d, status: normalized, leave_category: payload.leave_category ?? d.leave_category } : d));
+                          onOverrideSaved?.();
+                        } catch (error) {
+                          toast.error(getErrorMessage(error));
+                        } finally {
+                          setSavingOverride(false);
+                        }
+                      }}
+                      disabled={savingOverride}
+                      className="mt-2 inline-flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-ink-200"
+                    >
+                      {savingOverride ? "Saving..." : "Apply Override"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-500">
+              Choose a day on the calendar or use the date selector to view override status here.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

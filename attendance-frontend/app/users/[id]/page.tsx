@@ -316,7 +316,7 @@ export default function UserDetailPage() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-ink-900">Attendance Calendar</h3>
               </div>
-              <div className="mx-auto w-full max-w-420px">
+              <div className="w-full">
                 <UserCalendar
                   userId={user.id}
                   year={year}
@@ -328,7 +328,6 @@ export default function UserDetailPage() {
                 />
               </div>
             </div>
-
             <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card xl:col-span-1">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>

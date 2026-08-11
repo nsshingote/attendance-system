@@ -1273,9 +1273,27 @@ def manual_update(
         setattr(record, field, value)
 
     if "status" in update_data:
+        # Mark as manual override early so downstream generators respect it
         record.manual_override = True
         record.manual_override_by = current_user.id
         record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+
+        # If admin is forcing a working status on a weekly-off/holiday,
+        # treat it as an employee-specific working day so automatic
+        # absent generation and status derivation consider it a working day.
+        if update_data["status"] in ("Present", "Late", "Half Day", "Absent"):
+            try:
+                # Use helpers to detect holiday or weekly off
+                holiday_row = db.query(Holiday).filter(Holiday.holiday_date == record.attendance_date).first()
+            except Exception:
+                holiday_row = None
+            if (is_weekly_off(record.attendance_date, db) or holiday_row) and not _is_working_day(db, record.user_id, record.attendance_date):
+                # create per-user working day marker if missing
+                existing_ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == record.user_id, WorkingSunday.work_date == record.attendance_date).first()
+                if not existing_ws:
+                    db.add(WorkingSunday(user_id=record.user_id, work_date=record.attendance_date, marked_by=current_user.id))
+                    db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{record.user_id} on {record.attendance_date} via override"))
+
         if update_data["status"] == "On Leave":
             record.status = "On Leave"
             record.check_in = None
@@ -1346,9 +1364,25 @@ def manual_update_by_user_date(
         db.add(record)
 
     if "status" in update_data:
+        # Mark as manual override early so downstream generators respect it
         record.manual_override = True
         record.manual_override_by = current_user.id
         record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+
+        # If admin forces a working status on a weekly-off/holiday, mark it
+        # as a per-user working day so later status derivation treats it
+        # as a working day for this employee only.
+        if update_data["status"] in ("Present", "Late", "Half Day", "Absent"):
+            try:
+                holiday_row = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
+            except Exception:
+                holiday_row = None
+            if (is_weekly_off(target_date, db) or holiday_row) and not _is_working_day(db, user_id, target_date):
+                existing_ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
+                if not existing_ws:
+                    db.add(WorkingSunday(user_id=user_id, work_date=target_date, marked_by=current_user.id))
+                    db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{user_id} on {target_date} via override"))
+
         if update_data["status"] == "On Leave":
             record.status = "On Leave"
             record.check_in = None
@@ -1390,43 +1424,45 @@ def _apply_half_day(
 
     if _has_approved_wfh(db, user_id, attendance_date):
         raise HTTPException(status_code=400, detail="Cannot apply a half day on a date with an approved WFH request.")
+    try:
+        if "status" in update_data:
+            # Mark as manual override early so downstream generators respect it
+            record.manual_override = True
+            record.manual_override_by = current_user.id
+            record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
 
-    start_time, end_time = HALF_DAY_SLOTS[slot]
-    # create tz-aware datetimes in Asia/Kolkata
-    check_in = datetime.combine(attendance_date, start_time).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
-    check_out = datetime.combine(attendance_date, end_time).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+            # If admin is forcing a working status on a weekly-off/holiday,
+            # treat it as an employee-specific working day so automatic
+            # absent generation and status derivation consider it a working day.
+            if update_data["status"] in ("Present", "Late", "Half Day", "Absent"):
+                try:
+                    # Use helpers to detect holiday or weekly off
+                    holiday_row = db.query(Holiday).filter(Holiday.holiday_date == record.attendance_date).first()
+                except Exception:
+                    holiday_row = None
+                if (is_weekly_off(record.attendance_date, db) or holiday_row) and not _is_working_day(db, record.user_id, record.attendance_date):
+                    # create per-user working day marker if missing
+                    existing_ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == record.user_id, WorkingSunday.work_date == record.attendance_date).first()
+                    if not existing_ws:
+                        db.add(WorkingSunday(user_id=record.user_id, work_date=record.attendance_date, marked_by=current_user.id))
+                        db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{record.user_id} on {record.attendance_date} via override"))
 
-    record = (
-        db.query(Attendance)
-        .filter(Attendance.user_id == user_id, Attendance.attendance_date == attendance_date)
-        .first()
-    )
+            if update_data["status"] == "On Leave":
+                record.status = "On Leave"
+                record.check_in = None
+                record.check_out = None
+                _apply_manual_override_leave(db, record, leave_category or "Paid")
+            else:
+                _clear_legacy_leave_requests_on_override(db, record)
+                _sync_manual_override_leave(db, record)
 
-    if record:
-        record.check_in = check_in
-        record.check_out = check_out
-        record.status = "Half Day"
-        record.reason = reason
-        if marked_by:
-            record.updated_by = marked_by
-    else:
-        record = Attendance(
-            user_id=user_id,
-            attendance_date=attendance_date,
-            check_in=check_in,
-            check_out=check_out,
-            status="Half Day",
-            reason=reason,
-            updated_by=marked_by,
-        )
-        db.add(record)
-
-    db.commit()
-    db.refresh(record)
-    return record
-
-
-# ============================================================
+        record.updated_by = current_user.id
+        db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance #{attendance_id}"))
+        db.commit()
+        db.refresh(record)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to apply manual override: {str(exc)}")
 # HALF DAY - EMPLOYEE REQUEST
 # ============================================================
 @router.post("/half-day", response_model=HalfDayOut, status_code=201)

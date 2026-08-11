@@ -172,7 +172,7 @@ export default function CorrectionForm({
       };
 
       // Build the reason string
-      let reasonParts: string[] = [];
+      const reasonParts: string[] = [];
       
       if (wantsCheckIn) {
         const timeStr = to24Hour(checkInHour, checkInMinute, checkInMeridiem);
