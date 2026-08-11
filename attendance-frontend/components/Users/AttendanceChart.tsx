@@ -136,16 +136,6 @@
 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Cell,
-  ResponsiveContainer,
-  LabelList,
-  Tooltip,
-} from "recharts";
 import api, { getErrorMessage } from "@/lib/api";
 import Loading from "@/components/Common/Loading";
 
@@ -218,7 +208,7 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
     );
   }
 
-  const hasData = Array.isArray(data) && data.length > 0;
+  const hasData = Array.isArray(data) && data.some((item) => item.value > 0);
 
   if (!hasData) {
     return (
@@ -228,40 +218,27 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
     );
   }
 
+  const maxValue = Math.max(...data.map((item) => item.value), 1);
+
   return (
-    <div className="w-full" style={{ height: data.length * 42 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart
-          data={data}
-          layout="vertical"
-          margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
-          barCategoryGap={10}
-        >
-          <XAxis type="number" hide />
-          <YAxis
-            type="category"
-            dataKey="name"
-            width={80}
-            tick={{ fontSize: 12, fill: "#475569" }}
-            axisLine={false}
-            tickLine={false}
-          />
-          <Tooltip
-           cursor={{ fill: "rgba(0,0,0,0.04)" }}
-           formatter={(value) => `${value}`}
-          />
-          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={22}>
-            {data.map((item) => (
-              <Cell key={item.name} fill={item.color} />
-            ))}
-            <LabelList
-              dataKey="value"
-              position="right"
-              style={{ fontSize: 12, fontWeight: 600, fill: "#0f172a" }}
-            />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="space-y-3">
+      {data.map((item) => {
+        const percentage = (item.value / maxValue) * 100;
+        return (
+          <div key={item.name} className="flex items-center gap-3">
+            <span className="w-20 shrink-0 text-xs font-medium text-ink-600">{item.name}</span>
+            <div className="h-7 flex-1 overflow-hidden rounded-full bg-ink-100">
+              <div
+                className="flex h-full items-center justify-end rounded-full pr-2 transition-all duration-500"
+                style={{ width: `${Math.max(percentage, item.value > 0 ? 3 : 0)}%`, backgroundColor: item.color }}
+              >
+                {item.value > 0 && <span className="text-[10px] font-medium text-white">{item.value}</span>}
+              </div>
+            </div>
+            <span className="w-8 text-right text-xs font-semibold text-ink-900">{item.value}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

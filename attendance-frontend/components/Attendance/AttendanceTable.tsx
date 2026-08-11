@@ -117,7 +117,7 @@ export default function AttendanceTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-700px table-fixed text-left text-xs">
+      <table className="w-full min-w-900px text-left text-xs">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
             {showEmployeeName && (

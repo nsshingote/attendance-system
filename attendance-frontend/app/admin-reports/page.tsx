@@ -343,7 +343,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-650px table-fixed text-left text-xs">
+            <table className="w-full min-w-[1050px] text-left text-xs">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
                   <th className="px-3 py-2 font-medium">Employee</th>

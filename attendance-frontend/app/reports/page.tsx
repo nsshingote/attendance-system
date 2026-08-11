@@ -302,7 +302,7 @@ export default function ReportsPage() {
           <Loading />
         ) : tab === "attendance" ? (
           <div className="overflow-x-auto rounded-1rem border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-820px table-fixed text-left text-sm">
+            <table className="w-full min-w-[1100px] text-left text-sm">
               <thead className="bg-white">
                 <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
@@ -339,7 +339,7 @@ export default function ReportsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-1rem border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-700px table-fixed text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="bg-white">
                 <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
