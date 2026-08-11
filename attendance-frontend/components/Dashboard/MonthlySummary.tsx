@@ -16,11 +16,11 @@ interface MonthlySummaryProps {
 }
 
 const STATS = [
-  { key: "Present", label: "Present", color: "bg-green-500" },
-  { key: "Half Day", label: "Half Day", color: "bg-purple-500" },
-  { key: "Absent", label: "Absent", color: "bg-red-400" },
-  { key: "Holiday", label: "Holiday", color: "bg-blue-400" },
-  { key: "Leave", label: "Leave", color: "bg-amber-400" },
+  { key: "Present", label: "Present", color: "bg-emerald-700" },
+  { key: "Half Day", label: "Half Day", color: "bg-yellow-400" },
+  { key: "Absent", label: "Absent", color: "bg-red-500" },
+  { key: "Holiday", label: "Holiday", color: "bg-pink-400" },
+  { key: "Leave", label: "Leave", color: "bg-red-500" },
 ];
 
 export default function MonthlySummary({ summary }: MonthlySummaryProps) {

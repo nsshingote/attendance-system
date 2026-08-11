@@ -28,10 +28,14 @@ interface AttendanceCalendarProps {
 const STATUS_DOT: Record<string, string> = {
   Present: "bg-status-present",
   Late: "bg-status-late",
-  "Half Day": "bg-status-halfday",
+  "Half Day": "bg-status-half-day",
   Absent: "bg-status-absent",
   Holiday: "bg-status-holiday",
-  weekly_off: "bg-ink-300",
+  "On Leave": "bg-status-on-leave",
+  WFH: "bg-status-wfh",
+  "Working Day": "bg-status-working-day",
+  "Extra Working Day": "bg-status-extra-working-day",
+  weekly_off: "bg-status-weekly-off",
 };
 
 export default function AttendanceCalendar({ year, month, days }: AttendanceCalendarProps) {

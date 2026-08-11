@@ -11,9 +11,17 @@ UPLOAD_FOLDER
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load environment variables from the repo root and backend-specific .env file.
+# Backend-specific values should override root-level settings when both exist.
+root_env_path = Path(__file__).resolve().parents[1] / ".env"
+backend_env_path = Path(__file__).resolve().parent / ".env"
+if root_env_path.exists():
+    load_dotenv(dotenv_path=root_env_path, override=False)
+if backend_env_path.exists():
+    load_dotenv(dotenv_path=backend_env_path, override=True)
 
 
 class Settings:

@@ -40,6 +40,14 @@ interface AttendanceSummary {
   "Total Hours": number;
 }
 
+type SelectedCalendarDay = {
+  date: string;
+  status?: string;
+  leave_category?: string | null;
+  working_day_label?: "Working Day" | "Extra Working Day" | null;
+  day_type?: string;
+};
+
 const defaultAttendanceSummary: AttendanceSummary = {
   Present: 0,
   "Half Day": 0,
@@ -65,6 +73,25 @@ export default function UserDetailPage() {
   const [toDate, setToDate] = useState("");
   const [rangeSummary, setRangeSummary] = useState<AttendanceSummary | null>(null);
   const [rangeLoading, setRangeLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDay, setSelectedDay] = useState<SelectedCalendarDay | null>(null);
+
+  const handleSelectDay = (day: SelectedCalendarDay) => {
+    setSelectedDate(day.date);
+    setSelectedDay(day);
+  };
+
+  const handleSelectedDateChange = (value: string) => {
+    setSelectedDate(value);
+    setSelectedDay(null);
+
+    if (!value) return;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      setYear(parsed.getFullYear());
+      setMonth(parsed.getMonth() + 1);
+    }
+  };
 
   const loadUserData = async () => {
     if (!userId) return;
@@ -183,6 +210,8 @@ export default function UserDetailPage() {
                   onChange={(y, m) => {
                     setYear(y);
                     setMonth(m);
+                    setSelectedDate("");
+                    setSelectedDay(null);
                   }}
                 />
               </div>
@@ -253,16 +282,78 @@ export default function UserDetailPage() {
           <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <h3 className="text-sm font-semibold text-ink-900">Attendance Calendar</h3>
-              <MonthSelector
-                year={year}
-                month={month}
-                onChange={(y, m) => {
-                  setYear(y);
-                  setMonth(m);
-                }}
-              />
+              <div className="grid gap-3 sm:flex sm:items-center sm:gap-3">
+                <MonthSelector
+                  year={year}
+                  month={month}
+                  onChange={(y, m) => {
+                    setYear(y);
+                    setMonth(m);
+                    setSelectedDate("");
+                    setSelectedDay(null);
+                  }}
+                />
+                <label className="min-w-0 text-sm text-ink-700">
+                  Select date
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => handleSelectedDateChange(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
             </div>
-            <UserCalendar userId={user.id} year={year} month={month} />
+            <UserCalendar
+              userId={user.id}
+              year={year}
+              month={month}
+              selectedDate={selectedDate || undefined}
+              onSelectDay={handleSelectDay}
+              canOverride
+            />
+          </div>
+          <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-900">Attendance Status</h3>
+                <p className="mt-1 text-sm text-ink-500">Selected day status and override details.</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-ink-200 bg-ink-50 p-4">
+                <p className="text-sm text-ink-500">Selected date</p>
+                <p className="mt-2 text-lg font-semibold text-ink-900">
+                  {selectedDate ? new Date(selectedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "No date selected"}
+                </p>
+              </div>
+              {selectedDay ? (
+                <div className="rounded-2xl border border-ink-200 bg-white p-4">
+                  <div className="space-y-3 text-sm text-ink-600">
+                    <p>
+                      <span className="font-medium text-ink-900">Status:</span> {selectedDay.status || "Unknown"}
+                    </p>
+                    {selectedDay.leave_category && (
+                      <p>
+                        <span className="font-medium text-ink-900">Leave category:</span> {selectedDay.leave_category}
+                      </p>
+                    )}
+                    {selectedDay.working_day_label && (
+                      <p>
+                        <span className="font-medium text-ink-900">Day type:</span> {selectedDay.working_day_label}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-500">
+                  Choose a day on the calendar or use the date selector to view override status here.
+                </div>
+              )}
+              <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-600">
+                Override actions are shown here when a date is selected. Use the attendance page for detailed override controls.
+              </div>
+            </div>
           </div>
         </div>
       </div>

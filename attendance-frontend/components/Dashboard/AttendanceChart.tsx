@@ -10,12 +10,16 @@ interface AttendanceChartProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  Present: "#16A34A",
-  Late: "#D97706",
-  "Half Day": "#7C3AED",
+  Present: "#047857",
+  Late: "#A3E635",
+  "Half Day": "#FACC15",
   Absent: "#DC2626",
-  Holiday: "#2563EB",
-  Leave: "#F59E0B",
+  Holiday: "#EC4899",
+  Leave: "#DC2626",
+  WFH: "#8B5CF6",
+  "Working Day": "#F97316",
+  "Extra Working Day": "#3B82F6",
+  "Weekly Off": "#94A3B8",
 };
 
 export default function AttendanceChart({ data }: AttendanceChartProps) {

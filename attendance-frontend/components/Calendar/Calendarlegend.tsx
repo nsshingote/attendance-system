@@ -4,16 +4,16 @@
  */
 
 const LEGEND_ITEMS = [
-  { label: "Present", dot: "bg-green-500" },
+  { label: "Present", dot: "bg-emerald-700" },
   { label: "Late", dot: "bg-lime-400" },
-  { label: "Half Day", dot: "bg-purple-500" },
-  { label: "Absent", dot: "bg-red-400" },
-  { label: "Holiday", dot: "bg-blue-400" },
-  { label: "On Leave", dot: "bg-amber-400" },
-  { label: "WFH", dot: "bg-cyan-500" },
+  { label: "Absent", dot: "bg-red-500" },
+  { label: "On Leave", dot: "bg-red-500" },
+  { label: "Half Day", dot: "bg-yellow-400" },
+  { label: "WFH", dot: "bg-violet-500" },
+  { label: "Weekly Off", dot: "bg-slate-400" },
+  { label: "Extra Working Day", dot: "bg-blue-500" },
+  { label: "Holiday", dot: "bg-pink-400" },
   { label: "Working Day", dot: "bg-orange-500" },
-  { label: "Extra Working Day", dot: "bg-fuchsia-500" },
-  { label: "Weekly Off", dot: "bg-gray-300" },
 ];
 
 export default function CalendarLegend() {

@@ -20,6 +20,7 @@ from models import (
     Attendance,
     OfficeIP,
     User,
+    UserDepartment,
     ActivityLog,
     Holiday,
     HalfDayRequest as HalfDayRequestModel,
@@ -752,6 +753,7 @@ def get_all_attendance(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     employee_ids: Optional[List[int]] = Query(None),
+    department_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -784,6 +786,11 @@ def get_all_attendance(
 
     if employee_ids:
         query = query.filter(Attendance.user_id.in_(employee_ids))
+
+    if department_id is not None:
+        query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
+            UserDepartment.department_id == department_id
+        )
 
     if target_start is not None and target_end is not None:
         _mark_absent_records_for_date_range(
@@ -840,6 +847,7 @@ def attendance_calendar(
     month: int,
     user_id: Optional[int] = None,
     employee_ids: Optional[List[int]] = Query(None),
+    department_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -875,6 +883,11 @@ def attendance_calendar(
         Attendance.attendance_date >= start_date,
         Attendance.attendance_date < end_date,
     )
+
+    if department_id is not None:
+        records_query = records_query.join(UserDepartment, Attendance.user_id == UserDepartment.user_id).filter(
+            UserDepartment.department_id == department_id
+        )
 
     if not aggregated_all:
         records_query = records_query.filter(Attendance.user_id == target_user_id)

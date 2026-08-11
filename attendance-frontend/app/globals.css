@@ -28,11 +28,16 @@
   --color-brand-100: #e0e7ff;
   --color-brand-50: #eef2ff;
 
-  --color-status-present: #16a34a;
-  --color-status-late: #d97706;
-  --color-status-halfday: #0891b2;
+  --color-status-present: #047857;
+  --color-status-late: #a3e635;
+  --color-status-halfday: #facc15;
   --color-status-absent: #dc2626;
-  --color-status-holiday: #7c3aed;
+  --color-status-holiday: #ec4899;
+  --color-status-on-leave: #dc2626;
+  --color-status-wfh: #8b5cf6;
+  --color-status-working-day: #f97316;
+  --color-status-extra-working-day: #3b82f6;
+  --color-status-weekly-off: #94a3b8;
 
   --radius-xl: 0.875rem;
   --shadow-card: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.06);
@@ -197,6 +202,12 @@ textarea {
   touch-action: manipulation;
 }
 
+.touch-action-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
 /* ==========================================================
    Status pill helpers
    ========================================================== */
@@ -207,13 +218,28 @@ textarea {
   @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200;
 }
 .status-half-day {
-  @apply bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200;
+  @apply bg-yellow-50 text-yellow-700 ring-1 ring-inset ring-yellow-200;
 }
 .status-absent {
   @apply bg-red-50 text-red-700 ring-1 ring-inset ring-red-200;
 }
+.status-on-leave {
+  @apply bg-red-50 text-red-700 ring-1 ring-inset ring-red-200;
+}
 .status-holiday {
+  @apply bg-pink-50 text-pink-700 ring-1 ring-inset ring-pink-200;
+}
+.status-wfh {
   @apply bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200;
+}
+.status-working-day {
+  @apply bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200;
+}
+.status-extra-working-day {
+  @apply bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200;
+}
+.status-weekly-off {
+  @apply bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200;
 }
 .status-pending {
   @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200;

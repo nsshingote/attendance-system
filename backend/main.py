@@ -3,9 +3,10 @@ main.py
 FastAPI application entrypoint. Wires up CORS, static file serving, and all routers.
 """
 
+import re
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -62,6 +63,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _cors_headers_for_error_response(request: Request) -> dict[str, str]:
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+
+    if origin in settings.FRONTEND_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+
+    if settings.APP_ENV != "production" and re.match(r"^http://(localhost|127\.0\.0\.1):\d+$", origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+
+    return {}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    response_headers = dict(exc.headers or {})
+    response_headers.update(_cors_headers_for_error_response(request))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=response_headers,
+    )
+
+
 # ---------------------------------------------------------
 # CORS-safe error responses
 # ---------------------------------------------------------
@@ -87,7 +120,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         pass
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"}
+        content={"detail": "Internal server error"},
+        headers=_cors_headers_for_error_response(request),
     )
 
 

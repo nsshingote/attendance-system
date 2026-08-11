@@ -396,6 +396,11 @@ interface UserOption {
   name: string;
 }
 
+interface DepartmentOption {
+  id: number;
+  name: string;
+}
+
 interface ReportData {
   attendance_date: string;
   report_display: string | null;
@@ -418,6 +423,8 @@ export default function AttendancePage() {
   const [toDate, setToDate] = useState<string>("");
 
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
 
   const [records, setRecords] = useState<PageAttendanceRecord[]>([]);
@@ -474,9 +481,18 @@ export default function AttendancePage() {
 
   useEffect(() => {
     if (!admin) return;
-    api
-      .get<UserOption[]>("/users/")
+
+    api.get<UserOption[]>('/users/')
       .then(({ data }) => setUsers(data))
+      .catch(() => {});
+  }, [admin]);
+
+  useEffect(() => {
+    if (!admin) return;
+
+    api
+      .get<DepartmentOption[]>('/reports/departments')
+      .then(({ data }) => setDepartments(data))
       .catch(() => {});
   }, [admin]);
 
@@ -515,6 +531,7 @@ export default function AttendancePage() {
 
       const attendanceUrl = admin ? "/attendance/all" : "/attendance/me";
       if (admin && selectedUserIds.length) params.employee_ids = selectedUserIds;
+      if (admin && selectedDepartmentId) params.department_id = selectedDepartmentId;
       const summaryUserId = selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId;
 
       const [recordsRes, summaryRes] = await Promise.all([
@@ -555,7 +572,7 @@ setSummary(
     } finally {
       setLoading(false);
     }
-  }, [selectedUserIds, year, month, admin, session?.userId, fromDate, toDate]);
+  }, [selectedUserIds, selectedDepartmentId, year, month, admin, session?.userId, fromDate, toDate]);
 
   useEffect(() => {
     fetchData();
@@ -598,7 +615,24 @@ setSummary(
 
             <div className="flex flex-wrap items-center gap-2">
               {admin && (
-                <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} />
+                <>
+                  <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} />
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">
+                    Department
+                    <select
+                      value={selectedDepartmentId}
+                      onChange={(e) => setSelectedDepartmentId(e.target.value ? Number(e.target.value) : "")}
+                      className="h-10 rounded-lg border border-ink-200 bg-white px-2 py-1 text-sm"
+                    >
+                      <option value="">All Departments</option>
+                      {departments.map((department) => (
+                        <option key={department.id} value={department.id}>
+                          {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
               )}
 
               <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">
@@ -676,6 +710,7 @@ setSummary(
                 <UserCalendar
                   userId={selectedUserIds.length === 1 ? selectedUserIds[0] : -1}
                   employeeIds={selectedUserIds.length > 1 ? selectedUserIds : undefined}
+                  departmentId={selectedDepartmentId || undefined}
                   year={year}
                   month={month}
                   canOverride={admin && selectedUserIds.length === 1}

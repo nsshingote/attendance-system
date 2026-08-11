@@ -162,12 +162,12 @@ interface ChartData {
 }
 
 const COLORS: Record<string, string> = {
-  Present: "#22c55e",
-  WFH: "#06b6d4",
-  "Half Day": "#8b5cf6",
-  Leave: "#f59e0b",
-  Holidays: "#3b82f6",
-  "Total Hours": "#0ea5e9",
+  Present: "#047857",
+  WFH: "#8B5CF6",
+  "Half Day": "#FACC15",
+  Leave: "#DC2626",
+  Holidays: "#EC4899",
+  "Total Hours": "#0EA5E9",
 };
 
 export default function AttendanceChart({ userId, year, month }: AttendanceChartProps) {
