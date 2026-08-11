@@ -26,25 +26,6 @@ interface UserOption {
   name: string;
 }
 
-function getUpcomingSundayOptions(): string[] {
-  const options: string[] = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const dayOfWeek = today.getDay();
-  const daysUntilSunday = (7 - dayOfWeek) % 7;
-  const startDate = new Date(today);
-  startDate.setDate(today.getDate() + (daysUntilSunday === 0 ? 0 : daysUntilSunday));
-
-  for (let index = 0; index < 12; index += 1) {
-    const current = new Date(startDate);
-    current.setDate(startDate.getDate() + index * 7);
-    options.push(current.toISOString().split("T")[0]);
-  }
-
-  return options;
-}
-
 export default function HolidaysPage() {
   const session = getSession();
   const admin = isAdmin(session?.role);
@@ -57,9 +38,8 @@ export default function HolidaysPage() {
   const [newName, setNewName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<number | "">("");
-  const [selectedSunday, setSelectedSunday] = useState("");
+  const [selectedWorkDate, setSelectedWorkDate] = useState("");
   const [workingSundaySubmitting, setWorkingSundaySubmitting] = useState(false);
-  const [upcomingSundays] = useState<string[]>(() => getUpcomingSundayOptions());
 
   const fetchHolidays = useCallback(async () => {
     setLoading(true);
@@ -89,13 +69,6 @@ export default function HolidaysPage() {
       })
       .catch(() => {});
   }, [admin]);
-
-  useEffect(() => {
-    if (!upcomingSundays.length) return;
-    if (!selectedSunday) {
-      setSelectedSunday(upcomingSundays[0]);
-    }
-  }, [selectedSunday, upcomingSundays]);
 
   const handleAdd = async () => {
     if (!newDate || !newName) {
@@ -129,8 +102,8 @@ export default function HolidaysPage() {
   };
 
   const handleMarkWorkingSunday = async () => {
-    if (!selectedUserId || !selectedSunday) {
-      toast.error("Please choose an employee and Sunday date");
+    if (!selectedUserId || !selectedWorkDate) {
+      toast.error("Please choose an employee and date");
       return;
     }
 
@@ -138,7 +111,7 @@ export default function HolidaysPage() {
     try {
       const { data } = await api.post("/attendance/working-sunday", {
         user_id: Number(selectedUserId),
-        work_date: selectedSunday,
+        work_date: selectedWorkDate,
       });
       toast.success(data?.message || "Working Sunday marked");
     } catch (error) {
@@ -149,8 +122,8 @@ export default function HolidaysPage() {
   };
 
   const handleUnmarkWorkingSunday = async () => {
-    if (!selectedUserId || !selectedSunday) {
-      toast.error("Please choose an employee and Sunday date");
+    if (!selectedUserId || !selectedWorkDate) {
+      toast.error("Please choose an employee and date");
       return;
     }
 
@@ -159,7 +132,7 @@ export default function HolidaysPage() {
       const { data } = await api.delete("/attendance/working-sunday", {
         params: {
           user_id: Number(selectedUserId),
-          work_date: selectedSunday,
+          work_date: selectedWorkDate,
         },
       });
       toast.success(data?.message || "Working Sunday unmarked");
@@ -192,8 +165,8 @@ export default function HolidaysPage() {
         {admin && (
           <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card">
             <div className="mb-3">
-              <h2 className="text-sm font-semibold text-ink-900">Mark Working Sunday</h2>
-              <p className="text-sm text-ink-500">Choose an employee and a current or upcoming Sunday to allow remote attendance on that day.</p>
+              <h2 className="text-sm font-semibold text-ink-900">Mark Working Day</h2>
+              <p className="text-sm text-ink-500">Choose an employee and any date to allow remote attendance on that day, including Sundays and holidays.</p>
             </div>
             <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
               <div>
@@ -211,18 +184,13 @@ export default function HolidaysPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-ink-700">Sunday Date</label>
-                <select
-                  value={selectedSunday}
-                  onChange={(event) => setSelectedSunday(event.target.value)}
+                <label className="mb-1.5 block text-sm font-medium text-ink-700">Date</label>
+                <input
+                  type="date"
+                  value={selectedWorkDate}
+                  onChange={(event) => setSelectedWorkDate(event.target.value)}
                   className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-                >
-                  {upcomingSundays.map((date) => (
-                    <option key={date} value={date}>
-                      {format(parseISO(date), "EEE, dd MMM yyyy")}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <div className="flex items-end gap-2">
                 <button

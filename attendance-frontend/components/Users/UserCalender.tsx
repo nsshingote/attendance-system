@@ -199,6 +199,7 @@ interface CalendarDay {
   check_out?: string;
   leave_category?: string | null;
   is_manual_override?: boolean;
+  working_day_label?: "Working Day" | "Extra Working Day" | null;
 }
 
 interface UserCalendarProps {
@@ -221,6 +222,8 @@ const STATUS_COLORS: Record<string, string> = {
   "On Leave": "bg-amber-400 text-white",
   WFH: "bg-cyan-500 text-white",
   "Weekly Off": "bg-gray-300 text-ink-500",
+  "Working Day": "bg-orange-500 text-white",
+  "Extra Working Day": "bg-fuchsia-500 text-white",
 };
 
 export default function UserCalendar({ userId, employeeIds, year, month, selectedDate, canOverride = false, onOverrideDate, refreshKey = 0 }: UserCalendarProps) {
@@ -298,6 +301,12 @@ export default function UserCalendar({ userId, employeeIds, year, month, selecte
     if (day.is_manual_override && day.status) {
       return STATUS_COLORS[day.status] || "bg-ink-200 text-ink-500";
     }
+    if (day.status === "WFH") {
+      return STATUS_COLORS.WFH;
+    }
+    if (day.working_day_label) {
+      return STATUS_COLORS[day.working_day_label];
+    }
     // Holiday (from holiday table)
     if (day.day_type === "holiday") {
       return "bg-blue-400 text-white";
@@ -325,12 +334,12 @@ export default function UserCalendar({ userId, employeeIds, year, month, selecte
   };
 
   return (
-    <div className="space-y-3 max-w-md mx-auto">
+    <div className="space-y-2 max-w-[300px] mx-auto">
       <div className="text-sm font-medium text-ink-700 text-center">
         {format(new Date(year, month - 1, 1), "MMMM yyyy")}
       </div>
 
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1 justify-items-center">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
           <div key={day} className="text-center text-[11px] font-medium text-ink-500 py-0.5">
             {day}
@@ -349,7 +358,8 @@ export default function UserCalendar({ userId, employeeIds, year, month, selecte
                 key={`${weekIndex}-${dayIndex}`}
                 disabled={!day.date || !canOverride}
                 onClick={() => day.date && canOverride && setSelectedDay(day)}
-                className={`aspect-square w-full max-w-44px mx-auto flex items-center justify-center text-xs rounded-md ${className} ${isSelected ? "ring-2 ring-brand-500 ring-offset-1" : ""}`}
+                className={`flex h-9 w-9 items-center justify-center text-xs rounded-md ${className} ${isSelected ? "ring-2 ring-brand-500 ring-offset-1" : ""}`}
+                aria-label={day.working_day_label ?? day.status ?? day.date}
                 title={day.leave_category ? `${day.status} — ${day.leave_category}` : day.status}
               >
                 {dayNum || ""}

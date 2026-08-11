@@ -34,7 +34,6 @@ interface AttendanceTableProps {
   showEmployeeName?: boolean;
   showAdminActions?: boolean;
   onManualOverride?: (record: AttendanceRecord) => void;
-  onToggleWorkingSunday?: (record: AttendanceRecord) => void;
 }
 
 function formatTime(isoString: string): string {
@@ -107,7 +106,6 @@ export default function AttendanceTable({
   showEmployeeName = false,
   showAdminActions = false,
   onManualOverride,
-  onToggleWorkingSunday,
 }: AttendanceTableProps) {
   if (records.length === 0) {
     return (
@@ -193,14 +191,6 @@ export default function AttendanceTable({
                           >
                             Override
                           </button>
-                          {new Date(r.attendance_date).getDay() === 0 && (
-                            <button
-                              onClick={() => onToggleWorkingSunday?.(r)}
-                              className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
-                            >
-                              {r.is_working_sunday ? "Unmark Sunday" : "Mark Sunday"}
-                            </button>
-                          )}
                         </>
                       )}
                     </div>

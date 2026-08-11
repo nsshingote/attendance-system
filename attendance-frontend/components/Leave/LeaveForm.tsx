@@ -4,7 +4,7 @@
  * components/Leave/LeaveForm.tsx
  * Apply-for-leave form: ONE consolidated "Leave Category" dropdown —
  * Paid (only if this month's slot is unused), Carried (only if balance
- * > 0), Unpaid, Emergency, Sick — plus dates and reason.
+ * > 0), Unpaid — plus dates and reason.
  *
  * Admin/SuperAdmin additionally get an "Apply For" employee picker at
  * the top — leaving it on "Myself" applies for their own account as
@@ -14,7 +14,7 @@
  * Balance rules enforced by the backend:
  * - Paid: max 1 day, only if this month's slot hasn't been used yet.
  * - Carried: spends from the accumulated carry-forward pool.
- * - Unpaid / Emergency / Sick: always available, no balance impact.
+ * - Unpaid: always available, no balance impact.
  * "Privilege" is admin-only — set later via an admin override.
  *
  * "Submit Request" posts to POST /leave/. "Compose Email" is platform-aware

@@ -49,9 +49,15 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     if wfh:
         return "WFH"
 
-    # Check if it's a holiday
+    is_assigned_working_day = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == target_date,
+    ).first() is not None
+
+    # A holiday remains a holiday unless this employee was explicitly assigned
+    # to work that date.
     holiday = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
-    if holiday:
+    if holiday and not is_assigned_working_day:
         return "Holiday"
 
     if attendance and attendance.status == "On Leave":

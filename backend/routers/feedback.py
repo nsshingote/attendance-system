@@ -9,6 +9,7 @@ from database import get_db
 from models import Feedback, User
 from schemas import FeedbackCreate
 from utils.date_helpers import iso_with_offset
+from utils.email_service import send_feedback_submission_confirmation
 
 router = APIRouter()
 
@@ -30,6 +31,13 @@ def create_feedback(payload: FeedbackCreate, db: Session = Depends(get_db), curr
     feedback = Feedback(user_id=current_user.id, **payload.model_dump())
     db.add(feedback)
     db.commit()
+    if current_user.email:
+        send_feedback_submission_confirmation(
+            current_user.email,
+            current_user.name,
+            payload.feedback_type,
+            payload.description,
+        )
     return {"message": "Feedback submitted"}
 
 @router.get("/")

@@ -427,7 +427,10 @@ export default function AttendancePage() {
   const [correctionModal, setCorrectionModal] = useState<PageAttendanceRecord | null>(null);
   const [manualOverrideModal, setManualOverrideModal] = useState<PageAttendanceRecord | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<string>("Present");
-  const [overrideLeaveCategory, setOverrideLeaveCategory] = useState<string>("Unpaid");
+  const [leaveCategory, setLeaveCategory] = useState<string>("Paid");
+  const [enterTimes, setEnterTimes] = useState<boolean>(false);
+  const [checkInTime, setCheckInTime] = useState<string>("");
+  const [checkOutTime, setCheckOutTime] = useState<string>("");
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
   const [submittingOverride, setSubmittingOverride] = useState(false);
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
@@ -439,10 +442,25 @@ export default function AttendancePage() {
     setSubmittingOverride(true);
 
     try {
-      await api.put(`/attendance/user/${manualOverrideModal.user_id}/date/${manualOverrideModal.attendance_date}`, {
-        status: overrideStatus,
-        ...(overrideStatus === "On Leave" ? { leave_category: overrideLeaveCategory } : {}),
-      });
+      const payload: any = { status: overrideStatus };
+
+      if (overrideStatus === "On Leave") {
+        payload.leave_category = leaveCategory;
+        payload.check_in = null;
+        payload.check_out = null;
+      } else if (enterTimes) {
+        if (checkInTime) {
+          payload.check_in = `${manualOverrideModal.attendance_date}T${checkInTime}:00`;
+        }
+        if (checkOutTime) {
+          payload.check_out = `${manualOverrideModal.attendance_date}T${checkOutTime}:00`;
+        }
+      } else {
+        payload.check_in = null;
+        payload.check_out = null;
+      }
+
+      await api.put(`/attendance/user/${manualOverrideModal.user_id}/date/${manualOverrideModal.attendance_date}`, payload);
       toast.success("Attendance override saved");
       setManualOverrideModal(null);
       setCalendarRefreshKey((key) => key + 1);
@@ -461,6 +479,29 @@ export default function AttendancePage() {
       .then(({ data }) => setUsers(data))
       .catch(() => {});
   }, [admin]);
+
+  useEffect(() => {
+    if (!manualOverrideModal) {
+      setEnterTimes(false);
+      setCheckInTime("");
+      setCheckOutTime("");
+      return;
+    }
+
+    const toTimeInput = (isoString?: string | null) => {
+      if (!isoString) return "";
+      const date = new Date(isoString);
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${hours}:${minutes}`;
+    };
+
+    setOverrideStatus(manualOverrideModal.status || "Present");
+    setLeaveCategory(manualOverrideModal.leave_category || "Paid");
+    setEnterTimes(Boolean(manualOverrideModal.check_in || manualOverrideModal.check_out));
+    setCheckInTime(toTimeInput(manualOverrideModal.check_in));
+    setCheckOutTime(toTimeInput(manualOverrideModal.check_out));
+  }, [manualOverrideModal]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -627,7 +668,6 @@ setSummary(
               onManualOverride={(record) => {
                 setManualOverrideModal(record);
                 setOverrideStatus(record.status);
-                setOverrideLeaveCategory(record.leave_category ?? "Unpaid");
               }}
             />
           ) : (
@@ -642,7 +682,7 @@ setSummary(
                   refreshKey={calendarRefreshKey}
                   onOverrideDate={(day) => {
                     const userId = selectedUserIds[0];
-                    const status = ["Present", "Late", "Half Day", "WFH", "Absent", "On Leave"].includes(day.status ?? "")
+                    const status = ["Present", "Late", "Half Day", "WFH", "Absent"].includes(day.status ?? "")
                       ? day.status!
                       : "Absent";
                     setManualOverrideModal({
@@ -656,7 +696,6 @@ setSummary(
                       leave_category: day.leave_category,
                     });
                     setOverrideStatus(status);
-                    setOverrideLeaveCategory(day.leave_category ?? "Unpaid");
                   }}
                 />
               </div>
@@ -716,7 +755,14 @@ setSummary(
               <label className="mb-1 block text-sm font-medium text-ink-700">Status</label>
               <select
                 value={overrideStatus}
-                onChange={(e) => setOverrideStatus(e.target.value)}
+                onChange={(e) => {
+                  setOverrideStatus(e.target.value);
+                  if (e.target.value === "On Leave") {
+                    setEnterTimes(false);
+                    setCheckInTime("");
+                    setCheckOutTime("");
+                  }
+                }}
                 className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
               >
                 {[
@@ -733,19 +779,81 @@ setSummary(
                 ))}
               </select>
             </div>
-            {overrideStatus === "On Leave" && (
+
+            {overrideStatus === "On Leave" ? (
               <div>
-                <label className="mb-1 block text-sm font-medium text-ink-700">Leave category</label>
+                <label className="mb-1 block text-sm font-medium text-ink-700">Leave Category</label>
                 <select
-                  value={overrideLeaveCategory}
-                  onChange={(e) => setOverrideLeaveCategory(e.target.value)}
+                  value={leaveCategory}
+                  onChange={(e) => setLeaveCategory(e.target.value)}
                   className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="Paid">Paid</option>
-                  <option value="Carried">Carried</option>
-                  <option value="Unpaid">LWP / Unpaid</option>
-                  <option value="Privilege">Privilege</option>
+                  {[
+                    "Paid",
+                    "Carried",
+                    "Unpaid",
+                    "Privilege",
+                  ].map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
                 </select>
+                <p className="mt-2 text-xs text-ink-500">
+                  Leave overrides create a one-day approved leave record and mark attendance as On Leave.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-ink-700">Enter Check-in/Check-out time?</label>
+                <div className="flex flex-wrap gap-2">
+                  <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                    <input
+                      type="radio"
+                      name="enterTimes"
+                      checked={enterTimes}
+                      onChange={() => setEnterTimes(true)}
+                      className="mr-2 h-4 w-4"
+                    />
+                    Yes
+                  </label>
+                  <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${!enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                    <input
+                      type="radio"
+                      name="enterTimes"
+                      checked={!enterTimes}
+                      onChange={() => setEnterTimes(false)}
+                      className="mr-2 h-4 w-4"
+                    />
+                    No
+                  </label>
+                </div>
+                <p className="mt-2 text-xs text-ink-500">
+                  Choose No to clear any existing check-in/check-out times and save only the override status.
+                </p>
+              </div>
+            )}
+
+            {enterTimes && overrideStatus !== "On Leave" && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-ink-700">Check In</label>
+                  <input
+                    type="time"
+                    value={checkInTime}
+                    onChange={(e) => setCheckInTime(e.target.value)}
+                    className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-ink-700">Check Out</label>
+                  <input
+                    type="time"
+                    value={checkOutTime}
+                    onChange={(e) => setCheckOutTime(e.target.value)}
+                    className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
               </div>
             )}
             <p className="text-xs text-ink-500">

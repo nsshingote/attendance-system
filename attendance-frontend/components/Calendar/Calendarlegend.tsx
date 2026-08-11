@@ -10,6 +10,9 @@ const LEGEND_ITEMS = [
   { label: "Absent", dot: "bg-red-400" },
   { label: "Holiday", dot: "bg-blue-400" },
   { label: "On Leave", dot: "bg-amber-400" },
+  { label: "WFH", dot: "bg-cyan-500" },
+  { label: "Working Day", dot: "bg-orange-500" },
+  { label: "Extra Working Day", dot: "bg-fuchsia-500" },
   { label: "Weekly Off", dot: "bg-gray-300" },
 ];
 

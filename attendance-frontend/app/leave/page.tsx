@@ -2,7 +2,7 @@
 
 /**
  * app/leave/page.tsx
- * Employee: request Leave (Paid/Carried/Unpaid/Emergency/Sick) or Half
+ * Employee: request Leave (Paid/Carried/Unpaid) or Half
  * Day via a single "+ New Request" button with a type selector — both
  * show up together in "My Requests" with a Type column. View balance,
  * request encashment.
@@ -827,7 +827,7 @@ export default function LeavePage() {
                 {allocationRows.map((row, index) => (
                   <tr key={row.allocation_date} className="border-b">
                     <td className="px-3 py-2">{new Date(row.allocation_date).toLocaleDateString()}</td>
-                    <td className="px-3 py-2"><select value={row.leave_category} onChange={(event) => setAllocationRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, leave_category: event.target.value } : item))} className="rounded border px-2 py-1 text-sm"><option>Paid</option><option>Carried</option><option>Unpaid</option><option>Privilege</option><option>Emergency</option><option>Sick</option></select></td>
+                    <td className="px-3 py-2"><select value={row.leave_category} onChange={(event) => setAllocationRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, leave_category: event.target.value } : item))} className="rounded border px-2 py-1 text-sm"><option>Paid</option><option>Carried</option><option>Unpaid</option><option>Privilege</option></select></td>
                   </tr>
                 ))}
               </tbody>

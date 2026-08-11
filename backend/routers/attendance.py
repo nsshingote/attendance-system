@@ -51,14 +51,13 @@ from utils.attendance_status import (
     determine_attendance_status_for_date,
     update_summary_counts,
 )
+from utils.leave_calculator import (
+    get_carried_leave_balance,
+    has_other_approved_or_pending_paid_leave_this_month,
+)
 from utils.email_service import send_wfh_decision_notification
 from utils.calender import build_month_calendar
 from utils.date_helpers import iso_with_offset
-from utils.leave_calculator import (
-    LEAVE_TRACKING_START_DATE,
-    accrue_monthly_leave,
-    has_approved_or_pending_paid_leave_this_month,
-)
 
 router = APIRouter()
 
@@ -128,10 +127,8 @@ def _has_attendance_record(db: Session, user_id: int, target_date: date) -> bool
     return existing is not None
 
 
-def _is_working_sunday(db: Session, user_id: int, target_date: date) -> bool:
-    """Return True if the user is marked as working for this Sunday date."""
-    if target_date.weekday() != 6:
-        return False
+def _is_working_day(db: Session, user_id: int, target_date: date) -> bool:
+    """Return True if this employee is approved to work remotely on this date."""
     entry = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
     return entry is not None
 
@@ -401,7 +398,7 @@ def _mark_absent_records_for_date_range(
                 continue
             if (user_id, target_date) in approved_leave_keys:
                 continue
-            if target_date.weekday() == 6 and not _is_working_sunday(db, user_id, target_date):
+            if target_date.weekday() == 6 and not _is_working_day(db, user_id, target_date):
                 continue
             if target_date.weekday() != 6 and is_weekly_off(target_date, db):
                 continue
@@ -429,7 +426,7 @@ def _determine_attendance_status_for_record(
         return record.status
     if (record.user_id, record.attendance_date) in approved_wfh_keys:
         return "WFH"
-    if record.attendance_date in holiday_dates:
+    if record.attendance_date in holiday_dates and not _is_working_day(db, record.user_id, record.attendance_date):
         return "Holiday"
     if record.status == "On Leave":
         return "On Leave"
@@ -460,8 +457,8 @@ def check_in(
 
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
 
-    # Skip office IP check if user has approved WFH or is marked working on this Sunday
-    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_sunday(db, current_user.id, today)):
+    # Skip office IP check only for approved WFH or this employee's assigned working day.
+    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_day(db, current_user.id, today)):
         if not _validate_office_ip(ip_address, db):
             raise HTTPException(
                 status_code=403,
@@ -484,8 +481,10 @@ def check_in(
             detail="REASON_REQUIRED: Please provide a reason for checking in after 10:30 AM.",
         )
 
-    # Check if it's a weekly off
-    if is_weekly_off(today, db):
+    # An assigned working day takes precedence over a holiday or weekly off.
+    if _is_working_day(db, current_user.id, today):
+        status_value = calculate_status(ist_now, db)
+    elif is_weekly_off(today, db):
         status_value = "Present"
     elif db.query(Holiday).filter(Holiday.holiday_date == today).first():
         status_value = "Holiday"
@@ -526,7 +525,7 @@ def check_in(
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
-        "is_working_sunday": _is_working_sunday(db, record.user_id, record.attendance_date),
+        "is_working_sunday": _is_working_day(db, record.user_id, record.attendance_date),
     }
 
 
@@ -548,8 +547,8 @@ def check_out(
 
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
 
-    # Skip office IP check if user has approved WFH or is marked working on this Sunday
-    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_sunday(db, current_user.id, today)):
+    # Skip office IP check only for approved WFH or this employee's assigned working day.
+    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_day(db, current_user.id, today)):
         if not _validate_office_ip(ip_address, db):
             raise HTTPException(
                 status_code=403,
@@ -884,6 +883,15 @@ def attendance_calendar(
 
     records = records_query.all()
     manual_leave_categories = _load_manual_override_leave_categories(db, {record.id for record in records})
+    working_day_dates = set()
+    if not aggregated_all and target_user_id is not None:
+        working_day_dates = {
+            work_date for (work_date,) in db.query(WorkingSunday.work_date).filter(
+                WorkingSunday.user_id == target_user_id,
+                WorkingSunday.work_date >= start_date,
+                WorkingSunday.work_date < end_date,
+            ).all()
+        }
 
     # Create a map of date -> attendance records for the calendar.
     records_by_date = {}
@@ -909,6 +917,10 @@ def attendance_calendar(
                 day["status"] = determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
                 day["leave_category"] = manual_leave_categories.get(record.id)
                 day["is_manual_override"] = bool(record.manual_override)
+                day["working_day_label"] = (
+                    "Extra Working Day" if record.attendance_date in working_day_dates and day["day_type"] == "holiday"
+                    else "Working Day" if record.attendance_date in working_day_dates else None
+                )
                 day["check_in"] = iso_with_offset(record.check_in)
                 day["check_out"] = iso_with_offset(record.check_out)
         else:
@@ -922,6 +934,10 @@ def attendance_calendar(
             day["check_out"] = None
             day["leave_category"] = None
             day["is_manual_override"] = False
+            day["working_day_label"] = (
+                "Extra Working Day" if date.fromisoformat(date_key) in working_day_dates and day["day_type"] == "holiday"
+                else "Working Day" if date.fromisoformat(date_key) in working_day_dates else None
+            )
 
     return calendar_days
 
@@ -1039,93 +1055,148 @@ def monthly_summary(
 # ============================================================
 # ADMIN MANUAL UPDATE
 # ============================================================
-MANUAL_LEAVE_CATEGORIES = {"Paid", "Privilege", "Carried", "Unpaid"}
+MANUAL_ATTENDANCE_STATUSES = {"Present", "Absent", "Late", "WFH", "Half Day", "On Leave"}
+
+
+MANUAL_LEAVE_CATEGORIES = {"Paid", "Carried", "Unpaid", "Privilege"}
+
+
+def _get_manual_override_leave(db: Session, record: Attendance) -> LeaveRequest | None:
+    if record.id is None:
+        db.flush()
+    return db.query(LeaveRequest).filter(
+        LeaveRequest.manual_override_attendance_id == record.id
+    ).first()
+
+
+def _has_regular_leave_on_date(db: Session, record: Attendance) -> bool:
+    return db.query(LeaveRequest).filter(
+        LeaveRequest.user_id == record.user_id,
+        LeaveRequest.status.in_("Pending", "Approved"),
+        LeaveRequest.from_date <= record.attendance_date,
+        LeaveRequest.to_date >= record.attendance_date,
+        LeaveRequest.manual_override_attendance_id.is_(None),
+    ).first() is not None
+
+
+def _reverse_manual_override_leave_balance(user: User, leave_request: LeaveRequest) -> None:
+    if leave_request.leave_category == "Carried":
+        user.carried_leave = (user.carried_leave or 0) + 1
+
+
+def _validate_manual_override_leave(
+    db: Session,
+    user: User,
+    attendance_date: date,
+    leave_category: str,
+    exclude_leave_id: int | None = None,
+) -> None:
+    if leave_category not in MANUAL_LEAVE_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Invalid leave category.")
+
+    if leave_category == "Paid":
+        if has_other_approved_or_pending_paid_leave_this_month(
+            db,
+            user.id,
+            attendance_date,
+            exclude_leave_id=exclude_leave_id,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="A Paid Leave slot is already used for this month.",
+            )
+    elif leave_category == "Carried":
+        if get_carried_leave_balance(db, user) < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Insufficient carried leave balance.",
+            )
+
+
+def _apply_manual_override_leave(
+    db: Session,
+    record: Attendance,
+    leave_category: str,
+) -> None:
+    """Create or update a one-day manual leave request linked to this attendance record."""
+    if _has_regular_leave_on_date(db, record):
+        raise HTTPException(
+            status_code=400,
+            detail="A leave request already exists for this date. Manage it from the Leave page.",
+        )
+
+    user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    manual_leave = _get_manual_override_leave(db, record)
+    if manual_leave:
+        old_category = manual_leave.leave_category
+        if old_category != leave_category:
+            _reverse_manual_override_leave_balance(user, manual_leave)
+            manual_leave.leave_category = leave_category
+            manual_leave.allocations = [
+                LeaveRequestAllocation(
+                    allocation_date=record.attendance_date,
+                    leave_category=leave_category,
+                )
+            ]
+            manual_leave.total_days = 1
+            _validate_manual_override_leave(
+                db,
+                user,
+                record.attendance_date,
+                leave_category,
+                exclude_leave_id=manual_leave.id,
+            )
+            if leave_category == "Carried":
+                user.carried_leave = (user.carried_leave or 0) - 1
+        return
+
+    _validate_manual_override_leave(db, user, record.attendance_date, leave_category)
+    manual_leave = LeaveRequest(
+        user_id=record.user_id,
+        from_date=record.attendance_date,
+        to_date=record.attendance_date,
+        total_days=1,
+        reason="Manual override leave",
+        status="Approved",
+        leave_category=leave_category,
+        manual_override_attendance_id=record.id,
+    )
+    manual_leave.allocations = [
+        LeaveRequestAllocation(
+            allocation_date=record.attendance_date,
+            leave_category=leave_category,
+        )
+    ]
+    db.add(manual_leave)
+    if leave_category == "Carried":
+        user.carried_leave = (user.carried_leave or 0) - 1
 
 
 def _sync_manual_override_leave(
     db: Session,
     record: Attendance,
-    leave_category: Optional[str],
-    current_user: User,
+    keep_manual_leave: bool = False,
 ) -> None:
-    """Create, update, or remove the leave record owned by an attendance override."""
+    """Remove a legacy attendance-created leave when its status is overridden."""
+    if keep_manual_leave:
+        return
+
     if record.id is None:
         db.flush()
     manual_leave = db.query(LeaveRequest).filter(
         LeaveRequest.manual_override_attendance_id == record.id
     ).first()
 
-    if record.status != "On Leave":
-        if manual_leave:
-            if manual_leave.leave_category == "Carried":
-                user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
-                user.carried_leave = (user.carried_leave or 0) + 1
-            elif manual_leave.leave_category == "Privilege":
-                user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
-                user.annual_leave = (user.annual_leave or 0) + 1
-            db.delete(manual_leave)
+    if not manual_leave:
         return
-
-    if leave_category not in MANUAL_LEAVE_CATEGORIES:
-        raise HTTPException(
-            status_code=400,
-            detail="A valid leave category is required when status is On Leave.",
-        )
 
     user = db.query(User).filter(User.id == record.user_id).with_for_update().first()
-    old_category = manual_leave.leave_category if manual_leave else None
-    if (
-        leave_category == "Paid"
-        and old_category != "Paid"
-        and (
-            record.attendance_date < LEAVE_TRACKING_START_DATE
-            or has_approved_or_pending_paid_leave_this_month(db, record.user_id, record.attendance_date)
-        )
-    ):
-        raise HTTPException(status_code=400, detail="No Paid leave balance is available for this override.")
-
-    old_carried_days = 1 if old_category == "Carried" else 0
-    new_carried_days = 1 if leave_category == "Carried" else 0
-    available_carried = (user.carried_leave or 0) + old_carried_days
-    if new_carried_days > available_carried:
-        raise HTTPException(status_code=400, detail="Insufficient carried leave balance for this override.")
-    user.carried_leave = (user.carried_leave or 0) + old_carried_days - new_carried_days
-
-    old_privilege_days = 1 if old_category == "Privilege" else 0
-    new_privilege_days = 1 if leave_category == "Privilege" else 0
-    available_privilege = (user.annual_leave or 0) + old_privilege_days
-    if new_privilege_days > available_privilege:
-        raise HTTPException(status_code=400, detail="Insufficient privilege leave balance for this override.")
-    user.annual_leave = (user.annual_leave or 0) + old_privilege_days - new_privilege_days
-
-    if manual_leave:
-        for allocation in list(manual_leave.allocations):
-            db.delete(allocation)
-        db.flush()
-        manual_leave.leave_category = leave_category
-        manual_leave.approved_by = current_user.id
-        manual_leave.approved_at = datetime.now(ZoneInfo("Asia/Kolkata"))
-        manual_leave.allocations = [
-            LeaveRequestAllocation(allocation_date=record.attendance_date, leave_category=leave_category)
-        ]
-        return
-
-    manual_leave = LeaveRequest(
-        user_id=record.user_id,
-        from_date=record.attendance_date,
-        to_date=record.attendance_date,
-        total_days=1,
-        reason="Manual attendance override",
-        status="Approved",
-        leave_category=leave_category,
-        approved_by=current_user.id,
-        approved_at=datetime.now(ZoneInfo("Asia/Kolkata")),
-        manual_override_attendance_id=record.id,
-    )
-    manual_leave.allocations = [
-        LeaveRequestAllocation(allocation_date=record.attendance_date, leave_category=leave_category)
-    ]
-    db.add(manual_leave)
+    if manual_leave.leave_category == "Carried":
+        user.carried_leave = (user.carried_leave or 0) + 1
+    db.delete(manual_leave)
 
 
 @router.put("/{attendance_id}", response_model=AttendanceOut)
@@ -1141,18 +1212,26 @@ def manual_update(
         raise HTTPException(status_code=404, detail="Attendance record not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "leave_category" in update_data and update_data.get("status") != "On Leave":
+        raise HTTPException(status_code=400, detail="Leave category may only be set for On Leave overrides.")
     leave_category = update_data.pop("leave_category", None)
-    if update_data.get("status") == "On Leave":
-        target_user = db.query(User).filter(User.id == record.user_id).first()
-        accrue_monthly_leave(db, target_user)
+    if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
+
     for field, value in update_data.items():
         setattr(record, field, value)
-    # If admin provided a status, mark this as a manual override so automatic calc won't replace it
+
     if "status" in update_data:
         record.manual_override = True
         record.manual_override_by = current_user.id
         record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
-        _sync_manual_override_leave(db, record, leave_category, current_user)
+        if update_data["status"] == "On Leave":
+            record.status = "On Leave"
+            record.check_in = None
+            record.check_out = None
+            _apply_manual_override_leave(db, record, leave_category or "Paid")
+        else:
+            _sync_manual_override_leave(db, record)
     record.updated_by = current_user.id
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance #{attendance_id}"))
@@ -1171,7 +1250,7 @@ def manual_update(
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
-        "is_working_sunday": _is_working_sunday(db, record.user_id, record.attendance_date),
+        "is_working_sunday": _is_working_day(db, record.user_id, record.attendance_date),
     }
 
 
@@ -1196,9 +1275,11 @@ def manual_update_by_user_date(
 
     record = db.query(Attendance).filter(Attendance.user_id == user_id, Attendance.attendance_date == target_date).first()
     update_data = payload.model_dump(exclude_unset=True)
+    if "leave_category" in update_data and update_data.get("status") != "On Leave":
+        raise HTTPException(status_code=400, detail="Leave category may only be set for On Leave overrides.")
     leave_category = update_data.pop("leave_category", None)
-    if update_data.get("status") == "On Leave":
-        accrue_monthly_leave(db, user)
+    if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
     if record:
         for field, value in update_data.items():
             setattr(record, field, value)
@@ -1216,7 +1297,13 @@ def manual_update_by_user_date(
         record.manual_override = True
         record.manual_override_by = current_user.id
         record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
-        _sync_manual_override_leave(db, record, leave_category, current_user)
+        if update_data["status"] == "On Leave":
+            record.status = "On Leave"
+            record.check_in = None
+            record.check_out = None
+            _apply_manual_override_leave(db, record, leave_category or "Paid")
+        else:
+            _sync_manual_override_leave(db, record)
 
     record.updated_by = current_user.id
     db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance for user #{user_id} on {target_date}"))
@@ -1235,7 +1322,7 @@ def manual_update_by_user_date(
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
-        "is_working_sunday": _is_working_sunday(db, record.user_id, record.attendance_date),
+        "is_working_sunday": _is_working_day(db, record.user_id, record.attendance_date),
     }
 
 
@@ -1563,12 +1650,9 @@ def mark_working_sunday(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "superadmin")),
 ):
-    """Mark a specific user's Sunday as a working day. Payload: {"user_id": int, "work_date": "YYYY-MM-DD"} """
+    """Mark a specific employee/date as a remote-eligible working day."""
     user_id = payload.user_id
     work_date = payload.work_date
-    if work_date.weekday() != 6:
-        raise HTTPException(status_code=400, detail="work_date must be a Sunday")
-
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1579,9 +1663,9 @@ def mark_working_sunday(
 
     entry = WorkingSunday(user_id=user_id, work_date=work_date, marked_by=current_user.id)
     db.add(entry)
-    db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working Sunday for user #{user_id} on {work_date}"))
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{user_id} on {work_date}"))
     db.commit()
-    return {"message": "Marked as working Sunday"}
+    return {"message": "Marked as working day"}
 
 
 @router.delete("/working-sunday", response_model=dict)
@@ -1599,9 +1683,9 @@ def unmark_working_sunday(
     if not entry:
         raise HTTPException(status_code=404, detail="Working Sunday not found")
     db.delete(entry)
-    db.add(ActivityLog(user_id=current_user.id, activity=f"Unmarked working Sunday for user #{user_id} on {work_date_parsed}"))
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Unmarked working day for user #{user_id} on {work_date_parsed}"))
     db.commit()
-    return {"message": "Unmarked"}
+    return {"message": "Working day unmarked"}
 
 # ============================================================
 # WORK FROM HOME (WFH) - EMPLOYEE REQUEST
