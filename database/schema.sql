@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS attendance (
     reason VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_by INT,
+    manual_override BOOLEAN NOT NULL DEFAULT FALSE,
+    manual_override_by INT,
+    manual_override_at DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -73,6 +76,20 @@ CREATE TABLE IF NOT EXISTS attendance_corrections (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (attendance_id) REFERENCES attendance(id) ON DELETE CASCADE,
     FOREIGN KEY (requested_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 4. WORKING SUNDAY MARKS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS working_sundays (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    work_date DATE NOT NULL,
+    marked_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX ix_working_sundays_user_id_work_date (user_id, work_date),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (marked_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- ============================================================

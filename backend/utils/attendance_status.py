@@ -5,7 +5,7 @@ Helper functions for determining attendance status.
 
 from datetime import date, datetime, time
 from sqlalchemy.orm import Session
-from models import Attendance, CompanySettings, Holiday, WFHRequest
+from models import Attendance, CompanySettings, Holiday, WFHRequest, WorkingSunday
 
 
 def get_default_office_times(db: Session):
@@ -44,19 +44,30 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     holiday = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
     if holiday:
         return "Holiday"
-    
+
     # Get attendance record
     attendance = db.query(Attendance).filter(
         Attendance.user_id == user_id,
         Attendance.attendance_date == target_date
     ).first()
-    
+
+    # Respect manual admin override if present
+    if attendance and getattr(attendance, "manual_override", False):
+        return attendance.status
+
     if attendance and attendance.status == "On Leave":
         return "On Leave"
 
     if not attendance or not attendance.check_in:
+        # If it's a weekly off and the user is not explicitly marked as working, return Weekly Off
         if is_weekly_off(target_date, db):
-            return "Weekly Off"
+            # check working sunday override
+            if target_date.weekday() == 6:
+                ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
+                if not ws:
+                    return "Weekly Off"
+            else:
+                return "Weekly Off"
         return "Absent"
     
     # Get company settings

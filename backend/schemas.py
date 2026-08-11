@@ -125,6 +125,8 @@ class CheckOutRequest(BaseModel):
 class AttendanceOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
+    department: Optional[str] = None
     attendance_date: date
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
@@ -133,12 +135,26 @@ class AttendanceOut(ORMBase):
     reason: Optional[str] = None
     created_at: datetime
     has_report: Optional[bool] = None
+    is_working_sunday: Optional[bool] = None
 
 
 class AttendanceManualUpdate(BaseModel):
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
     status: Optional[str] = None
+
+
+class WorkingSundayCreate(BaseModel):
+    user_id: int
+    work_date: date
+
+
+class WorkingSundayOut(ORMBase):
+    id: int
+    user_id: int
+    work_date: date
+    marked_by: Optional[int] = None
+    created_at: datetime
 
 
 # =========================================================

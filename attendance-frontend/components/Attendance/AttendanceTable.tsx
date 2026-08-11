@@ -12,6 +12,7 @@ import ExpandableText from "@/components/Common/ExpandableText";
 
 export interface AttendanceRecord {
   id: number;
+  user_id: number;
   attendance_date: string;
   check_in: string | null;
   check_out: string | null;
@@ -22,6 +23,7 @@ export interface AttendanceRecord {
   has_report?: boolean;
   user_name?: string;
   department?: string;
+  is_working_sunday?: boolean;
 }
 
 interface AttendanceTableProps {
@@ -29,6 +31,9 @@ interface AttendanceTableProps {
   showRequestCorrection?: boolean;
   onRequestCorrection?: (record: AttendanceRecord) => void;
   showEmployeeName?: boolean;
+  showAdminActions?: boolean;
+  onManualOverride?: (record: AttendanceRecord) => void;
+  onToggleWorkingSunday?: (record: AttendanceRecord) => void;
 }
 
 function formatTime(isoString: string): string {
@@ -99,6 +104,9 @@ export default function AttendanceTable({
   showRequestCorrection,
   onRequestCorrection,
   showEmployeeName = false,
+  showAdminActions = false,
+  onManualOverride,
+  onToggleWorkingSunday,
 }: AttendanceTableProps) {
   if (records.length === 0) {
     return (
@@ -124,7 +132,7 @@ export default function AttendanceTable({
             <th className="px-2 py-2 font-medium">Late</th>
             <th className="px-2 py-2 font-medium">Early</th>
             <th className="px-2 py-2 font-medium">Report</th>
-            {showRequestCorrection && <th className="px-2 py-2 font-medium">Action</th>}
+            {(showRequestCorrection || showAdminActions) && <th className="px-2 py-2 font-medium">Action</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
@@ -165,16 +173,36 @@ export default function AttendanceTable({
                     {reportStatus}
                   </span>
                 </td>
-                {showRequestCorrection && (
+                {(showRequestCorrection || showAdminActions) && (
                   <td className="px-2 py-2 whitespace-nowrap">
-                    {r.check_out && (
-                      <button
-                        onClick={() => onRequestCorrection?.(r)}
-                        className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
-                      >
-                        Correct
-                      </button>
-                    )}
+                    <div className="flex flex-col gap-1">
+                      {showRequestCorrection && r.check_out && (
+                        <button
+                          onClick={() => onRequestCorrection?.(r)}
+                          className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
+                        >
+                          Correct
+                        </button>
+                      )}
+                      {showAdminActions && (
+                        <>
+                          <button
+                            onClick={() => onManualOverride?.(r)}
+                            className="text-[10px] font-medium text-ink-700 hover:text-ink-900"
+                          >
+                            Override
+                          </button>
+                          {new Date(r.attendance_date).getDay() === 0 && (
+                            <button
+                              onClick={() => onToggleWorkingSunday?.(r)}
+                              className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
+                            >
+                              {r.is_working_sunday ? "Unmark Sunday" : "Mark Sunday"}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </td>
                 )}
               </tr>

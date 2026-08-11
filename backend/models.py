@@ -78,6 +78,9 @@ class Attendance(Base):
     reason = Column(String(255), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_by = Column(Integer, nullable=True)
+    manual_override = Column(Boolean, nullable=False, default=False)
+    manual_override_by = Column(Integer, nullable=True)
+    manual_override_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="attendance_records", foreign_keys=[user_id])
     corrections = relationship("AttendanceCorrection", back_populates="attendance")
@@ -315,6 +318,19 @@ class WFHRequest(Base):
     @property
     def user_name(self):
         return self.user.name if self.user else None
+
+
+class WorkingSunday(Base):
+    __tablename__ = "working_sundays"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    work_date = Column(Date, nullable=False)
+    marked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    marker = relationship("User", foreign_keys=[marked_by])
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"

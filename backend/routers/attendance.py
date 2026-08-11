@@ -16,8 +16,33 @@ from sqlalchemy import func, or_
 
 from auth import get_current_user, require_roles, require_admin
 from database import get_db
-from models import Attendance, OfficeIP, User, ActivityLog, Holiday, HalfDayRequest as HalfDayRequestModel, LeaveRequest, DailyReportData, DailyReport, WFHRequest as WFHRequestModel
-from schemas import AttendanceOut, AttendanceManualUpdate, HalfDayCreate, HalfDayDecision, HalfDayOut, CheckInRequest, CheckOutRequest, WFHCreate, WFHDecision, WFHOut
+from models import (
+    Attendance,
+    OfficeIP,
+    User,
+    ActivityLog,
+    Holiday,
+    HalfDayRequest as HalfDayRequestModel,
+    LeaveRequest,
+    DailyReportData,
+    DailyReport,
+    WFHRequest as WFHRequestModel,
+    WorkingSunday,
+)
+from schemas import (
+    AttendanceOut,
+    AttendanceManualUpdate,
+    HalfDayCreate,
+    HalfDayDecision,
+    HalfDayOut,
+    CheckInRequest,
+    CheckOutRequest,
+    WFHCreate,
+    WFHDecision,
+    WFHOut,
+    WorkingSundayCreate,
+    WorkingSundayOut,
+)
 from utils.attendance_status import calculate_status, calculate_half_day, is_weekly_off, determine_attendance_status_for_date
 from utils.email_service import send_wfh_decision_notification
 from utils.calender import build_month_calendar
@@ -91,7 +116,19 @@ def _has_attendance_record(db: Session, user_id: int, target_date: date) -> bool
     return existing is not None
 
 
+def _is_working_sunday(db: Session, user_id: int, target_date: date) -> bool:
+    """Return True if the user is marked as working for this Sunday date."""
+    if target_date.weekday() != 6:
+        return False
+    entry = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
+    return entry is not None
+
+
 def _format_attendance_status(record: Attendance, db: Session) -> str:
+    # If admin manually overrode, respect stored status
+    if getattr(record, "manual_override", False):
+        return record.status
+    # WFH takes precedence otherwise
     if _has_approved_wfh(db, record.user_id, record.attendance_date):
         return "WFH"
     return record.status
@@ -157,6 +194,8 @@ def _load_approved_wfh_dates_for_user(db: Session, user_id: int, dates: set[date
 
 
 def _format_attendance_status_with_cache(record: Attendance, approved_wfh_keys: Set[Tuple[int, date]]) -> str:
+    if getattr(record, "manual_override", False):
+        return record.status
     if (record.user_id, record.attendance_date) in approved_wfh_keys:
         return "WFH"
     return record.status
@@ -198,6 +237,21 @@ def _load_approved_wfh_keys_for_users(db: Session, user_ids: Set[int], dates: Se
             WFHRequestModel.user_id.in_(user_ids),
             WFHRequestModel.attendance_date.in_(dates),
             WFHRequestModel.status == "Approved",
+        )
+        .distinct()
+        .all()
+    )
+
+
+def _load_working_sunday_keys_for_users(db: Session, user_ids: Set[int], dates: Set[date]) -> Set[Tuple[int, date]]:
+    if not user_ids or not dates:
+        return set()
+
+    return set(
+        db.query(WorkingSunday.user_id, WorkingSunday.work_date)
+        .filter(
+            WorkingSunday.user_id.in_(user_ids),
+            WorkingSunday.work_date.in_(dates),
         )
         .distinct()
         .all()
@@ -318,13 +372,15 @@ def _mark_absent_records_for_date_range(
         for target_date in all_dates:
             if (user_id, target_date) in existing_pairs:
                 continue
-            if target_date.weekday() == 6 or is_weekly_off(target_date, db):
-                continue
             if target_date in holiday_dates:
                 continue
             if (user_id, target_date) in approved_wfh_keys:
                 continue
             if (user_id, target_date) in approved_leave_keys:
+                continue
+            if target_date.weekday() == 6 and not _is_working_sunday(db, user_id, target_date):
+                continue
+            if target_date.weekday() != 6 and is_weekly_off(target_date, db):
                 continue
 
             new_records.append(
@@ -346,6 +402,8 @@ def _determine_attendance_status_for_record(
     approved_wfh_keys: Set[Tuple[int, date]],
     holiday_dates: Set[date],
 ) -> str:
+    if getattr(record, "manual_override", False):
+        return record.status
     if (record.user_id, record.attendance_date) in approved_wfh_keys:
         return "WFH"
     if record.attendance_date in holiday_dates:
@@ -379,8 +437,8 @@ def check_in(
 
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
 
-    # Skip office IP check if user has approved WFH for today
-    if not _has_approved_wfh(db, current_user.id, today):
+    # Skip office IP check if user has approved WFH or is marked working on this Sunday
+    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_sunday(db, current_user.id, today)):
         if not _validate_office_ip(ip_address, db):
             raise HTTPException(
                 status_code=403,
@@ -414,7 +472,8 @@ def check_in(
     if existing:
         existing.check_in = ist_now
         existing.ip_address = ip_address
-        existing.status = status_value
+        if not getattr(existing, "manual_override", False):
+            existing.status = status_value
         existing.reason = reason
         record = existing
     else:
@@ -444,6 +503,7 @@ def check_in(
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
+        "is_working_sunday": _is_working_sunday(db, record.user_id, record.attendance_date),
     }
 
 
@@ -465,8 +525,8 @@ def check_out(
 
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
 
-    # Skip office IP check if user has approved WFH for today
-    if not _has_approved_wfh(db, current_user.id, today):
+    # Skip office IP check if user has approved WFH or is marked working on this Sunday
+    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_sunday(db, current_user.id, today)):
         if not _validate_office_ip(ip_address, db):
             raise HTTPException(
                 status_code=403,
@@ -512,7 +572,7 @@ def check_out(
         record.reason = f"{record.reason}; {reason}" if record.reason else reason
 
         # ✅ FIXED: Only mark Half Day if worked less than 4 hours
-    if record.check_in and record.check_out:
+    if record.check_in and record.check_out and not getattr(record, "manual_override", False):
         check_in_val = record.check_in
         check_out_val = record.check_out
         if check_in_val.tzinfo is None:
@@ -575,6 +635,7 @@ def my_attendance(
     approved_wfh_keys = _load_approved_wfh_keys_for_users(db, {current_user.id}, attendance_dates)
     holiday_dates = _load_holiday_dates(db, attendance_dates)
     report_keys = _load_report_keys_for_users(db, {current_user.id}, attendance_dates)
+    working_sunday_keys = _load_working_sunday_keys_for_users(db, {current_user.id}, attendance_dates)
 
     results = []
     for attendance in records:
@@ -589,6 +650,7 @@ def my_attendance(
             "reason": attendance.reason,
             "created_at": iso_with_offset(attendance.created_at),
             "has_report": (attendance.user_id, attendance.attendance_date) in report_keys,
+            "is_working_sunday": (attendance.user_id, attendance.attendance_date) in working_sunday_keys,
         })
     return results
 
@@ -633,6 +695,7 @@ def user_attendance(
     approved_wfh_keys = _load_approved_wfh_keys_for_users(db, {user_id}, attendance_dates)
     holiday_dates = _load_holiday_dates(db, attendance_dates)
     report_keys = _load_report_keys_for_users(db, {user_id}, attendance_dates)
+    working_sunday_keys = _load_working_sunday_keys_for_users(db, {user_id}, attendance_dates)
 
     results = []
     for attendance in records:
@@ -647,6 +710,7 @@ def user_attendance(
             "reason": attendance.reason,
             "created_at": iso_with_offset(attendance.created_at),
             "has_report": (attendance.user_id, attendance.attendance_date) in report_keys,
+            "is_working_sunday": (attendance.user_id, attendance.attendance_date) in working_sunday_keys,
         })
     return results
 
@@ -712,6 +776,8 @@ def get_all_attendance(
     approved_wfh_keys = _load_approved_wfh_keys_for_users(db, user_ids, attendance_dates)
     holiday_dates = _load_holiday_dates(db, attendance_dates)
 
+    working_sunday_keys = _load_working_sunday_keys_for_users(db, user_ids, attendance_dates)
+
     # Format the response with user details
     formatted_results = []
     for attendance, user_name, department in results:
@@ -729,6 +795,7 @@ def get_all_attendance(
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
             "has_report": has_report,
+            "is_working_sunday": (attendance.user_id, attendance.attendance_date) in working_sunday_keys,
         })
     
     return formatted_results
@@ -961,6 +1028,11 @@ def manual_update(
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(record, field, value)
+    # If admin provided a status, mark this as a manual override so automatic calc won't replace it
+    if "status" in update_data:
+        record.manual_override = True
+        record.manual_override_by = current_user.id
+        record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
     record.updated_by = current_user.id
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance #{attendance_id}"))
@@ -978,6 +1050,66 @@ def manual_update(
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
+        "is_working_sunday": _is_working_sunday(db, record.user_id, record.attendance_date),
+    }
+
+
+
+@router.put("/user/{user_id}/date/{date_value}", response_model=AttendanceOut)
+def manual_update_by_user_date(
+    user_id: int,
+    date_value: str,
+    payload: AttendanceManualUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin")),
+):
+    """Admin manual override by user and date. Creates attendance record if missing."""
+    try:
+        target_date = date.fromisoformat(date_value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    record = db.query(Attendance).filter(Attendance.user_id == user_id, Attendance.attendance_date == target_date).first()
+    update_data = payload.model_dump(exclude_unset=True)
+    if record:
+        for field, value in update_data.items():
+            setattr(record, field, value)
+    else:
+        record = Attendance(
+            user_id=user_id,
+            attendance_date=target_date,
+            check_in=update_data.get("check_in"),
+            check_out=update_data.get("check_out"),
+            status=update_data.get("status") or "Absent",
+        )
+        db.add(record)
+
+    if "status" in update_data:
+        record.manual_override = True
+        record.manual_override_by = current_user.id
+        record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+
+    record.updated_by = current_user.id
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance for user #{user_id} on {target_date}"))
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "id": record.id,
+        "user_id": record.user_id,
+        "attendance_date": record.attendance_date.isoformat(),
+        "check_in": iso_with_offset(record.check_in),
+        "check_out": iso_with_offset(record.check_out),
+        "status": _format_attendance_status(record, db),
+        "ip_address": record.ip_address,
+        "reason": record.reason,
+        "created_at": iso_with_offset(record.created_at),
+        "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
+        "is_working_sunday": _is_working_sunday(db, record.user_id, record.attendance_date),
     }
 
 
@@ -1297,6 +1429,53 @@ def admin_request_half_day_for_user(
     db.refresh(half_day_request)
     
     return half_day_request
+
+
+@router.post("/working-sunday", response_model=dict, status_code=201)
+def mark_working_sunday(
+    payload: WorkingSundayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin")),
+):
+    """Mark a specific user's Sunday as a working day. Payload: {"user_id": int, "work_date": "YYYY-MM-DD"} """
+    user_id = payload.user_id
+    work_date = payload.work_date
+    if work_date.weekday() != 6:
+        raise HTTPException(status_code=400, detail="work_date must be a Sunday")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    existing = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == work_date).first()
+    if existing:
+        return {"message": "Already marked"}
+
+    entry = WorkingSunday(user_id=user_id, work_date=work_date, marked_by=current_user.id)
+    db.add(entry)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working Sunday for user #{user_id} on {work_date}"))
+    db.commit()
+    return {"message": "Marked as working Sunday"}
+
+
+@router.delete("/working-sunday", response_model=dict)
+def unmark_working_sunday(
+    user_id: int = Query(...),
+    work_date: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "superadmin")),
+):
+    try:
+        work_date_parsed = date.fromisoformat(work_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    entry = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == work_date_parsed).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Working Sunday not found")
+    db.delete(entry)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Unmarked working Sunday for user #{user_id} on {work_date_parsed}"))
+    db.commit()
+    return {"message": "Unmarked"}
 
 # ============================================================
 # WORK FROM HOME (WFH) - EMPLOYEE REQUEST
