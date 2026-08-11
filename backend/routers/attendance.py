@@ -1085,7 +1085,7 @@ def _get_manual_override_leave(db: Session, record: Attendance) -> LeaveRequest 
 def _has_regular_leave_on_date(db: Session, record: Attendance) -> bool:
     return db.query(LeaveRequest).filter(
         LeaveRequest.user_id == record.user_id,
-        LeaveRequest.status.in_("Pending", "Approved"),
+        LeaveRequest.status.in_(["Pending", "Approved"]),
         LeaveRequest.from_date <= record.attendance_date,
         LeaveRequest.to_date >= record.attendance_date,
         LeaveRequest.manual_override_attendance_id.is_(None),

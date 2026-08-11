@@ -278,80 +278,76 @@ export default function UserDetailPage() {
             </div>
           </div>
 
-          {/* Calendar Section */}
-          <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <h3 className="text-sm font-semibold text-ink-900">Attendance Calendar</h3>
-              <div className="grid gap-3 sm:flex sm:items-center sm:gap-3">
-                <MonthSelector
+          {/* Calendar + Status Section */}
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card xl:col-span-1">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-ink-900">Attendance Calendar</h3>
+              </div>
+              <div className="mx-auto w-full max-w-420px">
+                <UserCalendar
+                  userId={user.id}
                   year={year}
                   month={month}
-                  onChange={(y, m) => {
-                    setYear(y);
-                    setMonth(m);
-                    setSelectedDate("");
-                    setSelectedDay(null);
-                  }}
+                  selectedDate={selectedDate || undefined}
+                  onSelectDay={handleSelectDay}
+                  canOverride
                 />
-                <label className="min-w-0 text-sm text-ink-700">
-                  Select date
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => handleSelectedDateChange(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
               </div>
             </div>
-            <UserCalendar
-              userId={user.id}
-              year={year}
-              month={month}
-              selectedDate={selectedDate || undefined}
-              onSelectDay={handleSelectDay}
-              canOverride
-            />
-          </div>
-          <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-sm font-semibold text-ink-900">Attendance Status</h3>
-                <p className="mt-1 text-sm text-ink-500">Selected day status and override details.</p>
+
+            <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card xl:col-span-1">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink-900">Attendance Status</h3>
+                  <p className="mt-1 text-sm text-ink-500">Selected day status and override details.</p>
+                </div>
               </div>
-            </div>
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-ink-200 bg-ink-50 p-4">
-                <p className="text-sm text-ink-500">Selected date</p>
-                <p className="mt-2 text-lg font-semibold text-ink-900">
-                  {selectedDate ? new Date(selectedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "No date selected"}
-                </p>
-              </div>
-              {selectedDay ? (
-                <div className="rounded-2xl border border-ink-200 bg-white p-4">
-                  <div className="space-y-3 text-sm text-ink-600">
-                    <p>
-                      <span className="font-medium text-ink-900">Status:</span> {selectedDay.status || "Unknown"}
-                    </p>
-                    {selectedDay.leave_category && (
+
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-ink-200 bg-ink-50 p-4">
+                  <label className="block text-sm font-medium text-ink-700">
+                    Select date
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => handleSelectedDateChange(e.target.value)}
+                      className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <p className="mt-3 text-sm text-ink-500">Selected date</p>
+                  <p className="mt-2 text-lg font-semibold text-ink-900">
+                    {selectedDate ? new Date(selectedDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "No date selected"}
+                  </p>
+                </div>
+
+                {selectedDay ? (
+                  <div className="rounded-2xl border border-ink-200 bg-white p-4">
+                    <div className="space-y-3 text-sm text-ink-600">
                       <p>
-                        <span className="font-medium text-ink-900">Leave category:</span> {selectedDay.leave_category}
+                        <span className="font-medium text-ink-900">Status:</span> {selectedDay.status || "Unknown"}
                       </p>
-                    )}
-                    {selectedDay.working_day_label && (
-                      <p>
-                        <span className="font-medium text-ink-900">Day type:</span> {selectedDay.working_day_label}
-                      </p>
-                    )}
+                      {selectedDay.leave_category && (
+                        <p>
+                          <span className="font-medium text-ink-900">Leave category:</span> {selectedDay.leave_category}
+                        </p>
+                      )}
+                      {selectedDay.working_day_label && (
+                        <p>
+                          <span className="font-medium text-ink-900">Day type:</span> {selectedDay.working_day_label}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                ) : (
+                  <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-500">
+                    Choose a day on the calendar or use the date selector to view override status here.
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-600">
+                  Override actions are shown here when a date is selected. Use the attendance page for detailed override controls.
                 </div>
-              ) : (
-                <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-500">
-                  Choose a day on the calendar or use the date selector to view override status here.
-                </div>
-              )}
-              <div className="rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-600">
-                Override actions are shown here when a date is selected. Use the attendance page for detailed override controls.
               </div>
             </div>
           </div>

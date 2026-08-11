@@ -192,6 +192,8 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
           { name: "Total Hours", value: summary["Total Hours"] || 0, color: COLORS["Total Hours"] },
         ];
 
+        console.log("📊 Processed chartData:", chartData);
+
         setData(chartData);
       } catch (error) {
         toast.error(getErrorMessage(error));
@@ -214,7 +216,7 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
     );
   }
 
-  const hasData = data && data.some((item) => item.value > 0);
+  const hasData = Array.isArray(data) && data.length > 0;
 
   if (!hasData) {
     return (

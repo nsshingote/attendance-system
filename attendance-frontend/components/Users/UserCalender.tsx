@@ -174,7 +174,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
   };
 
   return (
-    <div className="space-y-2 max-w-[28rem] mx-auto">
+    <div className="space-y-2 max-w-28rem mx-auto">
       <div className="text-sm font-medium text-ink-700 text-center">
         {format(new Date(year, month - 1, 1), "MMMM yyyy")}
       </div>
