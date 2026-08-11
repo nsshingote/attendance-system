@@ -270,13 +270,13 @@ const getTotalDuration = (activities: ReportRow[]) => {
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
-            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
-            <label className="text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
-            <label className="text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
+            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
+            <label className="order-3 text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
+            <label className="order-4 text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
             <select
               value={selectedDepartmentId}
               onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
-              className="min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+              className="order-2 min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
             >
               <option value="">All Departments</option>
               {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -300,10 +300,10 @@ const getTotalDuration = (activities: ReportRow[]) => {
                 </>
               )}
             </div>
-            <button onClick={handleExportCSV} className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+            <button onClick={handleExportCSV} className="order-5 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
               <Download size={13} /> CSV
             </button>
-            <button onClick={handleExportExcel} className="flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+            <button onClick={handleExportExcel} className="order-6 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
               <FileSpreadsheet size={13} /> Excel
             </button>
           </div>

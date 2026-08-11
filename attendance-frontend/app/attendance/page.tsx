@@ -739,8 +739,8 @@ setSummary(
               }}
             />
           ) : (
-            <div className="space-y-3">
-              <div className="mx-auto max-w-md md:max-w-lg">
+            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+              <div className="w-full">
                 <UserCalendar
                   userId={selectedUserIds.length === 1 ? selectedUserIds[0] : -1}
                   employeeIds={selectedUserIds.length > 1 ? selectedUserIds : undefined}
@@ -760,7 +760,7 @@ setSummary(
               </div>
 
               {calendarSelectedDate && calendarSelectedUserId && (
-                <div className="mx-auto max-w-md md:max-w-lg rounded-xl border border-ink-200 bg-white p-4 shadow-card">
+                <div className="w-full rounded-xl border border-ink-200 bg-white p-4 shadow-card">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-ink-900">Override Status</p>

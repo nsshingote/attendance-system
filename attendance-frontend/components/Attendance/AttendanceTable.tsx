@@ -117,7 +117,13 @@ export default function AttendanceTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-900px text-left text-xs">
+      <table className="w-full min-w-[1050px] table-fixed text-left text-xs">
+        <colgroup>
+          {showEmployeeName && <col className="w-[13%]" />}
+          <col className="w-[10%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[9%]" />
+          <col className="w-[16%]" /><col className="w-[16%]" /><col className="w-[6%]" />
+          {(showRequestCorrection || showAdminActions) && <col className="w-[8%]" />}
+        </colgroup>
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
             {showEmployeeName && (
@@ -161,10 +167,10 @@ export default function AttendanceTable({
                 <td className="px-2 py-2 whitespace-nowrap">
                   <Badge status={r.status} />
                 </td>
-                <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={34} /><span className="hidden">
+                <td className="wrap-break-word whitespace-normal px-2 py-2 text-[10px] leading-5 text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={42} /><span className="hidden">
                   {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
                 </span></td>
-                <td className="max-w-48 px-2 py-2 text-[10px] text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={34} /><span className="hidden">
+                <td className="wrap-break-word whitespace-normal px-2 py-2 text-[10px] leading-5 text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={42} /><span className="hidden">
                   {earlyReason || (!lateReason ? remark : "") || "—"}
                 </span></td>
                 <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">
