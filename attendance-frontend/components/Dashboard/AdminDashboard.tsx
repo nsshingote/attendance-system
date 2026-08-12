@@ -26,8 +26,10 @@ interface DashboardSummary {
   half_day_today: number;
   absent_today: number;
   on_leave_today?: number;
+  wfh_today?: number;
+  extra_working_day_today?: number;
   pending_corrections: number;
-  pending_leave_requests: number;  // Changed from pending_leaves to match backend
+  pending_leave_requests: number;
   pending_device_requests: number;
   holiday_today: number;
   monthly_leave_used?: number;
@@ -81,6 +83,8 @@ export default function AdminDashboard() {
     { status: "Present", count: summary.present_today || 0 },
     { status: "Late", count: summary.late_today || 0 },
     { status: "Half Day", count: summary.half_day_today || 0 },
+    { status: "WFH", count: summary.wfh_today || 0 },
+    { status: "Extra Working Day", count: summary.extra_working_day_today || 0 },
     { status: "Absent", count: summary.absent_today || 0 },
     { status: "Holiday", count: summary.holiday_today || 0 },
   ];

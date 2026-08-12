@@ -49,6 +49,7 @@ export default function Modal({ isOpen, onClose, title, children, size = "md", f
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
+      style={{ pointerEvents: "auto", touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -62,6 +63,7 @@ export default function Modal({ isOpen, onClose, title, children, size = "md", f
           "w-full rounded-xl bg-white shadow-card animate-in fade-in zoom-in-95 duration-150",
           SIZE_CLASSES[size]
         )}
+        style={{ pointerEvents: "auto" }}
       >
         <div className="flex items-center justify-between border-b border-ink-200 px-5 py-4">
           <h2 id="modal-title" className="text-base font-semibold text-ink-900">
