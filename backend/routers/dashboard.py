@@ -125,6 +125,7 @@ def get_admin_dashboard(
     half_day_count = sum(1 for status in today_status_map.values() if status == "Half Day")
     late_count = sum(1 for status in today_status_map.values() if status == "Late")
     wfh_count = sum(1 for status in today_status_map.values() if status == "WFH")
+    extra_working_day_count = sum(1 for status in today_status_map.values() if status == "Extra Working Day")
 
     # Check if today is a holiday
     is_holiday = db.query(Holiday).filter(Holiday.holiday_date == today).first() is not None
@@ -198,6 +199,7 @@ def get_admin_dashboard(
         half_day_today=half_day_count,
         late_today=late_count,
         wfh_today=wfh_count,
+        extra_working_day_today=extra_working_day_count,
         holiday_today=monthly_holidays,
         pending_leave_requests=pending_leave,
         pending_corrections=pending_corrections,

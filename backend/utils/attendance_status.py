@@ -40,7 +40,15 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         Attendance.attendance_date == target_date
     ).order_by(Attendance.manual_override.desc(), Attendance.id.desc()).first()
     if attendance and getattr(attendance, "manual_override", False):
-        return attendance.status
+        status = attendance.status
+        if holiday := db.query(Holiday).filter(Holiday.holiday_date == target_date).first():
+            is_assigned_working_day = db.query(WorkingSunday).filter(
+                WorkingSunday.user_id == user_id,
+                WorkingSunday.work_date == target_date,
+            ).first() is not None
+            if is_assigned_working_day and status in {"Present", "Late", "Half Day"}:
+                return "Extra Working Day"
+        return status
 
     # Check if approved WFH exists for this date
     wfh = db.query(WFHRequest).filter(
@@ -61,6 +69,12 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     holiday = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
     if holiday and not is_assigned_working_day:
         return "Holiday"
+
+    if attendance and getattr(attendance, "manual_override", False):
+        status = attendance.status
+        if holiday and is_assigned_working_day and status in {"Present", "Late", "Half Day"}:
+            return "Extra Working Day"
+        return status
 
     if attendance and attendance.status == "On Leave":
         return "On Leave"
@@ -95,27 +109,23 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         check_in_min = check_in_time.hour * 60 + check_in_time.minute
         start_total_min = start_hour * 60 + start_min
         grace_total_min = start_total_min + grace_minutes
-        
-        if check_in_min <= grace_total_min:
-            return "Present"
-        else:
-            return "Late"
-    
+
+        status = "Present" if check_in_min <= grace_total_min else "Late"
+        return "Extra Working Day" if holiday and is_assigned_working_day and status in {"Present", "Late"} else status
+
     # Calculate working hours
     working_hours = (check_out_time - check_in_time).total_seconds() / 3600
 
     # Check if it's a half day based only on worked hours.
     if working_hours < 4.5:
-        return "Half Day"
+        return "Extra Working Day" if holiday and is_assigned_working_day else "Half Day"
 
     check_in_min = check_in_time.hour * 60 + check_in_time.minute
     start_total_min = start_hour * 60 + start_min
     grace_total_min = start_total_min + grace_minutes
 
-    if check_in_min <= grace_total_min:
-        return "Present"
-    else:
-        return "Late"
+    status = "Present" if check_in_min <= grace_total_min else "Late"
+    return "Extra Working Day" if holiday and is_assigned_working_day and status in {"Present", "Late"} else status
 
 
 def calculate_working_hours(check_in: datetime, check_out: datetime) -> float:
@@ -167,6 +177,8 @@ def update_summary_counts(summary: dict, status: str) -> None:
     elif status == "WFH":
         summary["WFH"] += 1
         summary["Present"] += 1
+    elif status == "Extra Working Day":
+        summary["Extra Working Day"] += 1
     elif status == "On Leave":
         summary["Leave"] += 1
         summary["Absent"] += 1

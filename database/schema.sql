@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS attendance (
     manual_override BOOLEAN NOT NULL DEFAULT FALSE,
     manual_override_by INT,
     manual_override_at DATETIME,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_attendance_user_date (user_id, attendance_date)
 );
 
 -- ============================================================

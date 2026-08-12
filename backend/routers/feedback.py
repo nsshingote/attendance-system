@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin, require_superadmin
 from database import get_db
-from models import Feedback, User
+from models import Feedback, NotificationEmail, User
 from schemas import FeedbackCreate
 from utils.date_helpers import iso_with_offset
-from utils.email_service import send_feedback_submission_confirmation
+from utils.email_service import send_feedback_submission_confirmation, send_new_feedback_notification
 
 router = APIRouter()
 
@@ -31,9 +31,24 @@ def create_feedback(payload: FeedbackCreate, db: Session = Depends(get_db), curr
     feedback = Feedback(user_id=current_user.id, **payload.model_dump())
     db.add(feedback)
     db.commit()
+
     if current_user.email:
         send_feedback_submission_confirmation(
             current_user.email,
+            current_user.name,
+            payload.feedback_type,
+            payload.description,
+        )
+
+    admin_emails = [
+        email.email for email in db.query(NotificationEmail)
+        .filter(NotificationEmail.is_active == 1)
+        .all()
+        if email.email
+    ]
+    if admin_emails:
+        send_new_feedback_notification(
+            admin_emails,
             current_user.name,
             payload.feedback_type,
             payload.description,

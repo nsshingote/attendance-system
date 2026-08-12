@@ -450,7 +450,7 @@ def employee_wise_summary(
             ):
                 records_by_date[record.attendance_date] = record
         records = records_by_date.values()
-        summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0, "Leave": 0}
+        summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0, "Leave": 0, "Extra Working Day": 0}
         for r in records:
             status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
             if status == "Holiday":

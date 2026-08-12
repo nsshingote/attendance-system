@@ -5,12 +5,15 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from datetime import date
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import Base, engine, SessionLocal
 from models import Attendance, Holiday, User, WorkingSunday
 from routers.attendance import attendance_calendar, manual_update_by_user_date
 from schemas import AttendanceManualUpdate
+from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts
 
 
 def setup_module(module):
@@ -191,7 +194,7 @@ def test_override_extra_working_day_status():
         current_user=user,
     )
 
-    assert result["status"] == "Present"
+    assert result["status"] == "Extra Working Day"
     attendance = db.query(Attendance).filter(Attendance.user_id == user.id, Attendance.attendance_date == target_date).one()
     assert attendance.status == "Present"
     assert attendance.manual_override is True
@@ -210,6 +213,52 @@ def test_override_extra_working_day_status():
     )
     day = next((d for d in calendar if d["date"] == target_date.isoformat()), None)
     assert day is not None
-    assert day["status"] == "Present"
+    assert day["status"] == "Extra Working Day"
     assert day["working_day_label"] == "Extra Working Day"
+    db.close()
+
+
+def test_extra_working_day_override_is_resolved_by_canonical_helper():
+    db = get_db_session()
+    user = create_user(db)
+    target_date = date(2026, 8, 17)
+    create_holiday(db, target_date, created_by=user.id)
+    db.add(WorkingSunday(user_id=user.id, work_date=target_date, marked_by=user.id))
+    db.add(Attendance(
+        user_id=user.id,
+        attendance_date=target_date,
+        check_in=None,
+        check_out=None,
+        status="Present",
+        manual_override=True,
+        manual_override_by=user.id,
+    ))
+    db.commit()
+
+    assert determine_attendance_status_for_date(db, user.id, target_date) == "Extra Working Day"
+    db.close()
+
+
+def test_extra_working_day_is_not_double_counted_in_summary():
+    summary = {"Present": 0, "Late": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0, "Extra Working Day": 0}
+
+    update_summary_counts(summary, "Extra Working Day")
+
+    assert summary == {"Present": 0, "Late": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0, "Extra Working Day": 1}
+
+
+def test_attendance_user_date_duplicate_is_rejected_at_db_level():
+    db = get_db_session()
+    user = create_user(db)
+    target_date = date(2026, 8, 18)
+
+    db.add_all([
+        Attendance(user_id=user.id, attendance_date=target_date, status="Absent"),
+        Attendance(user_id=user.id, attendance_date=target_date, status="Absent"),
+    ])
+
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+    db.rollback()
     db.close()

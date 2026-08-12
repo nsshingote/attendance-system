@@ -479,6 +479,7 @@ class AdminDashboardStats(BaseModel):
     half_day_today: int
     late_today: int
     wfh_today: int
+    extra_working_day_today: int = 0
     holiday_today: int
     pending_leave_requests: int
     pending_corrections: int

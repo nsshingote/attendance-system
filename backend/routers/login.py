@@ -98,8 +98,10 @@ def _issue_token(user: User, db: Session, response: Response) -> TokenResponse:
     db.commit()
     response.set_cookie(
         key="ams_refresh_token", value=refresh_token, httponly=True,
-        secure=settings.REFRESH_COOKIE_SECURE, samesite="none" if settings.REFRESH_COOKIE_SECURE else "lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, path="/auth",
+        secure=settings.REFRESH_COOKIE_SECURE,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/auth",
     )
     return TokenResponse(
         access_token=access_token,
@@ -128,5 +130,5 @@ def logout(response: Response, ams_refresh_token: str | None = Cookie(None), db:
         if stored and not stored.revoked_at:
             stored.revoked_at = datetime.utcnow()
             db.commit()
-    response.delete_cookie("ams_refresh_token", path="/auth", samesite="none" if settings.REFRESH_COOKIE_SECURE else "lax", secure=settings.REFRESH_COOKIE_SECURE)
+    response.delete_cookie("ams_refresh_token", path="/auth", samesite="lax", secure=settings.REFRESH_COOKIE_SECURE)
     return {"message": "Logged out successfully"}

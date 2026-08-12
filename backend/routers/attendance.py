@@ -919,7 +919,7 @@ def attendance_calendar(
                     determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
                     for record in day_records
                 }
-                day["status"] = "Present" if final_statuses.intersection({"Present", "Late", "Half Day", "WFH"}) else "Absent"
+                day["status"] = "Present" if final_statuses.intersection({"Present", "Late", "Half Day", "WFH", "Extra Working Day"}) else "Absent"
                 day["check_in"] = None
                 day["check_out"] = None
             else:
@@ -959,6 +959,9 @@ def _add_monthly_summary_counts(summary: dict, status: str, attendance_record) -
     """Update monthly attendance summary counts for a single attendance record."""
     if status == "Holiday":
         summary["Holiday"] += 1
+        return
+    if status == "Extra Working Day":
+        summary["Extra Working Day"] += 1
         return
     update_summary_counts(summary, status)
 
@@ -1035,10 +1038,21 @@ def monthly_summary(
             current_date += timedelta(days=1)
 
     # Summary counts
-    summary = {"Present": 0, "Late": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0}
+    summary = {"Present": 0, "Late": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0, "Extra Working Day": 0}
 
     # Calculate total working hours
     total_hours = 0.0
+
+    working_sunday_dates = {
+        ws.work_date
+        for ws in db.query(WorkingSunday)
+        .filter(
+            WorkingSunday.user_id == user_id,
+            WorkingSunday.work_date >= start_date,
+            WorkingSunday.work_date < end_date,
+        )
+        .all()
+    }
 
     records_by_date = {}
     for record in records:

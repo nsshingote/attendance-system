@@ -95,14 +95,25 @@ def send_wfh_decision_notification(to_email: str, employee_name: str, status: st
 
 
 def send_feedback_submission_confirmation(to_email: str, employee_name: str, feedback_type: str, feedback_text: str):
-    subject = f"Feedback submitted: {feedback_type.title()}"
+    subject = "Your feedback has been submitted"
     body = f"""
     <p>Hi {employee_name},</p>
-    <p>Thank you for submitting your {feedback_type} feedback. A copy of your feedback is below:</p>
-    <blockquote style=\"margin:12px 0;padding:12px 16px;border-left:4px solid #cbd5e1;background:#f8fafc;\">{feedback_text}</blockquote>
-    <p>We appreciate your input.</p>
+    <p>"{feedback_text}"</p>
+    <p>This feedback has been submitted.</p>
     """
     return send_email([to_email], subject, body)
+
+
+def send_new_feedback_notification(to_emails: List[str], employee_name: str, feedback_type: str, feedback_text: str):
+    subject = "You have new feedbacks"
+    body = f"""
+    <p>Hi,</p>
+    <p>You have new feedbacks to review in the website.</p>
+    <p><b>{employee_name}</b> submitted a new {feedback_type} feedback.</p>
+    <blockquote style="margin:12px 0;padding:12px 16px;border-left:4px solid #22c55e;background:#f0fdf4;">{feedback_text}</blockquote>
+    <p>Please open the feedback page to review it.</p>
+    """
+    return send_email(to_emails, subject, body)
 
 
 def send_password_reset_email(to_email: str, reset_link: str):
