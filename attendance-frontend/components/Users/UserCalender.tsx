@@ -115,7 +115,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
       return;
     }
 
-    const normalized = selectedDayLocal.status === "Extra Working Day" ? "Present" : selectedDayLocal.status || "Present";
+    const normalized = selectedDayLocal.status || "Present";
     setStatusLocal(normalized);
     setEnterTimesLocal(Boolean(selectedDayLocal.check_in || selectedDayLocal.check_out));
     setCheckInTimeLocal(toTimeInput(selectedDayLocal.check_in));
@@ -393,7 +393,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
 
                         setSavingOverride(true);
                           try {
-                            const normalized = (statusLocal === "Extra Working Day" ? "Present" : statusLocal) || "Present";
+                            const normalized = statusLocal || "Present";
                             const payload: { status: string; check_in: null | string; check_out: null | string; leave_category?: string } = { status: normalized, check_in: null, check_out: null };
                             if (normalized === "On Leave") {
                               payload.leave_category = leaveCategoryRef.current?.value || "Paid";

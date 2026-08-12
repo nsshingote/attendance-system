@@ -84,8 +84,7 @@ export default function UserDetailPage() {
   const handleSelectDay = (day: SelectedCalendarDay) => {
     setSelectedDate(day.date);
     setSelectedDay(day);
-    const incoming = day.status === "Extra Working Day" ? "Present" : (day.status || "Present");
-    setSelectedOverrideStatus(incoming);
+    setSelectedOverrideStatus(day.status || "Present");
   };
 
   const handleSelectedDateChange = (value: string) => {
@@ -106,15 +105,14 @@ export default function UserDetailPage() {
 
     setSavingSelectedOverride(true);
     try {
-      const normalizedStatus = selectedOverrideStatus === "Extra Working Day" ? "Present" : selectedOverrideStatus;
       await api.put(`/attendance/user/${user.id}/date/${selectedDate}`, {
-        status: normalizedStatus,
+        status: selectedOverrideStatus,
         check_in: null,
         check_out: null,
       });
 
       toast.success("Override saved");
-      setSelectedOverrideStatus(normalizedStatus);
+      setSelectedOverrideStatus(selectedOverrideStatus);
       setCalendarRefreshKey((value) => value + 1);
       await loadAttendanceSummary();
       await loadUserData();

@@ -25,6 +25,7 @@ interface EmployeeSummaryRow {
   Late: number;
   "Half Day": number;
   WFH: number;
+  "Extra Working Day": number;
   Absent: number;
   "Paid Leave": number;
   "Carried Leave Used": number;
@@ -88,6 +89,7 @@ export default function ReportsPage() {
           r["Half Day"],
           r.Late,
           r.WFH,
+          r["Extra Working Day"],
           r["Paid Leave"],
           r["Carried Leave Used"],
           r.LWP,
@@ -113,7 +115,7 @@ export default function ReportsPage() {
     }
 
     const headers = tab === "attendance"
-      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Paid Leave", "Carried Leave Used", "LWP", "Privilege Leave", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
+      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Extra Working Day", "Paid Leave", "Carried Leave Used", "LWP", "Privilege Leave", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
       : ["Name", "Department", "Paid Leave", "Unpaid Leave", "Privilege Leave", "Carried Leave", "Encashed", "Remaining"];
     const escapeCsv = (value: string | number) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
@@ -141,6 +143,7 @@ export default function ReportsPage() {
         "Half Day": r["Half Day"],
         Late: r.Late,
         WFH: r.WFH,
+        "Extra Working Day": r["Extra Working Day"],
         "Paid Leave": r["Paid Leave"],
         "Carried Leave Used": r["Carried Leave Used"],
         LWP: r.LWP,
@@ -190,6 +193,7 @@ export default function ReportsPage() {
         "Half Day",
         "Late",
         "WFH",
+        "Extra Working Day",
         "Paid Leave",
         "Carried Leave Used",
         "LWP",
@@ -206,6 +210,7 @@ export default function ReportsPage() {
         r["Half Day"],
         r.Late,
         r.WFH,
+        r["Extra Working Day"],
         r["Paid Leave"],
         r["Carried Leave Used"],
         r.LWP,
@@ -302,7 +307,7 @@ export default function ReportsPage() {
           <Loading />
         ) : tab === "attendance" ? (
           <div className="overflow-x-auto rounded-1rem border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-[1100px] text-left text-sm">
+            <table className="w-full min-w-1100px text-left text-sm">
               <thead className="bg-white">
                 <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
@@ -311,6 +316,7 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">Half Day</th>
                   <th className="px-4 py-3 font-medium">Late</th>
                   <th className="px-4 py-3 font-medium">WFH</th>
+                  <th className="px-4 py-3 font-medium">Extra Working Day</th>
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
                   <th className="px-4 py-3 font-medium">LWP</th>
                   <th className="px-4 py-3 font-medium">Privilege</th>
@@ -327,6 +333,7 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r["Half Day"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Late}</td>
                     <td className="px-4 py-3 text-ink-700">{r.WFH}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Extra Working Day"] ?? 0}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Privilege Leave"]}</td>
@@ -339,7 +346,7 @@ export default function ReportsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-1rem border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-900px text-left text-sm">
               <thead className="bg-white">
                 <tr className="sticky top-0 border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
