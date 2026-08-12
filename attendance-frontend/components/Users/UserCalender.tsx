@@ -61,6 +61,10 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
   // internalDate holds selection when parent doesn't control `selectedDate`
   const [internalDate, setInternalDate] = useState<string>("");
   const [savingOverride, setSavingOverride] = useState(false);
+  const [statusLocal, setStatusLocal] = useState<string>("Present");
+  const [enterTimesLocal, setEnterTimesLocal] = useState<boolean>(false);
+  const [checkInTimeLocal, setCheckInTimeLocal] = useState<string>("");
+  const [checkOutTimeLocal, setCheckOutTimeLocal] = useState<string>("");
   const overrideSelectRef = useRef<HTMLSelectElement | null>(null);
   const leaveCategoryRef = useRef<HTMLSelectElement | null>(null);
 
@@ -93,6 +97,30 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
 
   // derive selected day from days + selectedDateLocal
   const selectedDayLocal: CalendarDay | null = days.find((d) => d.date === selectedDateLocal) || null;
+
+  useEffect(() => {
+    const toTimeInput = (isoString?: string | null) => {
+      if (!isoString) return "";
+      const date = new Date(isoString);
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${hours}:${minutes}`;
+    };
+
+    if (!selectedDayLocal) {
+      setStatusLocal("Present");
+      setEnterTimesLocal(false);
+      setCheckInTimeLocal("");
+      setCheckOutTimeLocal("");
+      return;
+    }
+
+    const normalized = selectedDayLocal.status === "Extra Working Day" ? "Present" : selectedDayLocal.status || "Present";
+    setStatusLocal(normalized);
+    setEnterTimesLocal(Boolean(selectedDayLocal.check_in || selectedDayLocal.check_out));
+    setCheckInTimeLocal(toTimeInput(selectedDayLocal.check_in));
+    setCheckOutTimeLocal(toTimeInput(selectedDayLocal.check_out));
+  }, [selectedDayLocal]);
 
   if (loading) {
     return <Loading />;
@@ -143,11 +171,11 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
   const getDayClassName = (day: CalendarDay) => {
     if (!day.date) return "bg-transparent";
 
-    if (day.is_manual_override && day.status) {
-      return STATUS_COLORS[day.status] || "bg-ink-200 text-ink-500";
-    }
     if (day.status === "WFH") {
       return STATUS_COLORS.WFH;
+    }
+    if (day.is_manual_override && day.status) {
+      return STATUS_COLORS[day.status] || "bg-ink-200 text-ink-500";
     }
     if (day.working_day_label) {
       return STATUS_COLORS[day.working_day_label];
@@ -265,8 +293,15 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                     Final status for selected date
                     <select
                       key={selectedDateLocal}
-                      defaultValue={selectedDayLocal ? (selectedDayLocal.status === "Extra Working Day" ? "Present" : (selectedDayLocal.status || "Present")) : "Present"}
-                      ref={overrideSelectRef}
+                      value={statusLocal}
+                      onChange={(e) => {
+                        setStatusLocal(e.target.value);
+                        if (e.target.value === "On Leave") {
+                          setEnterTimesLocal(false);
+                          setCheckInTimeLocal("");
+                          setCheckOutTimeLocal("");
+                        }
+                      }}
                       className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                     >
                       {["Present", "Late", "Absent", "WFH", "Half Day", "On Leave", "Extra Working Day"].map((status) => (
@@ -275,19 +310,73 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                     </select>
                   </label>
 
-                  <label className="block text-sm font-medium text-ink-700">
-                    Leave category
-                    <select
-                      key={`leave-${selectedDateLocal}`}
-                      defaultValue={selectedDayLocal?.leave_category || "Paid"}
-                      ref={leaveCategoryRef}
-                      className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="Paid">Paid</option>
-                      <option value="Unpaid">Unpaid</option>
-                      <option value="Carried">Carried</option>
-                    </select>
-                  </label>
+                  {statusLocal === "On Leave" ? (
+                    <label className="block text-sm font-medium text-ink-700">
+                      Leave category
+                      <select
+                        key={`leave-${selectedDateLocal}`}
+                        defaultValue={selectedDayLocal?.leave_category || "Paid"}
+                        ref={leaveCategoryRef}
+                        className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="Paid">Paid</option>
+                        <option value="Unpaid">Unpaid</option>
+                        <option value="Carried">Carried</option>
+                      </select>
+                    </label>
+                  ) : (
+                    <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
+                      <p className="mb-2 text-sm font-medium text-ink-700">Do you want to fill Check-in and Check-out time?</p>
+                      <div className="flex flex-wrap gap-2">
+                        <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${enterTimesLocal ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                          <input
+                            type="radio"
+                            name="enterTimesLocal"
+                            checked={enterTimesLocal}
+                            onChange={() => setEnterTimesLocal(true)}
+                            className="mr-2 h-4 w-4"
+                          />
+                          Yes
+                        </label>
+                        <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${!enterTimesLocal ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                          <input
+                            type="radio"
+                            name="enterTimesLocal"
+                            checked={!enterTimesLocal}
+                            onChange={() => {
+                              setEnterTimesLocal(false);
+                              setCheckInTimeLocal("");
+                              setCheckOutTimeLocal("");
+                            }}
+                            className="mr-2 h-4 w-4"
+                          />
+                          No
+                        </label>
+                      </div>
+                      {enterTimesLocal && (
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="space-y-1 text-sm text-ink-600">
+                            Check In
+                            <input
+                              type="time"
+                              value={checkInTimeLocal}
+                              onChange={(e) => setCheckInTimeLocal(e.target.value)}
+                              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                          <label className="space-y-1 text-sm text-ink-600">
+                            Check Out
+                            <input
+                              type="time"
+                              value={checkOutTimeLocal}
+                              onChange={(e) => setCheckOutTimeLocal(e.target.value)}
+                              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex justify-end">
                     <button
@@ -304,13 +393,18 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
 
                         setSavingOverride(true);
                           try {
-                            const normalized = (overrideSelectRef.current?.value === "Extra Working Day" ? "Present" : overrideSelectRef.current?.value) || "Present";
+                            const normalized = (statusLocal === "Extra Working Day" ? "Present" : statusLocal) || "Present";
                             const payload: { status: string; check_in: null | string; check_out: null | string; leave_category?: string } = { status: normalized, check_in: null, check_out: null };
-                            if (normalized === "On Leave") payload.leave_category = leaveCategoryRef.current?.value || "Paid";
+                            if (normalized === "On Leave") {
+                              payload.leave_category = leaveCategoryRef.current?.value || "Paid";
+                            } else if (enterTimesLocal) {
+                              payload.check_in = checkInTimeLocal ? `${selectedDateLocal}T${checkInTimeLocal}:00` : null;
+                              payload.check_out = checkOutTimeLocal ? `${selectedDateLocal}T${checkOutTimeLocal}:00` : null;
+                            }
                             await api.put(`/attendance/user/${targetUserId}/date/${selectedDateLocal}`, payload);
                           toast.success("Override saved");
                           // update local day data
-                          setDays((prev) => prev.map(d => d.date === selectedDateLocal ? { ...d, status: normalized, leave_category: payload.leave_category ?? d.leave_category } : d));
+                          setDays((prev) => prev.map(d => d.date === selectedDateLocal ? { ...d, status: normalized, leave_category: payload.leave_category ?? d.leave_category, check_in: payload.check_in ?? d.check_in, check_out: payload.check_out ?? d.check_out } : d));
                           onOverrideSaved?.();
                         } catch (error) {
                           toast.error(getErrorMessage(error));

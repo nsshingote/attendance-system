@@ -135,13 +135,9 @@ def _is_working_day(db: Session, user_id: int, target_date: date) -> bool:
 
 
 def _format_attendance_status(record: Attendance, db: Session) -> str:
-    # If admin manually overrode, respect stored status
-    if getattr(record, "manual_override", False):
-        return record.status
-    # WFH takes precedence otherwise
-    if _has_approved_wfh(db, record.user_id, record.attendance_date):
-        return "WFH"
-    return record.status
+    # Use the canonical final-status resolver to ensure a single source
+    # of truth for all API responses and aggregations.
+    return determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
 
 
 def _has_report_for_date(db: Session, user_id: int, target_date: date) -> bool:
@@ -203,12 +199,10 @@ def _load_approved_wfh_dates_for_user(db: Session, user_id: int, dates: set[date
     )
 
 
-def _format_attendance_status_with_cache(record: Attendance, approved_wfh_keys: Set[Tuple[int, date]]) -> str:
-    if getattr(record, "manual_override", False):
-        return record.status
-    if (record.user_id, record.attendance_date) in approved_wfh_keys:
-        return "WFH"
-    return record.status
+def _format_attendance_status_with_cache(record: Attendance, db: Session, approved_wfh_keys: Set[Tuple[int, date]]) -> str:
+    # Delegate to the canonical resolver for consistency. The approved_wfh_keys
+    # optimization is supported by the resolver so prefer correctness.
+    return determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
 
 
 def _load_report_keys_for_users(db: Session, user_ids: Set[int], dates: Set[date]) -> Set[Tuple[int, date]]:
@@ -1083,7 +1077,7 @@ def monthly_summary(
 # ============================================================
 # ADMIN MANUAL UPDATE
 # ============================================================
-MANUAL_ATTENDANCE_STATUSES = {"Present", "Absent", "Late", "WFH", "Half Day", "On Leave"}
+MANUAL_ATTENDANCE_STATUSES = {"Present", "Absent", "Late", "WFH", "Half Day", "On Leave", "Extra Working Day"}
 
 
 MANUAL_LEAVE_CATEGORIES = {"Paid", "Carried", "Unpaid", "Privilege"}
@@ -1269,6 +1263,10 @@ def manual_update(
     if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
 
+    requested_status = update_data.get("status")
+    if requested_status == "Extra Working Day":
+        update_data["status"] = "Present"
+
     for field, value in update_data.items():
         setattr(record, field, value)
 
@@ -1281,7 +1279,7 @@ def manual_update(
         # If admin is forcing a working status on a weekly-off/holiday,
         # treat it as an employee-specific working day so automatic
         # absent generation and status derivation consider it a working day.
-        if update_data["status"] in ("Present", "Late", "Half Day", "Absent"):
+        if requested_status in ("Present", "Late", "Half Day", "Absent", "Extra Working Day"):
             try:
                 # Use helpers to detect holiday or weekly off
                 holiday_row = db.query(Holiday).filter(Holiday.holiday_date == record.attendance_date).first()
@@ -1350,6 +1348,10 @@ def manual_update_by_user_date(
     leave_category = update_data.pop("leave_category", None)
     if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
+    requested_status = update_data.get("status")
+    if requested_status == "Extra Working Day":
+        update_data["status"] = "Present"
+
     if record:
         for field, value in update_data.items():
             setattr(record, field, value)
@@ -1372,7 +1374,7 @@ def manual_update_by_user_date(
         # If admin forces a working status on a weekly-off/holiday, mark it
         # as a per-user working day so later status derivation treats it
         # as a working day for this employee only.
-        if update_data["status"] in ("Present", "Late", "Half Day", "Absent"):
+        if update_data["status"] in ("Present", "Late", "Half Day", "Absent", "Extra Working Day"):
             try:
                 holiday_row = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
             except Exception:
@@ -1417,52 +1419,44 @@ def manual_update_by_user_date(
 # HALF DAY - INTERNAL HELPER
 # ============================================================
 def _apply_half_day(
-    db: Session, user_id: int, attendance_date, slot: str, reason: Optional[str], marked_by: Optional[int] = None
+    db: Session, user_id: int, attendance_date: date, slot: str, reason: Optional[str], marked_by: Optional[int] = None
 ) -> Attendance:
     if slot not in HALF_DAY_SLOTS:
         raise HTTPException(status_code=400, detail="Slot must be 'morning' or 'afternoon'")
 
     if _has_approved_wfh(db, user_id, attendance_date):
         raise HTTPException(status_code=400, detail="Cannot apply a half day on a date with an approved WFH request.")
-    try:
-        if "status" in update_data:
-            # Mark as manual override early so downstream generators respect it
-            record.manual_override = True
-            record.manual_override_by = current_user.id
-            record.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
 
-            # If admin is forcing a working status on a weekly-off/holiday,
-            # treat it as an employee-specific working day so automatic
-            # absent generation and status derivation consider it a working day.
-            if update_data["status"] in ("Present", "Late", "Half Day", "Absent"):
-                try:
-                    # Use helpers to detect holiday or weekly off
-                    holiday_row = db.query(Holiday).filter(Holiday.holiday_date == record.attendance_date).first()
-                except Exception:
-                    holiday_row = None
-                if (is_weekly_off(record.attendance_date, db) or holiday_row) and not _is_working_day(db, record.user_id, record.attendance_date):
-                    # create per-user working day marker if missing
-                    existing_ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == record.user_id, WorkingSunday.work_date == record.attendance_date).first()
-                    if not existing_ws:
-                        db.add(WorkingSunday(user_id=record.user_id, work_date=record.attendance_date, marked_by=current_user.id))
-                        db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{record.user_id} on {record.attendance_date} via override"))
+    attendance = db.query(Attendance).filter(
+        Attendance.user_id == user_id,
+        Attendance.attendance_date == attendance_date,
+    ).order_by(Attendance.manual_override.desc(), Attendance.id.desc()).first()
 
-            if update_data["status"] == "On Leave":
-                record.status = "On Leave"
-                record.check_in = None
-                record.check_out = None
-                _apply_manual_override_leave(db, record, leave_category or "Paid")
-            else:
-                _clear_legacy_leave_requests_on_override(db, record)
-                _sync_manual_override_leave(db, record)
+    if not attendance:
+        attendance = Attendance(
+            user_id=user_id,
+            attendance_date=attendance_date,
+        )
+        db.add(attendance)
 
-        record.updated_by = current_user.id
-        db.add(ActivityLog(user_id=current_user.id, activity=f"Manually updated attendance #{attendance_id}"))
-        db.commit()
-        db.refresh(record)
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to apply manual override: {str(exc)}")
+    attendance.manual_override = True
+    attendance.manual_override_by = marked_by
+    attendance.manual_override_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+    attendance.status = "Half Day"
+    attendance.check_in = None
+    attendance.check_out = None
+
+    if marked_by is not None:
+        db.add(
+            ActivityLog(
+                user_id=marked_by,
+                activity=f"Marked half day for user #{user_id} on {attendance_date}",
+            )
+        )
+
+    db.commit()
+    db.refresh(attendance)
+    return attendance
 # HALF DAY - EMPLOYEE REQUEST
 # ============================================================
 @router.post("/half-day", response_model=HalfDayOut, status_code=201)

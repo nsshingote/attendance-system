@@ -431,6 +431,9 @@ export default function AttendancePage() {
   const [calendarLeaveCategory, setCalendarLeaveCategory] = useState<string>("Paid");
   const [calendarSelectedUserId, setCalendarSelectedUserId] = useState<number | null>(null);
   const [savingCalendarOverride, setSavingCalendarOverride] = useState(false);
+  const [calendarEnterTimes, setCalendarEnterTimes] = useState<boolean>(false);
+  const [calendarCheckInTime, setCalendarCheckInTime] = useState<string>("");
+  const [calendarCheckOutTime, setCalendarCheckOutTime] = useState<string>("");
 
   const [records, setRecords] = useState<PageAttendanceRecord[]>([]);
   const [summary, setSummary] = useState({ Present: 0, Late: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0, WFH: 0 });
@@ -450,7 +453,7 @@ export default function AttendancePage() {
   const admin = isAdmin(session?.role);
 
   const normalizeOverrideStatus = (status: string) => {
-    return status === "Extra Working Day" ? "Present" : status;
+    return status;
   };
 
   const saveSelectedCalendarOverride = async () => {
@@ -461,15 +464,23 @@ export default function AttendancePage() {
 
     setSavingCalendarOverride(true);
     try {
-      const payload = {
-        status: normalizeOverrideStatus(calendarSelectedStatus),
+      const normalizedStatus = normalizeOverrideStatus(calendarSelectedStatus);
+      const payload: any = {
+        status: normalizedStatus,
         check_in: null,
         check_out: null,
-        ...(calendarSelectedStatus === "On Leave" ? { leave_category: calendarLeaveCategory } : {}),
       };
+
+      if (normalizedStatus === "On Leave") {
+        payload.leave_category = calendarLeaveCategory;
+      } else if (calendarEnterTimes) {
+        payload.check_in = calendarCheckInTime ? `${calendarSelectedDate}T${calendarCheckInTime}:00` : null;
+        payload.check_out = calendarCheckOutTime ? `${calendarSelectedDate}T${calendarCheckOutTime}:00` : null;
+      }
+
       await api.put(`/attendance/user/${calendarSelectedUserId}/date/${calendarSelectedDate}`, payload);
       toast.success("Attendance override saved");
-      setCalendarSelectedStatus(normalizeOverrideStatus(calendarSelectedStatus));
+      setCalendarSelectedStatus(calendarSelectedStatus);
       setCalendarRefreshKey((key) => key + 1);
       await fetchData();
     } catch (error) {
@@ -492,12 +503,8 @@ export default function AttendancePage() {
         payload.check_in = null;
         payload.check_out = null;
       } else if (enterTimes) {
-        if (checkInTime) {
-          payload.check_in = `${manualOverrideModal.attendance_date}T${checkInTime}:00`;
-        }
-        if (checkOutTime) {
-          payload.check_out = `${manualOverrideModal.attendance_date}T${checkOutTime}:00`;
-        }
+        payload.check_in = checkInTime ? `${manualOverrideModal.attendance_date}T${checkInTime}:00` : null;
+        payload.check_out = checkOutTime ? `${manualOverrideModal.attendance_date}T${checkOutTime}:00` : null;
       } else {
         payload.check_in = null;
         payload.check_out = null;
@@ -554,6 +561,12 @@ export default function AttendancePage() {
     setCheckInTime(toTimeInput(manualOverrideModal.check_in));
     setCheckOutTime(toTimeInput(manualOverrideModal.check_out));
   }, [manualOverrideModal]);
+
+  useEffect(() => {
+    setCalendarEnterTimes(false);
+    setCalendarCheckInTime("");
+    setCalendarCheckOutTime("");
+  }, [calendarSelectedDate]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -750,13 +763,14 @@ setSummary(
                   canOverride={admin && selectedUserIds.length === 1}
                   refreshKey={calendarRefreshKey}
                   selectedDate={calendarSelectedDate || undefined}
-                  showStatus={true}
                   onOverrideSaved={() => {
                     setCalendarRefreshKey((k) => k + 1);
                     fetchData();
                   }}
                   onSelectDay={(day) => {
-                    const nextStatus = day.status === "Extra Working Day" ? "Present" : (day.status || "Present");
+                    const nextStatus = day.working_day_label === "Extra Working Day"
+                      ? "Extra Working Day"
+                      : (day.status || "Present");
                     setCalendarSelectedDate(day.date);
                     setCalendarSelectedStatus(nextStatus);
                     setCalendarSelectedUserId(selectedUserIds.length === 1 ? selectedUserIds[0] : null);
@@ -780,8 +794,16 @@ setSummary(
                     <select
                       value={calendarSelectedStatus}
                       onChange={(e) => {
-                        setCalendarSelectedStatus(e.target.value);
-                        if (e.target.value !== "On Leave") setCalendarLeaveCategory("Paid");
+                        const nextStatus = e.target.value;
+                        setCalendarSelectedStatus(nextStatus);
+                        if (nextStatus === "On Leave") {
+                          setCalendarEnterTimes(false);
+                          setCalendarCheckInTime("");
+                          setCalendarCheckOutTime("");
+                        }
+                        if (nextStatus !== "On Leave") {
+                          setCalendarLeaveCategory("Paid");
+                        }
                       }}
                       className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                     >
@@ -807,6 +829,59 @@ setSummary(
                         <option value="Carried">Carried</option>
                       </select>
                     </label>
+                  )}
+                  {calendarSelectedStatus !== "On Leave" && (
+                    <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
+                      <p className="mb-2 text-sm font-medium text-ink-700">Do you want to fill Check-in and Check-out time?</p>
+                      <div className="flex flex-wrap gap-2">
+                        <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${calendarEnterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                          <input
+                            type="radio"
+                            name="calendarEnterTimes"
+                            checked={calendarEnterTimes}
+                            onChange={() => setCalendarEnterTimes(true)}
+                            className="mr-2 h-4 w-4"
+                          />
+                          Yes
+                        </label>
+                        <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${!calendarEnterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                          <input
+                            type="radio"
+                            name="calendarEnterTimes"
+                            checked={!calendarEnterTimes}
+                            onChange={() => {
+                              setCalendarEnterTimes(false);
+                              setCalendarCheckInTime("");
+                              setCalendarCheckOutTime("");
+                            }}
+                            className="mr-2 h-4 w-4"
+                          />
+                          No
+                        </label>
+                      </div>
+                      {calendarEnterTimes && (
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="space-y-1 text-sm text-ink-600">
+                            Check In
+                            <input
+                              type="time"
+                              value={calendarCheckInTime}
+                              onChange={(e) => setCalendarCheckInTime(e.target.value)}
+                              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                          <label className="space-y-1 text-sm text-ink-600">
+                            Check Out
+                            <input
+                              type="time"
+                              value={calendarCheckOutTime}
+                              onChange={(e) => setCalendarCheckOutTime(e.target.value)}
+                              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
                   )}
                   <button
                     type="button"

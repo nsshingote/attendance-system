@@ -21,7 +21,9 @@ backend_env_path = Path(__file__).resolve().parent / ".env"
 if root_env_path.exists():
     load_dotenv(dotenv_path=root_env_path, override=False)
 if backend_env_path.exists():
-    load_dotenv(dotenv_path=backend_env_path, override=True)
+    # Do not override already-set environment variables so tests
+    # can inject `DATABASE_URL` programmatically.
+    load_dotenv(dotenv_path=backend_env_path, override=False)
 
 
 class Settings:
