@@ -919,7 +919,14 @@ def attendance_calendar(
                     determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
                     for record in day_records
                 }
-                day["status"] = "Present" if final_statuses.intersection({"Present", "Late", "Half Day", "WFH", "Extra Working Day"}) else "Absent"
+                if "Extra Working Day" in final_statuses:
+                    day["status"] = "Extra Working Day"
+                elif final_statuses.intersection({"Present", "Late", "Half Day", "WFH"}):
+                    day["status"] = "Present"
+                elif "On Leave" in final_statuses:
+                    day["status"] = "On Leave"
+                else:
+                    day["status"] = "Absent"
                 day["check_in"] = None
                 day["check_out"] = None
             else:
@@ -930,10 +937,14 @@ def attendance_calendar(
                 day["status"] = determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
                 day["leave_category"] = manual_leave_categories.get(record.id)
                 day["is_manual_override"] = bool(record.manual_override)
-                day["working_day_label"] = (
-                    "Extra Working Day" if record.attendance_date in working_day_dates and day["day_type"] == "holiday"
-                    else "Working Day" if record.attendance_date in working_day_dates else None
-                )
+                if day["status"] == "Extra Working Day":
+                    day["working_day_label"] = "Extra Working Day"
+                elif record.attendance_date in working_day_dates and day["day_type"] == "holiday":
+                    day["working_day_label"] = "Extra Working Day"
+                elif record.attendance_date in working_day_dates:
+                    day["working_day_label"] = "Working Day"
+                else:
+                    day["working_day_label"] = None
                 day["check_in"] = iso_with_offset(record.check_in)
                 day["check_out"] = iso_with_offset(record.check_out)
         else:
@@ -1278,8 +1289,6 @@ def manual_update(
         raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
 
     requested_status = update_data.get("status")
-    if requested_status == "Extra Working Day":
-        update_data["status"] = "Present"
 
     for field, value in update_data.items():
         setattr(record, field, value)
@@ -1363,8 +1372,6 @@ def manual_update_by_user_date(
     if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
     requested_status = update_data.get("status")
-    if requested_status == "Extra Working Day":
-        update_data["status"] = "Present"
 
     if record:
         for field, value in update_data.items():

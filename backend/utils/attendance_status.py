@@ -41,6 +41,8 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     ).order_by(Attendance.manual_override.desc(), Attendance.id.desc()).first()
     if attendance and getattr(attendance, "manual_override", False):
         status = attendance.status
+        if status == "Extra Working Day":
+            return "Extra Working Day"
         if holiday := db.query(Holiday).filter(Holiday.holiday_date == target_date).first():
             is_assigned_working_day = db.query(WorkingSunday).filter(
                 WorkingSunday.user_id == user_id,

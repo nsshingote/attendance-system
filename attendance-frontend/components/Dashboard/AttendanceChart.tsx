@@ -17,7 +17,7 @@ const STATUS_COLORS: Record<string, string> = {
   Holiday: "#EC4899",
   Leave: "#DC2626",
   WFH: "#8B5CF6",
-  "Working Day": "#F97316",
+  "Working Day": "#3B82F6",
   "Extra Working Day": "#3B82F6",
   "Weekly Off": "#94A3B8",
 };

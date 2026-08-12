@@ -74,7 +74,17 @@ class Attendance(Base):
     check_in = Column(DateTime, nullable=True)
     check_out = Column(DateTime, nullable=True)
     status = Column(
-        Enum("Present", "Late", "Half Day", "Absent", "Holiday", "WFH", "On Leave", name="attendance_status"),
+        Enum(
+            "Present",
+            "Late",
+            "Half Day",
+            "Absent",
+            "Holiday",
+            "WFH",
+            "On Leave",
+            "Extra Working Day",
+            name="attendance_status",
+        ),
         default="Present",
     )
     ip_address = Column(String(45), nullable=True)

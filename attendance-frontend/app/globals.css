@@ -35,7 +35,7 @@
   --color-status-holiday: #ec4899;
   --color-status-on-leave: #dc2626;
   --color-status-wfh: #8b5cf6;
-  --color-status-working-day: #f97316;
+  --color-status-working-day: #3b82f6;
   --color-status-extra-working-day: #3b82f6;
   --color-status-weekly-off: #94a3b8;
 
@@ -233,7 +233,7 @@ textarea {
   @apply bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200;
 }
 .status-working-day {
-  @apply bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200;
+  @apply bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200;
 }
 .status-extra-working-day {
   @apply bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200;

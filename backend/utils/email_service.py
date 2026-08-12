@@ -95,11 +95,13 @@ def send_wfh_decision_notification(to_email: str, employee_name: str, status: st
 
 
 def send_feedback_submission_confirmation(to_email: str, employee_name: str, feedback_type: str, feedback_text: str):
-    subject = "Your feedback has been submitted"
+    subject = "Thank you for your feedback"
     body = f"""
     <p>Hi {employee_name},</p>
-    <p>"{feedback_text}"</p>
-    <p>This feedback has been submitted.</p>
+    <p>Thank you for your feedback.</p>
+    <p><b>Your submitted feedback:</b></p>
+    <blockquote style="margin:12px 0;padding:12px 16px;border-left:4px solid #22c55e;background:#f0fdf4;">{feedback_text}</blockquote>
+    <p>Your message has been submitted successfully and is saved in the system.</p>
     """
     return send_email([to_email], subject, body)
 

@@ -13,7 +13,6 @@ const LEGEND_ITEMS = [
   { label: "Weekly Off", dot: "bg-slate-400" },
   { label: "Extra Working Day", dot: "bg-blue-500" },
   { label: "Holiday", dot: "bg-pink-400" },
-  { label: "Working Day", dot: "bg-orange-500" },
 ];
 
 export default function CalendarLegend() {

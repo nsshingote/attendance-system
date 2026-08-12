@@ -196,7 +196,7 @@ def test_override_extra_working_day_status():
 
     assert result["status"] == "Extra Working Day"
     attendance = db.query(Attendance).filter(Attendance.user_id == user.id, Attendance.attendance_date == target_date).one()
-    assert attendance.status == "Present"
+    assert attendance.status == "Extra Working Day"
     assert attendance.manual_override is True
 
     working_day = db.query(WorkingSunday).filter(WorkingSunday.user_id == user.id, WorkingSunday.work_date == target_date).one_or_none()
@@ -236,6 +236,38 @@ def test_extra_working_day_override_is_resolved_by_canonical_helper():
     db.commit()
 
     assert determine_attendance_status_for_date(db, user.id, target_date) == "Extra Working Day"
+    db.close()
+
+
+def test_extra_working_day_override_is_authoritative_on_any_date():
+    db = get_db_session()
+    user = create_user(db)
+    target_date = date(2026, 8, 19)
+
+    result = manual_update_by_user_date(
+        user_id=user.id,
+        date_value=target_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Extra Working Day"),
+        db=db,
+        current_user=user,
+    )
+
+    assert result["status"] == "Extra Working Day"
+    assert determine_attendance_status_for_date(db, user.id, target_date) == "Extra Working Day"
+
+    calendar = attendance_calendar(
+        year=2026,
+        month=8,
+        user_id=user.id,
+        employee_ids=None,
+        department_id=None,
+        db=db,
+        current_user=user,
+    )
+    day = next((d for d in calendar if d["date"] == target_date.isoformat()), None)
+    assert day is not None
+    assert day["status"] == "Extra Working Day"
+    assert day["working_day_label"] == "Extra Working Day"
     db.close()
 
 

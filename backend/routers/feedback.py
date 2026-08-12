@@ -9,7 +9,7 @@ from database import get_db
 from models import Feedback, NotificationEmail, User
 from schemas import FeedbackCreate
 from utils.date_helpers import iso_with_offset
-from utils.email_service import send_feedback_submission_confirmation, send_new_feedback_notification
+from utils.email_service import send_feedback_submission_confirmation
 
 router = APIRouter()
 
@@ -40,19 +40,6 @@ def create_feedback(payload: FeedbackCreate, db: Session = Depends(get_db), curr
             payload.description,
         )
 
-    admin_emails = [
-        email.email for email in db.query(NotificationEmail)
-        .filter(NotificationEmail.is_active == 1)
-        .all()
-        if email.email
-    ]
-    if admin_emails:
-        send_new_feedback_notification(
-            admin_emails,
-            current_user.name,
-            payload.feedback_type,
-            payload.description,
-        )
     return {"message": "Feedback submitted"}
 
 @router.get("/")

@@ -51,7 +51,6 @@ const STATUS_COLORS: Record<string, string> = {
   "On Leave": "bg-red-500 text-white",
   WFH: "bg-violet-500 text-white",
   "Weekly Off": "bg-slate-400 text-ink-900",
-  "Working Day": "bg-orange-500 text-white",
   "Extra Working Day": "bg-blue-500 text-white",
 };
 

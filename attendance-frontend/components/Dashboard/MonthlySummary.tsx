@@ -8,19 +8,21 @@
 interface MonthlySummaryProps {
   summary: {
     Present: number;
+    Late?: number;
     "Half Day": number;
     Absent: number;
     Holiday: number;
-    Leave: number;
+    "Extra Working Day"?: number;
   };
 }
 
 const STATS = [
   { key: "Present", label: "Present", color: "bg-emerald-700" },
+  { key: "Late", label: "Late", color: "bg-lime-400" },
   { key: "Half Day", label: "Half Day", color: "bg-yellow-400" },
   { key: "Absent", label: "Absent", color: "bg-red-500" },
+  { key: "Extra Working Day", label: "Extra Working Day", color: "bg-blue-500" },
   { key: "Holiday", label: "Holiday", color: "bg-pink-400" },
-  { key: "Leave", label: "Leave", color: "bg-red-500" },
 ];
 
 export default function MonthlySummary({ summary }: MonthlySummaryProps) {

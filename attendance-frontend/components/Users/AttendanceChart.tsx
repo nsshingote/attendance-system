@@ -156,7 +156,10 @@ const COLORS: Record<string, string> = {
   Late: "#86EFAC",
   WFH: "#8B5CF6",
   "Half Day": "#FACC15",
-  Leave: "#DC2626",
+  Absent: "#DC2626",
+  "Working Day": "#3B82F6",
+  "Extra Working Day": "#3B82F6",
+  Holiday: "#EC4899",
   Holidays: "#EC4899",
   "Total Hours": "#0EA5E9",
 };
@@ -179,8 +182,9 @@ export default function AttendanceChart({ userId, year, month }: AttendanceChart
           { name: "Late", value: Number(summary.Late || 0), color: COLORS.Late },
           { name: "WFH", value: Number(summary.WFH || 0), color: COLORS.WFH },
           { name: "Half Day", value: Number(summary["Half Day"] || 0), color: COLORS["Half Day"] },
-          { name: "Leave", value: Number(summary.Leave || 0), color: COLORS.Leave },
-          { name: "Holidays", value: Number(summary.Holiday || 0), color: COLORS.Holidays },
+          { name: "Absent", value: Number(summary.Absent || 0), color: COLORS.Absent },
+          { name: "Extra Working Day", value: Number(summary["Extra Working Day"] || 0), color: COLORS["Extra Working Day"] },
+          { name: "Holiday", value: Number(summary.Holiday || 0), color: COLORS.Holiday },
           { name: "Total Hours", value: Number(summary["Total Hours"] || 0), color: COLORS["Total Hours"] },
         ];
 

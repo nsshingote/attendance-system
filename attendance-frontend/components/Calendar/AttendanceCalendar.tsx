@@ -33,7 +33,6 @@ const STATUS_DOT: Record<string, string> = {
   Holiday: "bg-status-holiday",
   "On Leave": "bg-status-on-leave",
   WFH: "bg-status-wfh",
-  "Working Day": "bg-status-working-day",
   "Extra Working Day": "bg-status-extra-working-day",
   weekly_off: "bg-status-weekly-off",
 };
