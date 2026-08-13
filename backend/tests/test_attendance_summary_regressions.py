@@ -24,7 +24,8 @@ class AttendanceSummaryRegressionTests(TestCase):
         update_summary_counts(summary, "Late")
 
         self.assertEqual(summary["Late"], 1)
-        self.assertEqual(summary["Present"], 0)
+        # Late counts as both Late and Present per new counting rules
+        self.assertEqual(summary["Present"], 1)
 
     def test_overridden_lwp_day_is_not_counted_as_leave(self):
         target_date = date(2026, 8, 10)

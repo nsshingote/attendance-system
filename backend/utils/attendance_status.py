@@ -168,11 +168,22 @@ def calculate_half_day(check_in: datetime, check_out: datetime, db: Session) -> 
 
 
 def update_summary_counts(summary: dict, status: str) -> None:
-    """Update monthly summary counters from a final attendance status."""
+    """Update monthly summary counters from a final attendance status.
+    
+    Counting rules:
+    - Late = Present + Late (both counters)
+    - WFH = Present + WFH (both counters)
+    - Extra Working Day = Present + Extra Working Day (both counters)
+    - Half Day = Present + Half Day (already correct)
+    - On Leave = Leave + Absent (only for non-overridden leaves)
+    - Present = Present only
+    - Absent = Absent only
+    """
     if status == "Present":
         summary["Present"] += 1
     elif status == "Late":
         summary["Late"] += 1
+        summary["Present"] += 1
     elif status == "Half Day":
         summary["Half Day"] += 1
         summary["Present"] += 1
@@ -181,6 +192,7 @@ def update_summary_counts(summary: dict, status: str) -> None:
         summary["Present"] += 1
     elif status == "Extra Working Day":
         summary["Extra Working Day"] += 1
+        summary["Present"] += 1
     elif status == "On Leave":
         summary["Leave"] += 1
         summary["Absent"] += 1

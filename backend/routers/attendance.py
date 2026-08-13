@@ -1062,25 +1062,23 @@ def monthly_summary(
         .all()
     }
 
-    approved_leave_dates = set()
-    approved_unpaid_leave_dates = set()
-    for leave in db.query(LeaveRequest).filter(
-        LeaveRequest.user_id == user_id,
-        LeaveRequest.status == "Approved",
-        LeaveRequest.from_date <= end_date,
-        LeaveRequest.to_date >= start_date,
-    ).all():
-        leave_start = max(leave.from_date, start_date)
-        leave_end = min(leave.to_date, end_date - timedelta(days=1))
-        current_date = leave_start
-        while current_date <= leave_end:
-            approved_leave_dates.add(current_date)
-            if leave.leave_category == "Unpaid":
-                approved_unpaid_leave_dates.add(current_date)
-            current_date += timedelta(days=1)
-
-    # Summary counts
-    summary = {"Present": 0, "Late": 0, "Half Day": 0, "Holiday": 0, "Absent": 0, "WFH": 0, "Leave": 0, "Extra Working Day": 0}
+    # Summary counts - now includes leave categories for proper categorization
+    summary = {
+        "Present": 0,
+        "Late": 0,
+        "Half Day": 0,
+        "Holiday": 0,
+        "Absent": 0,
+        "WFH": 0,
+        "Leave": 0,  # Generic leave counter (legacy/for dates with "On Leave" status)
+        "Extra Working Day": 0,
+        "Paid": 0,
+        "Carried": 0,
+        "Privilege": 0,
+        "Emergency": 0,
+        "Sick": 0,
+        "Unpaid": 0,  # LWP - Leave Without Pay
+    }
 
     # Calculate total working hours
     total_hours = 0.0
@@ -1106,9 +1104,12 @@ def monthly_summary(
             records_by_date[record.attendance_date] = record
 
     processed_dates = set()
+    absent_dates = set()  # Track dates with Absent status for LWP logic
     for r in records_by_date.values():
         status = determine_attendance_status_for_date(db, user_id, r.attendance_date)
         processed_dates.add(r.attendance_date)
+        if status == "Absent":
+            absent_dates.add(r.attendance_date)
         _add_monthly_summary_counts(summary, status, r)
 
         # Calculate working hours
@@ -1119,11 +1120,49 @@ def monthly_summary(
     for wfh_date in approved_wfh_dates - processed_dates:
         summary["WFH"] += 1
 
-    for leave_date in approved_leave_dates - processed_dates:
-        if leave_date in approved_wfh_dates:
-            continue
-        summary["Leave"] += 1
-        summary["Absent"] += 1
+    # Handle approved leaves only when the final attendance status is still "On Leave".
+    # This preserves existing override precedence from determine_attendance_status_for_date().
+    approved_leaves = (
+        db.query(LeaveRequest)
+        .filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status == "Approved",
+            LeaveRequest.from_date < end_date,
+            LeaveRequest.to_date >= start_date,
+        )
+        .all()
+    )
+
+    for leave in approved_leaves:
+        leave_start = max(leave.from_date, start_date)
+        leave_end = min(leave.to_date, end_date - timedelta(days=1))
+        current_date = leave_start
+        while current_date <= leave_end:
+            if current_date not in processed_dates and current_date not in approved_wfh_dates:
+                final_status = determine_attendance_status_for_date(db, user_id, current_date)
+                if final_status == "On Leave":
+                    category = leave.leave_category
+                    if category in summary:
+                        summary[category] += 1
+                    summary["Leave"] += 1
+                    summary["Absent"] += 1
+            current_date += timedelta(days=1)
+
+    # Uncovered absence = Absent date with no approved or pending leave coverage.
+    for absent_date in absent_dates:
+        has_leave_request = (
+            db.query(LeaveRequest)
+            .filter(
+                LeaveRequest.user_id == user_id,
+                LeaveRequest.status.in_(["Approved", "Pending"]),
+                LeaveRequest.from_date <= absent_date,
+                LeaveRequest.to_date >= absent_date,
+            )
+            .first()
+            is not None
+        )
+        if not has_leave_request:
+            summary["Unpaid"] += 1
 
     summary["Total Hours"] = round(total_hours, 2)
 
