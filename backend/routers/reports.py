@@ -1412,6 +1412,14 @@ def delete_department(
             for row in default_rows:
                 db.delete(row)
             for report_type in report_types:
+                subtypes = db.query(DynamicReportSubtype).filter(
+                    DynamicReportSubtype.type_id == report_type.id
+                ).all()
+                for subtype in subtypes:
+                    db.query(ReportDefaultRow).filter(
+                        ReportDefaultRow.subtype_id == subtype.id
+                    ).delete(synchronize_session=False)
+                    db.delete(subtype)
                 db.delete(report_type)
         db.delete(department)
 
