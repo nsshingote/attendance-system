@@ -64,6 +64,10 @@ function uniqueById<T extends { id: number }>(items: T[]): T[] {
   return Array.from(new Map(items.map((item) => [item.id, item])).values());
 }
 
+const isHiddenMonthlyReportUser = (name: string | null | undefined) => {
+  return (name || "").trim().toLowerCase() === "nilesh shingote";
+};
+
 export default function AdminReportsPage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -90,7 +94,7 @@ export default function AdminReportsPage() {
       .then(([usersRes, departmentsRes, requestsRes]) => {
         // A duplicate option ID makes React reuse the wrong option and can
         // cause the selected employee/department to appear not to change.
-        setUsers(uniqueById(usersRes.data || []));
+        setUsers(uniqueById((usersRes.data || []).filter((user) => !isHiddenMonthlyReportUser(user.name))));
         setDepartments(uniqueById(departmentsRes.data || []));
         setPastSubmissionRequests(requestsRes.data || []);
       })
@@ -113,6 +117,7 @@ export default function AdminReportsPage() {
 
       const filteredData = data.filter((report) => {
         return (
+          !isHiddenMonthlyReportUser(report.user_name) &&
           (selectedUserIds.length === 0 || selectedUserIds.includes(report.user_id)) &&
           (!selectedDepartmentId || report.department_id === selectedDepartmentId) &&
           (!fromDate || !toDate || (report.attendance_date >= fromDate && report.attendance_date <= toDate))
@@ -340,7 +345,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-[1050px] text-left text-xs">
+            <table className="w-full min-w-1050px text-left text-xs">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
                   <th className="px-3 py-2 font-medium">Employee</th>
