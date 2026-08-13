@@ -74,6 +74,26 @@ function formatHoursWorked(checkIn: string | null, checkOut: string | null): str
 function parseReason(reason: string | null | undefined, status: string): { lateReason: string; earlyReason: string; remark: string } {
   if (!reason) return { lateReason: "", earlyReason: "", remark: "" };
   
+  let lateReason = "";
+  let earlyReason = "";
+  
+  // Parse tagged reasons: [LATE_ENTRY] reason text; [EARLY_CHECKOUT] reason text
+  if (reason.includes("[LATE_ENTRY]") || reason.includes("[EARLY_CHECKOUT]")) {
+    // Split by semicolon first to separate multiple tagged reasons
+    const parts = reason.split(";").map(s => s.trim());
+    
+    for (const part of parts) {
+      if (part.startsWith("[LATE_ENTRY]")) {
+        lateReason = part.replace("[LATE_ENTRY]", "").trim();
+      } else if (part.startsWith("[EARLY_CHECKOUT]")) {
+        earlyReason = part.replace("[EARLY_CHECKOUT]", "").trim();
+      }
+    }
+    
+    return { lateReason, earlyReason, remark: "" };
+  }
+  
+  // Fallback for legacy untagged reasons (maintain backward compatibility)
   if (reason.includes(";")) {
     const parts = reason.split(";").map(s => s.trim());
     return {
@@ -83,10 +103,12 @@ function parseReason(reason: string | null | undefined, status: string): { lateR
     };
   }
   
+  // If status is Late, assume the reason is for late entry
   if (status === "Late") {
     return { lateReason: reason, earlyReason: "", remark: "" };
   }
   
+  // Otherwise assume early checkout (for backward compatibility)
   return { lateReason: "", earlyReason: reason, remark: reason };
 }
 
@@ -117,7 +139,7 @@ export default function AttendanceTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-[1050px] table-fixed text-left text-xs">
+      <table className="w-full min-w-1050px table-fixed text-left text-xs">
         <colgroup>
           {showEmployeeName && <col className="w-[13%]" />}
           <col className="w-[10%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[9%]" />

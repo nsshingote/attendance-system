@@ -69,7 +69,7 @@ export default function CheckOutButton({ disabled, onSuccess }: CheckOutButtonPr
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-ink-900 mb-2">Early Checkout Reason</h3>
             <p className="text-sm text-ink-600 mb-4">
-              You're checking out before 6:30 PM. Please provide a reason.
+              You're checking out before the configured office end time. Please provide a reason.
             </p>
             <textarea
               value={reason}

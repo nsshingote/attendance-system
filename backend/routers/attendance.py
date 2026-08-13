@@ -30,6 +30,7 @@ from models import (
     DailyReport,
     WFHRequest as WFHRequestModel,
     WorkingSunday,
+    CompanySettings,
 )
 from schemas import (
     AttendanceOut,
@@ -68,9 +69,8 @@ HALF_DAY_SLOTS = {
     "afternoon": (time(14, 30), time(18, 30)),   # 2:30 PM - 6:30 PM
 }
 
-# Fixed cutoffs that require a reason to be supplied
-LATE_CHECKIN_REASON_CUTOFF = time(10, 30)
-EARLY_CHECKOUT_REASON_CUTOFF = time(18, 30)
+# Grace timing cutoffs are now dynamic from CompanySettings.
+# They are computed per-request in check_in and check_out endpoints.
 
 
 def _get_client_ip(request: Request, override: Optional[str] = None) -> str:
@@ -469,11 +469,25 @@ def check_in(
 
     reason = payload.reason if payload else None
 
-    # Require reason for late check-in (after 10:30 AM IST)
-    if ist_now.time() > LATE_CHECKIN_REASON_CUTOFF and not reason:
+    # Compute late-entry cutoff dynamically from CompanySettings
+    settings = db.query(CompanySettings).first()
+    office_start_str = settings.office_start_time if settings else "10:00"
+    grace_minutes = settings.late_grace_minutes if settings else 20
+    try:
+        start_hour, start_min = map(int, office_start_str.split(":")[:2])
+    except (ValueError, AttributeError):
+        start_hour, start_min = 10, 0
+    grace_cutoff = time(start_hour, start_min)
+    grace_cutoff_with_buffer = time(
+        (start_hour * 60 + start_min + grace_minutes) // 60,
+        (start_hour * 60 + start_min + grace_minutes) % 60
+    )
+
+    # Require reason for late check-in (after grace cutoff)
+    if ist_now.time() > grace_cutoff_with_buffer and not reason:
         raise HTTPException(
             status_code=400,
-            detail="REASON_REQUIRED: Please provide a reason for checking in after 10:30 AM.",
+            detail=f"REASON_REQUIRED: Please provide a reason for checking in after {grace_cutoff_with_buffer.strftime('%H:%M')}.",
         )
 
     # An assigned working day takes precedence over a holiday or weekly off.
@@ -491,7 +505,9 @@ def check_in(
         existing.ip_address = ip_address
         if not getattr(existing, "manual_override", False):
             existing.status = status_value
-        existing.reason = reason
+        # Tag the reason with [LATE_ENTRY] prefix so frontend can distinguish it from early checkout reasons
+        if reason:
+            existing.reason = f"[LATE_ENTRY] {reason}"
         record = existing
     else:
         record = Attendance(
@@ -500,7 +516,7 @@ def check_in(
             check_in=ist_now,
             ip_address=ip_address,
             status=status_value,
-            reason=reason,
+            reason=f"[LATE_ENTRY] {reason}" if reason else None,
         )
         db.add(record)
 
@@ -562,11 +578,21 @@ def check_out(
 
     reason = payload.reason if payload else None
 
-    # Require reason for early check-out (before 6:30 PM IST)
-    if ist_now.time() < EARLY_CHECKOUT_REASON_CUTOFF and not reason:
+    # Compute early-checkout cutoff dynamically from CompanySettings
+    # Use office_end_time if available; default to 18:30 (6:30 PM)
+    settings = db.query(CompanySettings).first()
+    office_end_str = settings.office_end_time if settings else "18:30"
+    try:
+        end_hour, end_min = map(int, office_end_str.split(":")[:2])
+        early_checkout_cutoff = time(end_hour, end_min)
+    except (ValueError, AttributeError):
+        early_checkout_cutoff = time(18, 30)
+
+    # Require reason for early check-out (before office end time)
+    if ist_now.time() < early_checkout_cutoff and not reason:
         raise HTTPException(
             status_code=400,
-            detail="REASON_REQUIRED: Please provide a reason for checking out before 6:30 PM.",
+            detail=f"REASON_REQUIRED: Please provide a reason for checking out before {early_checkout_cutoff.strftime('%H:%M')}.",
         )
 
     # =============================================
@@ -586,7 +612,12 @@ def check_out(
 
     record.check_out = ist_now
     if reason:
-        record.reason = f"{record.reason}; {reason}" if record.reason else reason
+        # Append early checkout reason, tagged with [EARLY_CHECKOUT] prefix for frontend clarity
+        tagged_reason = f"[EARLY_CHECKOUT] {reason}"
+        if record.reason:
+            record.reason = f"{record.reason}; {tagged_reason}"
+        else:
+            record.reason = tagged_reason
 
         # ✅ FIXED: Only mark Half Day if worked less than 4 hours
     if record.check_in and record.check_out and not getattr(record, "manual_override", False):
