@@ -34,8 +34,6 @@ class User(Base):
     emergency_contact_name = Column(String(100), nullable=True)
     emergency_contact_relationship = Column(String(100), nullable=True)
     emergency_contact_phone = Column(String(20), nullable=True)
-    emergency_contact_email = Column(String(100), nullable=True)
-    emergency_contact_address = Column(String(255), nullable=True)
     status = Column(Enum("active", "inactive", name="user_status"), nullable=False, default="active")
     created_at = Column(TIMESTAMP, server_default=func.now())
 

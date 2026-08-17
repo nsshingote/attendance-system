@@ -36,8 +36,6 @@ interface UserDetail {
   emergency_contact_name?: string | null;
   emergency_contact_relationship?: string | null;
   emergency_contact_phone?: string | null;
-  emergency_contact_email?: string | null;
-  emergency_contact_address?: string | null;
 }
 
 interface AttendanceSummary {
@@ -410,7 +408,7 @@ export default function UserDetailPage() {
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <h2 className="mb-5 font-semibold">Emergency Contact</h2>
               <dl className="grid gap-5 sm:grid-cols-2">
-                {[ ["Emergency Contact Name", user.emergency_contact_name || "—"], ["Relationship", user.emergency_contact_relationship || "—"], ["Phone", user.emergency_contact_phone || "—"], ["Email", user.emergency_contact_email || "—"], ["Address", user.emergency_contact_address || "—"] ].map(([label, value]) => (
+                {[ ["Emergency Contact Name", user.emergency_contact_name || "—"], ["Relationship", user.emergency_contact_relationship || "—"], ["Phone", user.emergency_contact_phone || "—"] ].map(([label, value]) => (
                   <div key={String(label)}>
                     <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
                     <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>

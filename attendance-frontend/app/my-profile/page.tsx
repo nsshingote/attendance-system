@@ -31,8 +31,6 @@ type User = {
   emergency_contact_name?: string | null;
   emergency_contact_relationship?: string | null;
   emergency_contact_phone?: string | null;
-  emergency_contact_email?: string | null;
-  emergency_contact_address?: string | null;
 };
 
 type Slip = { id: number; month: number; year: number; total_amount: number; status: string };
@@ -82,8 +80,6 @@ export default function MyProfilePage() {
     emergency_contact_name: "",
     emergency_contact_relationship: "",
     emergency_contact_phone: "",
-    emergency_contact_email: "",
-    emergency_contact_address: "",
   });
 
   const loadPersonalDocuments = async () => {
@@ -111,8 +107,6 @@ export default function MyProfilePage() {
           emergency_contact_name: userData.emergency_contact_name || "",
           emergency_contact_relationship: userData.emergency_contact_relationship || "",
           emergency_contact_phone: userData.emergency_contact_phone || "",
-          emergency_contact_email: userData.emergency_contact_email || "",
-          emergency_contact_address: userData.emergency_contact_address || "",
         });
         setSlips(salary.data);
         setDocuments(employeeDocuments.data);
@@ -333,23 +327,6 @@ export default function MyProfilePage() {
                       value={profileForm.emergency_contact_phone}
                       onChange={(e) => setProfileForm({ ...profileForm, emergency_contact_phone: e.target.value })}
                       className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2"
-                    />
-                  </label>
-                  <label className="text-sm text-ink-600">
-                    Email
-                    <input
-                      value={profileForm.emergency_contact_email}
-                      onChange={(e) => setProfileForm({ ...profileForm, emergency_contact_email: e.target.value })}
-                      className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2"
-                    />
-                  </label>
-                  <label className="text-sm text-ink-600 md:col-span-2">
-                    Address
-                    <textarea
-                      value={profileForm.emergency_contact_address}
-                      onChange={(e) => setProfileForm({ ...profileForm, emergency_contact_address: e.target.value })}
-                      className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2"
-                      rows={3}
                     />
                   </label>
                 </div>

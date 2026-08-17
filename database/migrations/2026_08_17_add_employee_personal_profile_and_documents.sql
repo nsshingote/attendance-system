@@ -7,9 +7,7 @@ ALTER TABLE users
     ADD COLUMN IF NOT EXISTS country VARCHAR(100) NULL,
     ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(100) NULL,
     ADD COLUMN IF NOT EXISTS emergency_contact_relationship VARCHAR(100) NULL,
-    ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(20) NULL,
-    ADD COLUMN IF NOT EXISTS emergency_contact_email VARCHAR(100) NULL,
-    ADD COLUMN IF NOT EXISTS emergency_contact_address VARCHAR(255) NULL;
+    ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(20) NULL;
 
 CREATE TABLE IF NOT EXISTS employee_personal_documents (
     id INT PRIMARY KEY AUTO_INCREMENT,

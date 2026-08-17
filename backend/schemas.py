@@ -85,8 +85,6 @@ class UserBase(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
-    emergency_contact_email: Optional[str] = None
-    emergency_contact_address: Optional[str] = None
     role: str = "user"
     status: str = "active"
     annual_leave: int = 6
@@ -112,8 +110,6 @@ class UserUpdate(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
-    emergency_contact_email: Optional[str] = None
-    emergency_contact_address: Optional[str] = None
     role: Optional[str] = None
     status: Optional[str] = None
     annual_leave: Optional[int] = None
@@ -138,8 +134,6 @@ class UserOut(ORMBase):
     emergency_contact_name: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
-    emergency_contact_email: Optional[str] = None
-    emergency_contact_address: Optional[str] = None
     status: str
     created_at: datetime
     annual_leave: int
@@ -158,8 +152,6 @@ class PersonalProfileUpdate(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
-    emergency_contact_email: Optional[str] = None
-    emergency_contact_address: Optional[str] = None
 
 
 class EmployeePersonalDocumentOut(ORMBase):

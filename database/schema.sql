@@ -25,8 +25,6 @@ CREATE TABLE IF NOT EXISTS users (
     emergency_contact_name VARCHAR(100) NULL,
     emergency_contact_relationship VARCHAR(100) NULL,
     emergency_contact_phone VARCHAR(20) NULL,
-    emergency_contact_email VARCHAR(100) NULL,
-    emergency_contact_address VARCHAR(255) NULL,
     status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     device_token VARCHAR(255),
