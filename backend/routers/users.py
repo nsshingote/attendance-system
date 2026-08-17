@@ -17,7 +17,7 @@ from models import (
     User, ActivityLog, Department, UserDepartment, DynamicReportType,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
-from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut
+from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate
 
 router = APIRouter()
 
@@ -69,6 +69,20 @@ def get_my_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+@router.put("/me/profile", response_model=UserOut)
+def update_my_profile(
+    payload: PersonalProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
 @router.get("/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Employees may only view their own profile; Admin/SuperAdmin can view any.
@@ -105,6 +119,8 @@ def create_user(
         role=payload.role,
         department=payload.department,
         designation=payload.designation,
+        place_of_posting=payload.place_of_posting,
+        date_of_joining=payload.date_of_joining,
         status=payload.status,
         annual_leave=payload.annual_leave,
     )

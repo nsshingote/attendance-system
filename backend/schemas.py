@@ -74,6 +74,19 @@ class UserBase(BaseModel):
     email: Optional[EmailStr] = None
     department: str
     designation: str
+    place_of_posting: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_email: Optional[str] = None
+    emergency_contact_address: Optional[str] = None
     role: str = "user"
     status: str = "active"
     annual_leave: int = 6
@@ -88,6 +101,19 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     department: Optional[str] = None
     designation: Optional[str] = None
+    place_of_posting: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_email: Optional[str] = None
+    emergency_contact_address: Optional[str] = None
     role: Optional[str] = None
     status: Optional[str] = None
     annual_leave: Optional[int] = None
@@ -101,12 +127,112 @@ class UserOut(ORMBase):
     role: str
     department: str
     designation: str
+    place_of_posting: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_email: Optional[str] = None
+    emergency_contact_address: Optional[str] = None
     status: str
     created_at: datetime
     annual_leave: int
     leave_encashed: int
     device_name: Optional[str] = None
     last_login: Optional[datetime] = None
+
+
+class PersonalProfileUpdate(BaseModel):
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_email: Optional[str] = None
+    emergency_contact_address: Optional[str] = None
+
+
+class EmployeePersonalDocumentOut(ORMBase):
+    id: int
+    employee_id: int
+    document_type: str
+    title: str
+    original_filename: str
+    file_name: str
+    file_path: str
+    mime_type: Optional[str] = None
+    file_size: int
+    uploaded_at: datetime
+
+
+class SalarySlipParticular(BaseModel):
+    name: str
+    amount: float = 0
+
+
+class SalarySlipCreate(BaseModel):
+    employee_id: int
+    month: int
+    year: int
+    particulars: List[SalarySlipParticular]
+    send: bool = False
+
+
+class SalarySlipOut(ORMBase):
+    id: int
+    employee_id: int
+    employee_name: Optional[str] = None
+    month: int
+    year: int
+    particulars: str
+    total_amount: float
+    status: str
+    created_at: datetime
+
+
+class KundliNoteCreate(BaseModel):
+    employee_id: int
+    positive_note: Optional[str] = None
+    negative_note: Optional[str] = None
+
+
+class OfferLetterCreate(BaseModel):
+    employee_id: int
+    employee_name: str
+    designation: str
+    department: str
+    place_of_posting: str
+    date_of_joining: str
+    letter_date: str
+    company_address: str
+    acceptance_date: Optional[str] = None
+    send: bool = False
+
+
+class AppointmentLetterCreate(BaseModel):
+    employee_id: int
+    employee_name: str
+    designation: str
+    department: str
+    office_location: str
+    start_date: str
+    letter_date: str
+    company_address: str
+    salary: str
+    working_hours: str
+    working_days: str
+    authorized_signatory: str
+    send: bool = False
 
 
 # =========================================================
@@ -887,3 +1013,56 @@ class UserDailyReportResponse(BaseModel):
     report_data: List[DailyReportDataOut] = []
     all_subtypes: List[DynamicReportSubtypeOut] = []
     all_subtypes: List[DynamicReportSubtypeOut]
+
+
+# =========================================================
+# RESOURCES
+# =========================================================
+
+class ResourceCreate(BaseModel):
+    """Request body for creating/updating a resource"""
+    name: str
+    description: Optional[str] = None
+    visibility_type: str  # "all_employees", "departments", "specific_employees"
+    department_ids: Optional[List[int]] = None  # For visibility_type="departments"
+    employee_ids: Optional[List[int]] = None  # For visibility_type="specific_employees"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Resource name is required")
+        return value.strip()
+
+    @field_validator("visibility_type")
+    @classmethod
+    def validate_visibility(cls, value: str) -> str:
+        if value not in {"all_employees", "departments", "specific_employees"}:
+            raise ValueError("Invalid visibility type")
+        return value
+
+
+class ResourceOut(ORMBase):
+    """Response model for a resource"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    file_name: str
+    visibility_type: str
+    created_by: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class ResourceDetailOut(ORMBase):
+    """Detailed response model including access information"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    file_name: str
+    visibility_type: str
+    created_by: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    department_ids: List[int] = []
+    employee_ids: List[int] = []

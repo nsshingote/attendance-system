@@ -14,7 +14,6 @@ import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
-import ExpandableText from "@/components/Common/ExpandableText";
 import { parseISTDateTime } from "@/lib/date";
 
 interface AttendanceReportRow {
@@ -57,6 +56,26 @@ function formatHoursWorked(checkIn: string | null, checkOut: string | null): str
 function parseReason(reason: string | null | undefined, status: string): { lateReason: string; earlyReason: string; remark: string } {
   if (!reason) return { lateReason: "", earlyReason: "", remark: "" };
   
+  let lateReason = "";
+  let earlyReason = "";
+  
+  // Parse tagged reasons: [LATE_ENTRY] reason text; [EARLY_CHECKOUT] reason text
+  if (reason.includes("[LATE_ENTRY]") || reason.includes("[EARLY_CHECKOUT]")) {
+    // Split by semicolon first to separate multiple tagged reasons
+    const parts = reason.split(";").map(s => s.trim());
+    
+    for (const part of parts) {
+      if (part.startsWith("[LATE_ENTRY]")) {
+        lateReason = part.replace("[LATE_ENTRY]", "").trim();
+      } else if (part.startsWith("[EARLY_CHECKOUT]")) {
+        earlyReason = part.replace("[EARLY_CHECKOUT]", "").trim();
+      }
+    }
+    
+    return { lateReason, earlyReason, remark: "" };
+  }
+  
+  // Fallback for legacy untagged reasons (maintain backward compatibility)
   if (reason.includes(";")) {
     const parts = reason.split(";").map(s => s.trim());
     return {
@@ -66,10 +85,12 @@ function parseReason(reason: string | null | undefined, status: string): { lateR
     };
   }
   
+  // If status is Late, assume the reason is for late entry
   if (status === "Late") {
     return { lateReason: reason, earlyReason: "", remark: "" };
   }
   
+  // Otherwise assume early checkout (for backward compatibility)
   return { lateReason: "", earlyReason: reason, remark: reason };
 }
 
@@ -119,7 +140,7 @@ export default function TodayAttendanceTable() {
   }, []);
 
   return (
-    <div className="w-full max-w-full rounded-xl border border-ink-200 bg-white shadow-card">
+    <div className="rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="border-b border-ink-200 px-5 py-4">
         <h3 className="text-sm font-semibold text-ink-900">Today&apos;s Attendance</h3>
         <p className="text-xs text-ink-500">{format(new Date(), "EEEE, dd MMMM yyyy")}</p>
@@ -136,59 +157,93 @@ export default function TodayAttendanceTable() {
           <p className="text-sm text-ink-500">No attendance marked yet today.</p>
         </div>
       ) : (
-        <div className="w-full max-w-full overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                <th className="px-4 py-3 font-medium">Employee</th>
-                <th className="px-4 py-3 font-medium">Department</th>
-                <th className="px-4 py-3 font-medium">Check In</th>
-                <th className="px-4 py-3 font-medium">Check Out</th>
-                <th className="px-3 py-3 font-medium">Hours</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-3 py-3 font-medium">Late Entry</th>
-                <th className="px-3 py-3 font-medium">Early Checkout</th>
-                <th className="px-4 py-3 font-medium">Report</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-100">
-              {rows.map((r) => {
-                const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
-                const reportStatus = getReportStatus(r.report, r.has_report);
-                const isSubmitted = reportStatus === "✅ Submitted";
-                
-                return (
-                  <tr key={r.user_id} className="hover:bg-ink-50/60">
-                    <td className="max-w-36 wrap-break-word whitespace-normal px-4 py-3 font-medium text-ink-900">{r.user_name}</td>
-                    <td className="px-4 py-3 text-ink-600">{r.department}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-600">
-                      {formatLocalTime(r.check_in)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-600">
-                      {formatLocalTime(r.check_out)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-600">
-                      {formatHoursWorked(r.check_in, r.check_out)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge status={r.status} />
-                    </td>
-                    <td className="max-w-40 px-3 py-3 text-xs text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={28} /><span className="hidden">
-                      {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
-                    </span></td>
-                    <td className="max-w-40 px-3 py-3 text-xs text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={28} /><span className="hidden">
-                      {earlyReason || (!lateReason ? remark : "") || "—"}
-                    </span></td>
-                    <td className="px-4 py-3 text-xs font-medium">
-                      <span className={isSubmitted ? "text-green-600" : "text-red-500"}>
-                        {reportStatus}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-900px text-left text-sm">
+              <thead>
+                <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                  <th className="px-4 py-3 font-medium">Employee</th>
+                  <th className="px-4 py-3 font-medium">Department</th>
+                  <th className="px-4 py-3 font-medium">Check In</th>
+                  <th className="px-4 py-3 font-medium">Check Out</th>
+                  <th className="px-4 py-3 font-medium">Hours Worked</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Late Entry Reason</th>
+                  <th className="px-4 py-3 font-medium">Early Logout Reason</th>
+                  <th className="px-4 py-3 font-medium">Report</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {rows.map((r) => {
+                  const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
+                  const reportStatus = getReportStatus(r.report, r.has_report);
+                  const isSubmitted = reportStatus === "✅ Submitted";
+                  
+                  return (
+                    <tr key={r.user_id} className="hover:bg-ink-50/60">
+                      <td className="px-4 py-3 font-medium text-ink-900">{r.user_name}</td>
+                      <td className="px-4 py-3 text-ink-600">{r.department}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-600">
+                        {formatLocalTime(r.check_in)}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-600">
+                        {formatLocalTime(r.check_out)}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-600">
+                        {formatHoursWorked(r.check_in, r.check_out)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge status={r.status} />
+                      </td>
+                      <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={lateReason}>
+                        {lateReason || "—"}
+                      </td>
+                      <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={earlyReason}>
+                        {earlyReason || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-medium">
+                        <span className={isSubmitted ? "text-green-600" : "text-red-500"}>
+                          {reportStatus}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-2 p-2 md:hidden">
+            {rows.map((r) => {
+              const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
+              const reportStatus = getReportStatus(r.report, r.has_report);
+              const isSubmitted = reportStatus === "✅ Submitted";
+              return (
+                <div key={r.user_id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-ink-900">{r.user_name}</p>
+                      <p className="text-xs text-ink-500">{r.department}</p>
+                    </div>
+                    <Badge status={r.status} />
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-ink-700">
+                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Check In</p><p className="mt-1 font-mono">{formatLocalTime(r.check_in)}</p></div>
+                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Check Out</p><p className="mt-1 font-mono">{formatLocalTime(r.check_out)}</p></div>
+                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Hours</p><p className="mt-1 font-mono">{formatHoursWorked(r.check_in, r.check_out)}</p></div>
+                    <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Report</p><p className={`mt-1 font-medium ${isSubmitted ? "text-green-600" : "text-red-500"}`}>{reportStatus}</p></div>
+                  </div>
+                  {(lateReason || earlyReason || remark) && (
+                    <div className="mt-2 rounded-md bg-ink-50 px-2 py-2 text-[11px] text-ink-600">
+                      {lateReason && <p><span className="font-semibold text-ink-700">Late:</span> {lateReason}</p>}
+                      {earlyReason && <p><span className="font-semibold text-ink-700">Early:</span> {earlyReason}</p>}
+                      {remark && !lateReason && !earlyReason && <p>{remark}</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

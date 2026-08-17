@@ -23,6 +23,19 @@ class User(Base):
     role = Column(Enum("superadmin", "admin", "user", name="user_role"), nullable=False, default="user")
     department = Column(String(100), nullable=False)
     designation = Column(String(100), nullable=False)
+    place_of_posting = Column(String(150), nullable=True)
+    date_of_joining = Column(Date, nullable=True)
+    address_line_1 = Column(String(255), nullable=True)
+    address_line_2 = Column(String(255), nullable=True)
+    city = Column(String(100), nullable=True)
+    state = Column(String(100), nullable=True)
+    pincode = Column(String(20), nullable=True)
+    country = Column(String(100), nullable=True)
+    emergency_contact_name = Column(String(100), nullable=True)
+    emergency_contact_relationship = Column(String(100), nullable=True)
+    emergency_contact_phone = Column(String(20), nullable=True)
+    emergency_contact_email = Column(String(100), nullable=True)
+    emergency_contact_address = Column(String(255), nullable=True)
     status = Column(Enum("active", "inactive", name="user_status"), nullable=False, default="active")
     created_at = Column(TIMESTAMP, server_default=func.now())
 
@@ -44,6 +57,75 @@ class User(Base):
     activity_logs = relationship("ActivityLog", back_populates="user")
     daily_reports = relationship("DailyReport", back_populates="user", foreign_keys="DailyReport.user_id")
     departments = relationship("UserDepartment", back_populates="user", foreign_keys="UserDepartment.user_id")
+    salary_slips = relationship("SalarySlip", back_populates="employee", foreign_keys="SalarySlip.employee_id")
+    kundli_notes = relationship("KundliNote", back_populates="employee", foreign_keys="KundliNote.employee_id")
+    employee_documents = relationship("EmployeeDocument", back_populates="employee", foreign_keys="EmployeeDocument.employee_id")
+    personal_documents = relationship("EmployeePersonalDocument", back_populates="employee", foreign_keys="EmployeePersonalDocument.employee_id")
+
+
+class SalarySlip(Base):
+    __tablename__ = "salary_slips"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    month = Column(Integer, nullable=False)
+    year = Column(Integer, nullable=False)
+    particulars = Column(Text, nullable=False)
+    total_amount = Column(DECIMAL(12, 2), nullable=False, default=0)
+    status = Column(Enum("Saved", "Sent", name="salary_slip_status"), nullable=False, default="Saved")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    employee = relationship("User", back_populates="salary_slips", foreign_keys=[employee_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class KundliNote(Base):
+    __tablename__ = "kundli_notes"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    positive_note = Column(Text, nullable=True)
+    negative_note = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    employee = relationship("User", back_populates="kundli_notes", foreign_keys=[employee_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class EmployeeDocument(Base):
+    __tablename__ = "employee_documents"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    document_type = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)  # Generated document payload (JSON)
+    status = Column(Enum("Draft", "Sent", name="employee_document_status"), nullable=False, default="Draft")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    sent_at = Column(DateTime, nullable=True)
+
+    employee = relationship("User", back_populates="employee_documents", foreign_keys=[employee_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class EmployeePersonalDocument(Base):
+    __tablename__ = "employee_personal_documents"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    document_type = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    mime_type = Column(String(100), nullable=True)
+    file_size = Column(Integer, nullable=False, default=0)
+    uploaded_at = Column(TIMESTAMP, server_default=func.now())
+
+    employee = relationship("User", back_populates="personal_documents", foreign_keys=[employee_id])
 
 
 class UserDepartment(Base):
@@ -599,3 +681,62 @@ class RefreshToken(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", foreign_keys=[user_id])
+
+
+# ============================================================
+# RESOURCES MANAGEMENT - NEW MODULE
+# ============================================================
+
+class Resource(Base):
+    """Company resources/documents that can be shared with employees based on visibility rules"""
+    __tablename__ = "resources"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    file_path = Column(String(500), nullable=False, unique=True)
+    file_name = Column(String(255), nullable=False)
+    visibility_type = Column(
+        Enum("all_employees", "departments", "specific_employees", name="resource_visibility"),
+        nullable=False,
+        default="all_employees"
+    )
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(DateTime, nullable=True)
+
+    creator = relationship("User", foreign_keys=[created_by])
+    department_access = relationship("ResourceDepartmentAccess", back_populates="resource")
+    employee_access = relationship("ResourceEmployeeAccess", back_populates="resource")
+
+
+class ResourceDepartmentAccess(Base):
+    """Department-level access control for resources"""
+    __tablename__ = "resource_department_access"
+    __table_args__ = (
+        UniqueConstraint("resource_id", "department_id", name="uq_resource_department"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    resource = relationship("Resource", back_populates="department_access")
+    department = relationship("Department")
+
+
+class ResourceEmployeeAccess(Base):
+    """Employee-level access control for resources"""
+    __tablename__ = "resource_employee_access"
+    __table_args__ = (
+        UniqueConstraint("resource_id", "employee_id", name="uq_resource_employee"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    resource = relationship("Resource", back_populates="employee_access")
+    employee = relationship("User")

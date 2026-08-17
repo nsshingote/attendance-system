@@ -31,6 +31,8 @@ from routers import (
     activity_logs,
     password_reset,
     feedback,
+    employee_documents,
+    resources,
 )
 
 # Create tables if they don't exist yet (safe no-op if schema.sql already applied)
@@ -150,6 +152,8 @@ app.include_router(device_requests.router, prefix="/device-requests", tags=["Dev
 app.include_router(notifications_emails.router, prefix="/notification-emails", tags=["Notification Emails"])
 app.include_router(office_ips.router, prefix="/office-ips", tags=["Office IPs"])
 app.include_router(activity_logs.router, prefix="/activity-logs", tags=["Activity Logs"])
+app.include_router(employee_documents.router, prefix="/employee-documents", tags=["Employee Documents"])
+app.include_router(resources.router, prefix="/resources", tags=["Resources"])
 
 
 @app.get("/")

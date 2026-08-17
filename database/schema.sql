@@ -14,6 +14,19 @@ CREATE TABLE IF NOT EXISTS users (
     role ENUM('superadmin', 'admin', 'user') NOT NULL DEFAULT 'user',
     department VARCHAR(100) NOT NULL,
     designation VARCHAR(100) NOT NULL,
+    place_of_posting VARCHAR(150) NULL,
+    date_of_joining DATE NULL,
+    address_line_1 VARCHAR(255) NULL,
+    address_line_2 VARCHAR(255) NULL,
+    city VARCHAR(100) NULL,
+    state VARCHAR(100) NULL,
+    pincode VARCHAR(20) NULL,
+    country VARCHAR(100) NULL,
+    emergency_contact_name VARCHAR(100) NULL,
+    emergency_contact_relationship VARCHAR(100) NULL,
+    emergency_contact_phone VARCHAR(20) NULL,
+    emergency_contact_email VARCHAR(100) NULL,
+    emergency_contact_address VARCHAR(255) NULL,
     status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     device_token VARCHAR(255),
@@ -512,4 +525,43 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     revoked_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS salary_slips (
+    id INT PRIMARY KEY AUTO_INCREMENT, employee_id INT NOT NULL, month INT NOT NULL, year INT NOT NULL,
+    particulars TEXT NOT NULL, total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    status ENUM('Saved', 'Sent') NOT NULL DEFAULT 'Saved', created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS kundli_notes (
+    id INT PRIMARY KEY AUTO_INCREMENT, employee_id INT NOT NULL, positive_note TEXT NULL, negative_note TEXT NULL,
+    created_by INT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS employee_documents (
+    id INT PRIMARY KEY AUTO_INCREMENT, employee_id INT NOT NULL, document_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL, content TEXT NOT NULL, status ENUM('Draft', 'Sent') NOT NULL DEFAULT 'Draft',
+    created_by INT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at DATETIME NULL,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS employee_personal_documents (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    employee_id INT NOT NULL,
+    document_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    mime_type VARCHAR(100) NULL,
+    file_size INT NOT NULL DEFAULT 0,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX ix_employee_personal_documents_employee (employee_id, uploaded_at)
 );

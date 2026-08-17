@@ -17,6 +17,8 @@ export interface UserRow {
   role: string;
   department: string;
   designation: string;
+  place_of_posting?: string | null;
+  date_of_joining?: string | null;
   status: string;
 }
 

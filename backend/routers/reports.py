@@ -1316,7 +1316,7 @@ def delete_department(
 
     # Historical report rows deliberately remain attached to this now-inactive
     # department. Reassignment changes future assignments/defaults only.
-    if has_user_assignments and target is None:
+    if has_user_assignments and target is None and not remove_assignments:
         raise HTTPException(
             status_code=400,
             detail="Department has assigned users. Reassign users before deleting it."
@@ -1404,23 +1404,22 @@ def delete_department(
                 else:
                     user.department = "Unassigned"
 
-        # User assignments and future configuration have already moved. The
-        # daily_report_data FK is SET NULL, preserving each name snapshot.
         if target is None:
-            # A department with no assigned users can be deleted immediately;
-            # its unused future configuration is removed with it.
+            # Delete the department's default rows.
             for row in default_rows:
                 db.delete(row)
+
+            # Delete report subtypes and report types.
             for report_type in report_types:
                 subtypes = db.query(DynamicReportSubtype).filter(
                     DynamicReportSubtype.type_id == report_type.id
                 ).all()
+
                 for subtype in subtypes:
-                    db.query(ReportDefaultRow).filter(
-                        ReportDefaultRow.subtype_id == subtype.id
-                    ).delete(synchronize_session=False)
                     db.delete(subtype)
+
                 db.delete(report_type)
+
         db.delete(department)
 
     log_activity(
@@ -1437,7 +1436,6 @@ def delete_department(
         "reassigned_default_rows": len(default_rows) if target else 0,
         "preserved_historical_report_data_rows": len(report_data_rows),
     }
-
 
 # ---------- Admin: Add Type ----------
 @router.post("/admin/types", response_model=DynamicReportTypeOut)

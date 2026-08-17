@@ -27,6 +27,8 @@ interface UserFormValues {
   email: string;
   department: string;
   designation: string;
+  place_of_posting: string;
+  date_of_joining: string;
   role: string;
   password: string;
 }
@@ -73,7 +75,7 @@ export default function UsersPage() {
 
   const openCreateModal = () => {
     setEditingUser(null);
-    reset({ name: "", mobile: "", email: "", department: "", designation: "", role: "user", password: "" });
+    reset({ name: "", mobile: "", email: "", department: "", designation: "", place_of_posting: "", date_of_joining: "", role: "user", password: "" });
     setModalOpen(true);
   };
 
@@ -96,6 +98,8 @@ export default function UsersPage() {
       email: user.email ?? "",
       department: user.department,
       designation: user.designation,
+      place_of_posting: user.place_of_posting ?? "",
+      date_of_joining: user.date_of_joining ?? "",
       role: user.role,
       password: "",
     });
@@ -111,6 +115,8 @@ export default function UsersPage() {
           email: values.email || undefined,
           department: values.department,
           designation: values.designation,
+          place_of_posting: values.place_of_posting || undefined,
+          date_of_joining: values.date_of_joining || undefined,
           role: values.role,
         });
         toast.success("User updated");
@@ -121,6 +127,8 @@ export default function UsersPage() {
           email: values.email || undefined,
           department: values.department,
           designation: values.designation,
+          place_of_posting: values.place_of_posting || undefined,
+          date_of_joining: values.date_of_joining || undefined,
           role: values.role,
           password: values.password,
         });
@@ -237,6 +245,10 @@ export default function UsersPage() {
               <label className="mb-1 block text-sm font-medium text-ink-700">Email</label>
               <input {...register("email")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="mb-1 block text-sm font-medium text-ink-700">Place of Posting</label><input {...register("place_of_posting")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-ink-700">Date of Joining</label><input type="date" {...register("date_of_joining")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

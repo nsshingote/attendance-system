@@ -9,10 +9,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { LayoutDashboard, CalendarCheck, Plane, ClipboardEdit, FileText, MessageSquare, X } from "lucide-react";
+import { LayoutDashboard, CalendarCheck, Plane, ClipboardEdit, FileText, MessageSquare, ContactRound, X, BookOpen } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/my-profile", label: "My Profile", icon: ContactRound },
+  { href: "/resources", label: "Resources", icon: BookOpen },
   { href: "/attendance", label: "My Attendance", icon: CalendarCheck },
   { href: "/leave", label: "My Leave", icon: Plane },
   { href: "/daily-report", label: "Daily Report", icon: FileText },
