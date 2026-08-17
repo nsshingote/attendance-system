@@ -1,11 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 def iso_with_offset(dt: datetime | None) -> str | None:
-    """Return an ISO string with +05:30 appended for naive datetimes, or
-    the existing ISO string for timezone-aware datetimes. Returns None if dt is None."""
+    """Return timestamps as explicit IST values.
+
+    MySQL DATETIME/TIMESTAMP values are stored as UTC by this application;
+    naive values are therefore interpreted as UTC before presentation.
+    """
     if not dt:
         return None
     if dt.tzinfo is None:
-        return dt.isoformat() + "+05:30"
-    return dt.isoformat()
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()

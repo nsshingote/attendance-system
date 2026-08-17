@@ -154,6 +154,29 @@ class PersonalProfileUpdate(BaseModel):
     emergency_contact_phone: Optional[str] = None
 
 
+class ProfileEditRequestCreate(BaseModel):
+    section: str
+    requested_data: dict[str, Optional[str]]
+
+    @field_validator("section")
+    @classmethod
+    def validate_section(cls, value: str) -> str:
+        if value not in {"address", "emergency_contact"}:
+            raise ValueError("section must be address or emergency_contact")
+        return value
+
+
+class ProfileEditRequestDecision(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in {"Approved", "Rejected"}:
+            raise ValueError("status must be Approved or Rejected")
+        return value
+
+
 class EmployeePersonalDocumentOut(ORMBase):
     id: int
     employee_id: int

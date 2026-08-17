@@ -21,6 +21,7 @@ import {
   Mail,
   Wifi,
   History,
+  UserRoundCog,
   FileText,
   FileSearch,
   X,
@@ -51,6 +52,7 @@ const NAV_ITEMS = [
   { href: "/notification-emails", label: "Notification Emails", icon: Mail },
   { href: "/office-ip", label: "Office IPs", icon: Wifi },
   { href: "/activity-logs", label: "Activity Logs", icon: History },
+  { href: "/profile-edit-requests", label: "Profile Edit Requests", icon: UserRoundCog },
   { href: "/feedback", label: "Feedback", icon: MessageSquare },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

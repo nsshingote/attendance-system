@@ -296,8 +296,11 @@ async def update_resource(
     resource.description = description.strip() if description else None
     resource.updated_at = datetime.utcnow()
 
-    # Handle visibility change
-    if visibility_type != resource.visibility_type:
+    # Replace access selections on every update. This also supports changing
+    # selected departments/employees while retaining the same visibility type.
+    if visibility_type not in {"all_employees", "departments", "specific_employees"}:
+        raise HTTPException(status_code=400, detail="Invalid visibility_type")
+    if visibility_type != resource.visibility_type or department_ids is not None or employee_ids is not None:
         # Clear old access records
         db.query(ResourceDepartmentAccess).filter(
             ResourceDepartmentAccess.resource_id == resource_id

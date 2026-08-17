@@ -4,6 +4,10 @@ User management. Admin/SuperAdmin can view all users and create/update
 Employee & Admin accounts. Only SuperAdmin can create/manage Admin accounts.
 """
 
+import json
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,12 +18,18 @@ from sqlalchemy.orm import Session
 from auth import get_current_user, hash_password, require_admin, require_superadmin
 from database import get_db
 from models import (
-    User, ActivityLog, Department, UserDepartment, DynamicReportType,
+    User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
-from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate
+from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
+from fastapi import File, Form, UploadFile
+from fastapi.responses import FileResponse
 
 router = APIRouter()
+PROFILE_UPLOAD_DIR = Path("backend/uploads/profile_images")
+PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ADDRESS_FIELDS = {"address_line_1", "address_line_2", "city", "state", "pincode", "country"}
+EMERGENCY_FIELDS = {"emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"}
 
 
 def _find_department_by_name(db: Session, department_name: Optional[str]) -> Optional[Department]:
@@ -76,11 +86,91 @@ def update_my_profile(
     current_user: User = Depends(get_current_user),
 ):
     update_data = payload.model_dump(exclude_unset=True)
+    supplied_address = set(update_data) & ADDRESS_FIELDS
+    supplied_emergency = set(update_data) & EMERGENCY_FIELDS
+    if supplied_address and any(getattr(current_user, field) for field in ADDRESS_FIELDS):
+        raise HTTPException(status_code=403, detail="Address is locked. Request an edit approval instead.")
+    if supplied_emergency and any(getattr(current_user, field) for field in EMERGENCY_FIELDS):
+        raise HTTPException(status_code=403, detail="Emergency contact is locked. Request an edit approval instead.")
     for field, value in update_data.items():
         setattr(current_user, field, value)
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+def _profile_request_dict(item: EmployeeProfileEditRequest):
+    return {"id": item.id, "employee_id": item.employee_id, "employee_name": item.employee.name if item.employee else None,
+            "section": item.section, "requested_data": json.loads(item.requested_data), "status": item.status,
+            "approved_by": item.approved_by, "approver_name": item.approver.name if item.approver else None,
+            "decided_at": item.decided_at, "created_at": item.created_at}
+
+
+@router.get("/me/profile-edit-requests")
+def my_profile_edit_requests(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return [_profile_request_dict(item) for item in db.query(EmployeeProfileEditRequest).filter(
+        EmployeeProfileEditRequest.employee_id == current_user.id).order_by(EmployeeProfileEditRequest.created_at.desc()).all()]
+
+
+@router.post("/me/profile-edit-requests", status_code=201)
+def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    allowed = ADDRESS_FIELDS if payload.section == "address" else EMERGENCY_FIELDS
+    if not payload.requested_data or set(payload.requested_data) - allowed:
+        raise HTTPException(status_code=422, detail="Requested data does not match the selected profile section")
+    if db.query(EmployeeProfileEditRequest).filter(EmployeeProfileEditRequest.employee_id == current_user.id,
+        EmployeeProfileEditRequest.section == payload.section, EmployeeProfileEditRequest.status == "Pending").first():
+        raise HTTPException(status_code=409, detail="An edit request for this section is already pending")
+    item = EmployeeProfileEditRequest(employee_id=current_user.id, section=payload.section,
+        requested_data=json.dumps({key: (value or "").strip() for key, value in payload.requested_data.items()}))
+    db.add(item)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Requested approval to edit {payload.section.replace('_', ' ')}"))
+    db.commit(); db.refresh(item)
+    return _profile_request_dict(item)
+
+
+@router.get("/profile-edit-requests")
+def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    query = db.query(EmployeeProfileEditRequest)
+    if status:
+        query = query.filter(EmployeeProfileEditRequest.status == status)
+    return [_profile_request_dict(item) for item in query.order_by(EmployeeProfileEditRequest.created_at.desc()).all()]
+
+
+@router.post("/profile-edit-requests/{request_id}/decision")
+def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(EmployeeProfileEditRequest).filter(EmployeeProfileEditRequest.id == request_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Profile edit request not found")
+    if item.status != "Pending": raise HTTPException(status_code=409, detail="This request has already been decided")
+    item.status, item.approved_by, item.decided_at = payload.status, current_user.id, datetime.utcnow()
+    if payload.status == "Approved":
+        for field, value in json.loads(item.requested_data).items(): setattr(item.employee, field, value)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"{payload.status} {item.section.replace('_', ' ')} edit request for {item.employee.name}"))
+    db.commit(); db.refresh(item)
+    return _profile_request_dict(item)
+
+
+def _profile_photo_path(user_id: int) -> Optional[Path]:
+    return next(iter(PROFILE_UPLOAD_DIR.glob(f"{user_id}.*")), None)
+
+
+@router.post("/me/profile-photo")
+async def upload_profile_photo(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}: raise HTTPException(status_code=400, detail="Upload a JPG, PNG, or WEBP image")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024: raise HTTPException(status_code=400, detail="Profile image must be 5 MB or smaller")
+    previous = _profile_photo_path(current_user.id)
+    if previous: previous.unlink(missing_ok=True)
+    path = PROFILE_UPLOAD_DIR / f"{current_user.id}{extension}"
+    path.write_bytes(data)
+    return {"message": "Profile image updated"}
+
+
+@router.get("/me/profile-photo")
+def get_profile_photo(current_user: User = Depends(get_current_user)):
+    path = _profile_photo_path(current_user.id)
+    if not path: raise HTTPException(status_code=404, detail="Profile image not found")
+    return FileResponse(path)
 
 
 @router.get("/{user_id}", response_model=UserOut)

@@ -1,7 +1,8 @@
 ﻿"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Download, FileText, Trash2, Upload } from "lucide-react";
+import { Download, Eye, Pencil, Trash2, Upload } from "lucide-react";
+import { jsPDF } from "jspdf";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import MonthSelector from "@/components/Calendar/MonthSelector";
@@ -21,6 +22,7 @@ type User = {
   department: string;
   designation: string;
   created_at: string;
+  date_of_joining?: string | null;
   phone?: string | null;
   address_line_1?: string | null;
   address_line_2?: string | null;
@@ -33,7 +35,8 @@ type User = {
   emergency_contact_phone?: string | null;
 };
 
-type Slip = { id: number; month: number; year: number; total_amount: number; status: string };
+type Slip = { id: number; month: number; year: number; total_amount: number; status: string; particulars: string };
+type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
 type GeneratedDocument = { id: number; document_type: string; title: string; content: string; created_at: string };
 type PersonalDocument = {
   id: number;
@@ -50,10 +53,9 @@ type PersonalDocument = {
 
 const money = (amount: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount);
 const personalDocLabels: Record<string, string> = {
-  aadhaar: "Aadhaar",
-  pan: "PAN",
+  pan: "PAN Card",
   bank_passbook: "Bank Passbook",
-  "10th_marksheet": "10th Marksheet",
+  highest_degree: "Highest Degree",
   other: "Other",
 };
 
@@ -65,10 +67,16 @@ export default function MyProfilePage() {
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [personalDocuments, setPersonalDocuments] = useState<PersonalDocument[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<GeneratedDocument | null>(null);
+  const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
+  const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [editingEmergency, setEditingEmergency] = useState(false);
+  const [otherDocumentTitle, setOtherDocumentTitle] = useState("");
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [uploading, setUploading] = useState(false);
-  const [uploadType, setUploadType] = useState("aadhaar");
+  const [uploadType, setUploadType] = useState("pan");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [profileForm, setProfileForm] = useState({
     address_line_1: "",
@@ -93,8 +101,9 @@ export default function MyProfilePage() {
       api.get("/employee-documents/salary-slips/mine"),
       api.get("/employee-documents/documents/mine"),
       api.get("/employee-documents/personal-documents/mine"),
+      api.get("/users/me/profile-edit-requests"),
     ])
-      .then(([me, salary, employeeDocuments, personalDocs]) => {
+      .then(([me, salary, employeeDocuments, personalDocs, requests]) => {
         const userData = me.data as User;
         setProfile(userData);
         setProfileForm({
@@ -111,16 +120,38 @@ export default function MyProfilePage() {
         setSlips(salary.data);
         setDocuments(employeeDocuments.data);
         setPersonalDocuments(personalDocs.data);
+        setProfileRequests(requests.data);
       })
       .catch((error) => toast.error(getErrorMessage(error)));
   }, []);
 
-  const handleProfileSave = async (event: FormEvent) => {
+  useEffect(() => {
+    const token = getToken();
+    fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/users/me/profile-photo`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(async (response) => response.ok ? URL.createObjectURL(await response.blob()) : null)
+      .then(setPhotoUrl)
+      .catch(() => {});
+    return () => { if (photoUrl) URL.revokeObjectURL(photoUrl); };
+  }, []);
+
+  const handleProfileSave = async (event: FormEvent, section: "address" | "emergency_contact") => {
     event.preventDefault();
     try {
-      const { data } = await api.put<User>("/users/me/profile", profileForm);
-      setProfile(data);
-      toast.success("Profile updated successfully");
+      const fields = section === "address"
+        ? ["address_line_1", "address_line_2", "city", "state", "pincode", "country"] as const
+        : ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"] as const;
+      const requested_data = Object.fromEntries(fields.map((field) => [field, profileForm[field]]));
+      const locked = profile ? fields.some((field) => Boolean(profile[field])) : false;
+      if (locked) {
+        await api.post("/users/me/profile-edit-requests", { section, requested_data });
+        setProfileRequests((previous) => [...previous.filter((item) => item.section !== section || item.status !== "Pending"), { id: Date.now(), section, status: "Pending" }]);
+        section === "address" ? setEditingAddress(false) : setEditingEmergency(false);
+        toast.success("Edit approval request sent to Admin and Superadmin");
+      } else {
+        const { data } = await api.put<User>("/users/me/profile", requested_data);
+        setProfile(data);
+        toast.success(`${section === "address" ? "Address" : "Emergency contact"} saved and locked`);
+      }
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -136,12 +167,14 @@ export default function MyProfilePage() {
       setUploading(true);
       const formData = new FormData();
       formData.append("document_type", uploadType);
+      if (uploadType === "other") formData.append("title", otherDocumentTitle);
       formData.append("file", selectedFile);
       await api.post("/employee-documents/personal-documents/upload", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setSelectedFile(null);
-      setUploadType("aadhaar");
+      setUploadType("pan");
+      setOtherDocumentTitle("");
       await loadPersonalDocuments();
       toast.success("Document uploaded successfully");
     } catch (error) {
@@ -149,6 +182,24 @@ export default function MyProfilePage() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handlePhotoUpload = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const data = new FormData(); data.append("file", file);
+      await api.post("/users/me/profile-photo", data, { headers: { "Content-Type": "multipart/form-data" } });
+      if (photoUrl) URL.revokeObjectURL(photoUrl);
+      setPhotoUrl(URL.createObjectURL(file));
+      toast.success("Profile image updated");
+    } catch (error) { toast.error(getErrorMessage(error)); }
+  };
+
+  const downloadSalarySlip = (slip: Slip) => {
+    const pdf = new jsPDF(); const period = new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
+    pdf.setFontSize(18); pdf.text("Salary Slip", 105, 20, { align: "center" }); pdf.setFontSize(11); pdf.text(`Period: ${period}`, 20, 35);
+    let y = 50; JSON.parse(slip.particulars).forEach((row: { name: string; amount: number }) => { pdf.text(row.name, 20, y); pdf.text(money(row.amount), 180, y, { align: "right" }); y += 9; });
+    pdf.setFontSize(13); pdf.text(`Total: ${money(slip.total_amount)}`, 180, y + 8, { align: "right" }); pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
 
   const handleDownloadPersonalDoc = async (documentId: number) => {
@@ -211,6 +262,13 @@ export default function MyProfilePage() {
         {tab === "Profile" && (
           <div className="space-y-6">
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
+              <h2 className="mb-4 font-semibold">Profile Image</h2>
+              <div className="flex items-center gap-4">
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-2xl font-semibold text-brand-700">{photoUrl ? <img src={photoUrl} alt="Profile" className="h-full w-full object-cover" /> : profile?.name?.charAt(0)}</div>
+                <label className="cursor-pointer rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium text-brand-700">Upload / Update<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePhotoUpload(event.target.files?.[0] || null)} className="hidden" /></label>
+              </div>
+            </section>
+            <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <h2 className="mb-5 font-semibold">Basic Information</h2>
               {profile ? (
                 <dl className="grid gap-5 sm:grid-cols-2">
@@ -222,8 +280,8 @@ export default function MyProfilePage() {
                     ["Email", profile.email || "—"],
                     [
                       "Joined",
-                      profile.created_at
-                        ? new Date(profile.created_at).toLocaleDateString("en-IN", {
+                      profile.date_of_joining
+                        ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "long",
                             year: "numeric",
@@ -243,9 +301,9 @@ export default function MyProfilePage() {
             </section>
 
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
-              <h2 className="mb-5 font-semibold">Address Details</h2>
-              <form onSubmit={handleProfileSave} className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+              <div className="mb-5 flex items-center justify-between gap-3"><h2 className="font-semibold">Address Details</h2>{profile && ["address_line_1", "address_line_2", "city", "state", "pincode", "country"].some((field) => Boolean(profile[field as keyof User])) && !editingAddress && <button type="button" onClick={() => setEditingAddress(true)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium"><Pencil size={14} /> Edit</button>}</div>
+              <form onSubmit={(event) => handleProfileSave(event, "address")} className="space-y-4">
+                <fieldset disabled={Boolean(profile && ["address_line_1", "address_line_2", "city", "state", "pincode", "country"].some((field) => Boolean(profile[field as keyof User])) && !editingAddress)} className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm text-ink-600">
                     Address Line 1
                     <input
@@ -294,17 +352,19 @@ export default function MyProfilePage() {
                       className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2"
                     />
                   </label>
-                </div>
-                <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
-                  Save Address
+                </fieldset>
+                {(!profile || !["address_line_1", "address_line_2", "city", "state", "pincode", "country"].some((field) => Boolean(profile[field as keyof User])) || editingAddress) && <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
+                  {editingAddress ? "Request Approval" : "Save Address"}
                 </button>
+                }
+                {profileRequests.some((item) => item.section === "address" && item.status === "Pending") && <p className="text-sm text-amber-700">Address edit request is pending approval.</p>}
               </form>
             </section>
 
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
-              <h2 className="mb-5 font-semibold">Emergency Contact</h2>
-              <form onSubmit={handleProfileSave} className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+              <div className="mb-5 flex items-center justify-between gap-3"><h2 className="font-semibold">Emergency Contact</h2>{profile && ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"].some((field) => Boolean(profile[field as keyof User])) && !editingEmergency && <button type="button" onClick={() => setEditingEmergency(true)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium"><Pencil size={14} /> Edit</button>}</div>
+              <form onSubmit={(event) => handleProfileSave(event, "emergency_contact")} className="space-y-4">
+                <fieldset disabled={Boolean(profile && ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"].some((field) => Boolean(profile[field as keyof User])) && !editingEmergency)} className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm text-ink-600">
                     Emergency Contact Name
                     <input
@@ -329,10 +389,12 @@ export default function MyProfilePage() {
                       className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2"
                     />
                   </label>
-                </div>
-                <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
-                  Save Emergency Contact
+                </fieldset>
+                {(!profile || !["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"].some((field) => Boolean(profile[field as keyof User])) || editingEmergency) && <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
+                  {editingEmergency ? "Request Approval" : "Save Emergency Contact"}
                 </button>
+                }
+                {profileRequests.some((item) => item.section === "emergency_contact" && item.status === "Pending") && <p className="text-sm text-amber-700">Emergency-contact edit request is pending approval.</p>}
               </form>
             </section>
 
@@ -360,10 +422,11 @@ export default function MyProfilePage() {
                       className="mt-1 block w-full rounded-lg border border-ink-200 bg-white px-3 py-2"
                     />
                   </label>
+                  {uploadType === "other" && <label className="text-sm text-ink-600">Document Name<input value={otherDocumentTitle} onChange={(event) => setOtherDocumentTitle(event.target.value)} placeholder="e.g. Experience Letter" required className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2" /></label>}
                 </div>
                 <button
                   type="submit"
-                  disabled={uploading || !selectedFile}
+                  disabled={uploading || !selectedFile || (uploadType === "other" && !otherDocumentTitle.trim())}
                   className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
                   <Upload size={16} /> {uploading ? "Uploading..." : "Upload Document"}
@@ -537,8 +600,8 @@ export default function MyProfilePage() {
                         </td>
                         <td className="px-5 py-3">{money(slip.total_amount)}</td>
                         <td className="px-5 py-3">{slip.status}</td>
-                        <td className="px-5 py-3 text-ink-500">
-                          <FileText size={16} />
+                        <td className="px-5 py-3">
+                          <div className="flex gap-2"><button onClick={() => setSelectedSlip(slip)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-brand-700"><Eye size={14} /> View</button><button onClick={() => downloadSalarySlip(slip)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-brand-700"><Download size={14} /> Download</button></div>
                         </td>
                       </tr>
                     ))
@@ -584,6 +647,7 @@ export default function MyProfilePage() {
             </div>
           </div>
         )}
+        {selectedSlip && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4"><div className="mx-auto my-12 max-w-lg rounded-xl bg-white p-6 shadow-xl"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">Salary Slip — {new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</h2><button onClick={() => setSelectedSlip(null)} className="rounded-lg border px-3 py-1.5 text-sm">Close</button></div><div className="space-y-2 text-sm">{JSON.parse(selectedSlip.particulars).map((row: { name: string; amount: number }) => <div key={row.name} className="flex justify-between"><span>{row.name}</span><span>{money(row.amount)}</span></div>)}<div className="mt-4 flex justify-between border-t pt-3 font-semibold"><span>Total</span><span>{money(selectedSlip.total_amount)}</span></div></div><button onClick={() => downloadSalarySlip(selectedSlip)} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download</button></div></div>}
       </div>
     </AppShell>
   );

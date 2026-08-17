@@ -59,6 +59,7 @@ class User(Base):
     kundli_notes = relationship("KundliNote", back_populates="employee", foreign_keys="KundliNote.employee_id")
     employee_documents = relationship("EmployeeDocument", back_populates="employee", foreign_keys="EmployeeDocument.employee_id")
     personal_documents = relationship("EmployeePersonalDocument", back_populates="employee", foreign_keys="EmployeePersonalDocument.employee_id")
+    profile_edit_requests = relationship("EmployeeProfileEditRequest", back_populates="employee", foreign_keys="EmployeeProfileEditRequest.employee_id")
 
 
 class SalarySlip(Base):
@@ -124,6 +125,22 @@ class EmployeePersonalDocument(Base):
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
 
     employee = relationship("User", back_populates="personal_documents", foreign_keys=[employee_id])
+
+
+class EmployeeProfileEditRequest(Base):
+    __tablename__ = "employee_profile_edit_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    section = Column(String(32), nullable=False)
+    requested_data = Column(Text, nullable=False)
+    status = Column(String(16), nullable=False, default="Pending")
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    employee = relationship("User", back_populates="profile_edit_requests", foreign_keys=[employee_id])
+    approver = relationship("User", foreign_keys=[approved_by])
 
 
 class UserDepartment(Base):

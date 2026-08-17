@@ -1120,6 +1120,16 @@ def monthly_summary(
     for wfh_date in approved_wfh_dates - processed_dates:
         summary["WFH"] += 1
 
+    # Configured holidays do not necessarily have an attendance row. Count each
+    # applicable holiday once so the chart agrees with the calendar.
+    configured_holidays = db.query(Holiday.holiday_date).filter(
+        Holiday.holiday_date >= start_date,
+        Holiday.holiday_date < end_date,
+    ).all()
+    for (holiday_date,) in configured_holidays:
+        if holiday_date not in processed_dates and determine_attendance_status_for_date(db, user_id, holiday_date) == "Holiday":
+            summary["Holiday"] += 1
+
     # Handle approved leaves only when the final attendance status is still "On Leave".
     # This preserves existing override precedence from determine_attendance_status_for_date().
     approved_leaves = (

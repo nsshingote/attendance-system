@@ -17,7 +17,7 @@ from utils.email_service import send_email
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path("backend/uploads/personal_documents")
 PERSONAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-ALLOWED_PERSONAL_DOC_TYPES = {"aadhaar", "pan", "bank_passbook", "10th_marksheet", "other"}
+ALLOWED_PERSONAL_DOC_TYPES = {"pan", "bank_passbook", "highest_degree", "other"}
 
 
 def _document_dict(item: EmployeeDocument):
@@ -69,6 +69,32 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     return _salary_slip_dict(item)
 
 
+@router.put("/salary-slips/{slip_id}")
+def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
+    employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
+    if not employee: raise HTTPException(status_code=404, detail="Active employee not found")
+    particulars = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in payload.particulars if row.name.strip()]
+    if not particulars: raise HTTPException(status_code=422, detail="Add at least one salary particular")
+    item.employee_id, item.month, item.year, item.particulars = employee.id, payload.month, payload.year, json.dumps(particulars)
+    item.total_amount, item.status = sum(max(0, row["amount"]) for row in particulars), "Saved"
+    if payload.send and employee.email:
+        period = datetime(payload.year, payload.month, 1).strftime("%B %Y")
+        if send_email([employee.email], f"Salary slip for {period}", f"<p>Hi {employee.name},</p><p>Your updated salary slip for <b>{period}</b> is available in My Profile.</p>"): item.status = "Sent"
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated salary slip for '{employee.name}'")); db.commit(); db.refresh(item)
+    return _salary_slip_dict(item)
+
+
+@router.delete("/salary-slips/{slip_id}")
+def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
+    employee_name = item.employee.name if item.employee else f"employee {item.employee_id}"
+    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted salary slip for '{employee_name}'")); db.commit()
+    return {"message": "Salary slip deleted"}
+
+
 @router.get("/kundli/{employee_id}")
 def get_kundli_notes(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     return [{"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
@@ -89,6 +115,26 @@ def create_kundli_note(payload: KundliNoteCreate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(note)
     return {"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
+
+
+@router.put("/kundli/{note_id}")
+def update_kundli_note(note_id: int, payload: KundliNoteCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    note = db.query(KundliNote).filter(KundliNote.id == note_id).first()
+    if not note: raise HTTPException(status_code=404, detail="Kundli note not found")
+    positive, negative = (payload.positive_note or "").strip() or None, (payload.negative_note or "").strip() or None
+    if not positive and not negative: raise HTTPException(status_code=422, detail="Write a positive or negative note")
+    note.positive_note, note.negative_note = positive, negative
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated Kundli note for '{note.employee.name}'")); db.commit(); db.refresh(note)
+    return {"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
+
+
+@router.delete("/kundli/{note_id}")
+def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    note = db.query(KundliNote).filter(KundliNote.id == note_id).first()
+    if not note: raise HTTPException(status_code=404, detail="Kundli note not found")
+    employee_name = note.employee.name
+    db.delete(note); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'")); db.commit()
+    return {"message": "Kundli note deleted"}
 
 
 @router.get("/documents")
@@ -153,6 +199,7 @@ def list_employee_personal_documents(employee_id: int, db: Session = Depends(get
 @router.post("/personal-documents/upload", status_code=201)
 async def upload_personal_document(
     document_type: str = Form(...),
+    title: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -175,7 +222,7 @@ async def upload_personal_document(
     item = EmployeePersonalDocument(
         employee_id=current_user.id,
         document_type=norm_type,
-        title=(dict(aadhaar="Aadhaar", pan="PAN", bank_passbook="Bank Passbook", **{"10th_marksheet": "10th Marksheet"}, other="Other").get(norm_type, norm_type.title())),
+        title=(title.strip() if norm_type == "other" and title.strip() else dict(pan="PAN Card", bank_passbook="Bank Passbook", highest_degree="Highest Degree", other="Other").get(norm_type, norm_type.title())),
         original_filename=file.filename,
         file_name=stored_name,
         file_path=str(stored_path).replace("\\", "/"),
@@ -238,10 +285,12 @@ def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db
     if any(not str(values.get(field) or "").strip() for field in required_values):
         raise HTTPException(status_code=422, detail="Complete all letter details before generating")
     status = "Sent" if payload.send else "Draft"
-    item = EmployeeDocument(employee_id=employee.id, document_type="offer_letter", title="Offer / Appointment Letter",
-                            content=json.dumps(values), status=status, created_by=current_user.id,
-                            sent_at=datetime.utcnow() if payload.send else None)
-    db.add(item)
+    item = db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee.id, EmployeeDocument.document_type == "offer_letter").first()
+    if item:
+        item.title, item.content, item.status, item.created_by, item.sent_at = "Offer / Appointment Letter", json.dumps(values), status, current_user.id, datetime.utcnow() if payload.send else None
+    else:
+        item = EmployeeDocument(employee_id=employee.id, document_type="offer_letter", title="Offer / Appointment Letter", content=json.dumps(values), status=status, created_by=current_user.id, sent_at=datetime.utcnow() if payload.send else None)
+        db.add(item)
     db.commit()
     db.refresh(item)
     if payload.send and employee.email:
@@ -260,10 +309,12 @@ def create_appointment_letter(payload: AppointmentLetterCreate, db: Session = De
     required = ("employee_name", "designation", "department", "office_location", "start_date", "letter_date", "company_address", "salary", "working_hours", "working_days", "authorized_signatory")
     if any(not str(values.get(field) or "").strip() for field in required):
         raise HTTPException(status_code=422, detail="Complete all appointment letter details before generating")
-    item = EmployeeDocument(employee_id=employee.id, document_type="appointment_letter", title="Appointment Letter",
-                            content=json.dumps(values), status="Sent" if payload.send else "Draft", created_by=current_user.id,
-                            sent_at=datetime.utcnow() if payload.send else None)
-    db.add(item)
+    item = db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee.id, EmployeeDocument.document_type == "appointment_letter").first()
+    if item:
+        item.title, item.content, item.status, item.created_by, item.sent_at = "Appointment Letter", json.dumps(values), "Sent" if payload.send else "Draft", current_user.id, datetime.utcnow() if payload.send else None
+    else:
+        item = EmployeeDocument(employee_id=employee.id, document_type="appointment_letter", title="Appointment Letter", content=json.dumps(values), status="Sent" if payload.send else "Draft", created_by=current_user.id, sent_at=datetime.utcnow() if payload.send else None)
+        db.add(item)
     db.commit()
     db.refresh(item)
     if payload.send and employee.email:

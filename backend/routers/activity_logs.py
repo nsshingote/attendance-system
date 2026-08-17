@@ -5,6 +5,7 @@ visible to Admin/SuperAdmin. Supports filtering to a single user via
 ?user_id=<id>.
 """
 
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -33,11 +34,14 @@ def list_activity_logs(
     elif user_id:
         query = query.filter(ActivityLog.user_id == user_id)
     logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 500)).all()
+    users_by_id = {user.id: user.name for user in db.query(User).all()}
+    def resolve_target_names(activity: str) -> str:
+        return re.sub(r"\buser #(\d+)\b", lambda match: f"{users_by_id.get(int(match.group(1)), match.group(0))}", activity, flags=re.IGNORECASE)
     return [
         {
             "id": log.id,
             "user_id": log.user_id,
-            "activity": log.activity,
+            "activity": resolve_target_names(log.activity),
             "created_at": iso_with_offset(log.created_at),
         }
         for log in logs
