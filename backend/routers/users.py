@@ -161,7 +161,9 @@ async def upload_profile_photo(file: UploadFile = File(...), current_user: User 
     if len(data) > 5 * 1024 * 1024: raise HTTPException(status_code=400, detail="Profile image must be 5 MB or smaller")
     previous = _profile_photo_path(current_user.id)
     if previous: previous.unlink(missing_ok=True)
-    path = PROFILE_UPLOAD_DIR / f"{current_user.id}{extension}"
+    # A stable public filename lets every existing avatar surface use the same
+    # uploaded image without persisting another user-table field.
+    path = PROFILE_UPLOAD_DIR / f"{current_user.id}.jpg"
     path.write_bytes(data)
     return {"message": "Profile image updated"}
 

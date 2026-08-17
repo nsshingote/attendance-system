@@ -21,6 +21,7 @@ import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
 import Badge from "@/components/Common/Badge";
+import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 import LeaveForm from "@/components/Leave/LeaveForm";
 import LeaveTable, { LeaveRow } from "@/components/Leave/LeaveTable";
 import LeaveSummary from "@/components/Leave/LeaveSummary";
@@ -98,11 +99,9 @@ export default function LeavePage() {
   const today = new Date();
 
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<number | undefined>(undefined);
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [fromDate, setAdminFromDate] = useState<string>("");
+  const [toDate, setAdminToDate] = useState<string>("");
 
   const [myRequests, setMyRequests] = useState<LeaveRow[]>([]);
   const [myHalfDayRequests, setMyHalfDayRequests] = useState<HalfDayRequestRow[]>([]);
@@ -137,30 +136,24 @@ export default function LeavePage() {
     if (!session) return;
     setLoading(true);
     try {
-      const params: any = { year, month };
-      if (selectedDate) params.date_value = selectedDate;
+      let params: any = {};
+      
+      // For admin viewing all employees with date range filter
+      if (admin && selectedUserIds.length === 0 && fromDate && toDate) {
+        params.from_date = fromDate;
+        params.to_date = toDate;
+      } else if (admin && selectedUserIds.length > 0) {
+        // For admin filtering by specific employees with date range
+        if (fromDate) params.from_date = fromDate;
+        if (toDate) params.to_date = toDate;
+      } else if (!admin) {
+        // Employee viewing own requests - use month filter
+        params.year = today.getFullYear();
+        params.month = today.getMonth() + 1;
+      }
 
-      if (admin && selectedUserId) {
-        // Admin viewing a specific user - get ALL their requests with month filter
-        const [leaveRes, balanceRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
-          api.get<LeaveRow[]>(`/leave/user/${selectedUserId}`, { params }),
-          api.get<LeaveBalance>(`/leave/balance/${selectedUserId}`),
-          api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${selectedUserId}`, { params }),
-          api.get<EncashmentRequest[]>(`/leave/encash/user/${selectedUserId}`).catch(() => ({ data: [] })),
-          api.get<WFHRequestRow[]>(`/attendance/wfh/user/${selectedUserId}`, { params }).catch(() => ({ data: [] })),
-        ]);
-
-        setMyRequests(leaveRes.data || []);
-        setBalance(balanceRes.data || null);
-        setMyHalfDayRequests(halfDayRes.data || []);
-        setMyEncashmentRequests(encashmentRes.data || []);
-        setMyWfhRequests(wfhRes.data || []);
-        setAllRequests([]);
-        setHalfDayRequests([]);
-        setEncashmentRequests([]);
-        setWfhRequests([]);
-      } else if (admin) {
-        // Admin viewing all employees - show approval tabs with month filter
+      if (admin && selectedUserIds.length === 0) {
+        // Admin viewing all employees - show approval tabs
         const [allLeaveRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
           api.get<LeaveRow[]>("/leave/", { params }),
           api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
@@ -177,8 +170,36 @@ export default function LeavePage() {
         setMyHalfDayRequests([]);
         setMyEncashmentRequests([]);
         setMyWfhRequests([]);
+      } else if (admin && selectedUserIds.length > 0) {
+        // Admin filtering by specific employees
+        const userLeavePromises = selectedUserIds.map((userId) =>
+          api.get<LeaveRow[]>(`/leave/user/${userId}`, { params }).catch(() => ({ data: [] }))
+        );
+        const userHalfDayPromises = selectedUserIds.map((userId) =>
+          api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${userId}`, { params }).catch(() => ({ data: [] }))
+        );
+        const userWfhPromises = selectedUserIds.map((userId) =>
+          api.get<WFHRequestRow[]>(`/attendance/wfh/user/${userId}`, { params }).catch(() => ({ data: [] }))
+        );
+
+        const [leaveResults, halfDayResults, wfhResults] = await Promise.all([
+          Promise.all(userLeavePromises),
+          Promise.all(userHalfDayPromises),
+          Promise.all(userWfhPromises),
+        ]);
+
+        setAllRequests(leaveResults.flatMap((r) => r.data || []));
+        setHalfDayRequests(halfDayResults.flatMap((r) => r.data || []));
+        setWfhRequests(wfhResults.flatMap((r) => r.data || []));
+        setEncashmentRequests([]);
+        setMyRequests([]);
+        setBalance(null);
+        setMyHalfDayRequests([]);
+        setMyEncashmentRequests([]);
+        setMyWfhRequests([]);
       } else {
-        // Employee view - only their own with month filter
+        // Employee view - only their own
+        const params: any = { year: today.getFullYear(), month: today.getMonth() + 1 };
         const [leaveRes, balanceRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
           api.get<LeaveRow[]>("/leave/me", { params }),
           api.get<LeaveBalance>(`/leave/balance/${session.userId}`),
@@ -198,7 +219,7 @@ export default function LeavePage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.userId, admin, selectedUserId, year, month, selectedDate]);
+  }, [session?.userId, admin, selectedUserIds, fromDate, toDate]);
 
   useEffect(() => {
     fetchAll();
@@ -322,13 +343,8 @@ export default function LeavePage() {
     })),
   ].sort((a, b) => (a.from_date < b.from_date ? 1 : -1));
 
-  const clearDateFilter = () => {
-    setSelectedDate("");
-    setShowDatePicker(false);
-  };
-
-  const isViewingSpecificUser = admin && selectedUserId;
-  const isViewingAllEmployees = admin && !selectedUserId;
+  const isViewingAllEmployees = admin && selectedUserIds.length === 0;
+  const isViewingSpecificUsers = admin && selectedUserIds.length > 0;
   const isEmployee = !admin;
 
   return (
@@ -338,8 +354,8 @@ export default function LeavePage() {
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Leave</h1>
             <p className="text-sm text-ink-500">
-              {isViewingSpecificUser
-                ? `Viewing leave for ${users.find(u => u.id === selectedUserId)?.name || 'employee'}`
+              {isViewingSpecificUsers
+                ? `Viewing ${selectedUserIds.length} employee${selectedUserIds.length === 1 ? "" : "s"}`
                 : isViewingAllEmployees
                 ? "Viewing all employees"
                 : "Request leave or a half day, and track your balance"}
@@ -347,50 +363,30 @@ export default function LeavePage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {admin && (
-              <select
-                value={selectedUserId || ""}
-                onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : undefined)}
-                className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="">All Employees</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+              <>
+                <EmployeeMultiSelect
+                  employees={users}
+                  value={selectedUserIds}
+                  onChange={setSelectedUserIds}
+                  allLabel="All Employees"
+                />
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setAdminFromDate(e.target.value)}
+                  className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                  placeholder="From Date"
+                />
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setAdminToDate(e.target.value)}
+                  className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
+                  placeholder="To Date"
+                />
+              </>
             )}
-            <div className="relative">
-              <button
-                onClick={() => setShowDatePicker(!showDatePicker)}
-                className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-sm ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}
-              >
-                <CalendarIcon size={16} />
-                {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
-                {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
-              </button>
-              {showDatePicker && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
-                    <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
-                      <button onClick={clearDateFilter} className="flex-1 rounded border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-ink-50">Clear</button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <MonthSelector
-              year={year}
-              month={month}
-              onChange={(y, m) => {
-                setYear(y);
-                setMonth(m);
-              }}
-            />
-            {(isEmployee || isViewingSpecificUser) && (
+            {isEmployee && (
               <button
                 onClick={() => {
                   setNewRequestType("leave");
@@ -405,20 +401,12 @@ export default function LeavePage() {
           </div>
         </div>
 
-        {selectedDate && (
-          <div className="flex items-center gap-2 text-sm text-ink-600">
-            <span className="font-medium">Filtering by date:</span>
-            <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
-            <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
-          </div>
-        )}
-
         {loading ? (
           <Loading />
         ) : (
           <>
-            {/* Show balance for employees or admin viewing specific user */}
-            {(isEmployee || isViewingSpecificUser) && balance && (
+            {/* Show balance for employees */}
+            {isEmployee && balance && (
               <LeaveSummary
                 paidLeaveAvailableThisMonth={balance.paid_leave_available_this_month}
                 carriedLeave={balance.carried_leave}
@@ -426,13 +414,13 @@ export default function LeavePage() {
                 totalLeaveBalance={balance.total_leave_balance}
               />
             )}
-            {/* Show encashment for employees or admin viewing specific user */}
-            {(isEmployee || isViewingSpecificUser) && balance && (
+            {/* Show encashment for employees */}
+            {isEmployee && balance && (
               <LeaveEncashment carriedLeave={balance.carried_leave} onSuccess={fetchAll} />
             )}
 
             <div className="flex flex-wrap rounded-lg border border-ink-200 bg-white p-0.5 text-sm w-fit">
-              {(isEmployee || isViewingSpecificUser) && (
+              {isEmployee && (
                 <button
                   onClick={() => setTab("mine")}
                   className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
@@ -496,7 +484,7 @@ export default function LeavePage() {
             </div>
 
             {/* My Requests tab - for employees or admin viewing specific user */}
-            {(isEmployee || isViewingSpecificUser) && tab === "mine" && (
+            {isEmployee && tab === "mine" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {unifiedMyRequests.length === 0 && myEncashmentRequests.length === 0 ? (
                   <div className="py-12 text-center">

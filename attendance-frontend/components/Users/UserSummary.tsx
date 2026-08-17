@@ -3,10 +3,11 @@
 /**
  * components/Users/UserSummary.tsx
  * User profile card shown at the top of the user detail page.
- * Shows: Name, Department, Role, Status, Email, Mobile
+ * Shows: Name, Department, Role, Status, Email, Mobile, Avatar
  */
 
 import { User } from "lucide-react";
+import { getProfilePhotoUrl } from "@/lib/api";
 
 interface UserSummaryProps {
   user: {
@@ -22,12 +23,15 @@ interface UserSummaryProps {
 }
 
 export default function UserSummary({ user }: UserSummaryProps) {
+  const photoUrl = getProfilePhotoUrl(user.id);
+
   return (
     <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
       <div className="flex flex-wrap items-start gap-6">
         {/* Avatar */}
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-100 text-brand-700">
-          <User size={36} />
+        <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-brand-100 text-brand-700">
+          <img src={photoUrl} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+          <User size={36} className="absolute" />
         </div>
 
         {/* User Info */}

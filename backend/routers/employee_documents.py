@@ -156,6 +156,14 @@ def list_employee_documents(employee_id: int, db: Session = Depends(get_db), cur
     return [_document_dict(item) for item in db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee_id).order_by(EmployeeDocument.created_at.desc()).all()]
 
 
+@router.delete("/documents/{document_id}")
+def delete_generated_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(EmployeeDocument).filter(EmployeeDocument.id == document_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Document not found")
+    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted {item.document_type.replace('_', ' ')} for '{item.employee.name}'")); db.commit()
+    return {"message": "Document deleted"}
+
+
 @router.get("/personal-documents/mine")
 def list_my_personal_documents(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return [
@@ -287,9 +295,9 @@ def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db
     status = "Sent" if payload.send else "Draft"
     item = db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee.id, EmployeeDocument.document_type == "offer_letter").first()
     if item:
-        item.title, item.content, item.status, item.created_by, item.sent_at = "Offer / Appointment Letter", json.dumps(values), status, current_user.id, datetime.utcnow() if payload.send else None
+        item.title, item.content, item.status, item.created_by, item.sent_at = "Offer Letter", json.dumps(values), status, current_user.id, datetime.utcnow() if payload.send else None
     else:
-        item = EmployeeDocument(employee_id=employee.id, document_type="offer_letter", title="Offer / Appointment Letter", content=json.dumps(values), status=status, created_by=current_user.id, sent_at=datetime.utcnow() if payload.send else None)
+        item = EmployeeDocument(employee_id=employee.id, document_type="offer_letter", title="Offer Letter", content=json.dumps(values), status=status, created_by=current_user.id, sent_at=datetime.utcnow() if payload.send else None)
         db.add(item)
     db.commit()
     db.refresh(item)

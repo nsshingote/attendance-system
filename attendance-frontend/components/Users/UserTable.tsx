@@ -6,8 +6,9 @@
  */
 
 import Link from "next/link";
-import { Eye, Pencil, SmartphoneNfc } from "lucide-react";
+import { Eye, Pencil, SmartphoneNfc, User as UserIcon } from "lucide-react";
 import Badge from "@/components/Common/Badge";
+import { getProfilePhotoUrl } from "@/lib/api";
 
 export interface UserRow {
   id: number;
@@ -47,9 +48,10 @@ export default function UserTable({
     <div className="w-full rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="overflow-x-auto">
         <table className="w-full min-w-720px table-fixed text-left text-xs sm:text-sm">
-          <colgroup><col className="w-[22%]" /><col className="w-[16%]" /><col className="w-[18%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[16%]" /></colgroup>
+          <colgroup><col className="w-[8%]" /><col className="w-[20%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[12%]" /><col className="w-[14%]" /><col className="w-[18%]" /></colgroup>
           <thead>
             <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
+              <th className="px-3 py-3 font-medium sm:px-4"></th>
               <th className="px-3 py-3 font-medium sm:px-4">Name</th>
               <th className="px-3 py-3 font-medium sm:px-4">Mobile</th>
               <th className="px-3 py-3 font-medium sm:px-4">Department</th>
@@ -64,6 +66,12 @@ export default function UserTable({
           <tbody className="divide-y divide-ink-100">
             {users.map((u) => (
               <tr key={u.id} className="hover:bg-ink-50/60">
+                <td className="px-3 py-3 sm:px-4">
+                  <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
+                    <img src={getProfilePhotoUrl(u.id)} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                    <UserIcon size={18} className="absolute" />
+                  </div>
+                </td>
                 <td className="px-3 py-3 sm:px-4">
                   <p className="wrap-break-word whitespace-normal font-medium text-ink-900">{u.name}</p>
                   <p className="wrap-break-word whitespace-normal text-[11px] text-ink-500 sm:text-xs">{u.designation}</p>

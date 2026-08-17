@@ -89,6 +89,9 @@ export default function MyProfilePage() {
     emergency_contact_relationship: "",
     emergency_contact_phone: "",
   });
+  const [filteredSlips, setFilteredSlips] = useState<Slip[]>([]);
+  const [selectedSlipMonth, setSelectedSlipMonth] = useState(today.getMonth() + 1);
+  const [selectedSlipYear, setSelectedSlipYear] = useState(today.getFullYear());
 
   const loadPersonalDocuments = async () => {
     const { data } = await api.get<PersonalDocument[]>("/employee-documents/personal-documents/mine");
@@ -196,10 +199,125 @@ export default function MyProfilePage() {
   };
 
   const downloadSalarySlip = (slip: Slip) => {
-    const pdf = new jsPDF(); const period = new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
-    pdf.setFontSize(18); pdf.text("Salary Slip", 105, 20, { align: "center" }); pdf.setFontSize(11); pdf.text(`Period: ${period}`, 20, 35);
-    let y = 50; JSON.parse(slip.particulars).forEach((row: { name: string; amount: number }) => { pdf.text(row.name, 20, y); pdf.text(money(row.amount), 180, y, { align: "right" }); y += 9; });
-    pdf.setFontSize(13); pdf.text(`Total: ${money(slip.total_amount)}`, 180, y + 8, { align: "right" }); pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
+    if (!profile) return;
+    
+    const pdf = new jsPDF();
+    const period = new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    let y = 15;
+
+    // Header - Company/Organization (using department as organization reference)
+    pdf.setFontSize(14);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("SALARY SLIP", pageWidth / 2, y, { align: "center" });
+    y += 8;
+
+    // Period
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(`For the month of ${period}`, pageWidth / 2, y, { align: "center" });
+    y += 12;
+
+    // Employee Details Box
+    pdf.setFontSize(9);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("EMPLOYEE DETAILS", 15, y);
+    y += 6;
+
+    pdf.setFontSize(8);
+    pdf.setFont("helvetica", "normal");
+    pdf.setDrawColor(200, 200, 200);
+    pdf.rect(15, y - 4, pageWidth - 30, 35);
+
+    const detailsData = [
+      ["Name", profile.name],
+      ["Designation", profile.designation],
+      ["Department", profile.department],
+      ["Mobile", profile.mobile || "—"],
+      ["Email", profile.email || "—"],
+    ];
+
+    let detailY = y;
+    let col1X = 18;
+    let col2X = 95;
+
+    detailsData.forEach((item, idx) => {
+      if (idx % 2 === 0) {
+        pdf.setFont("helvetica", "bold");
+        pdf.text(item[0] + ":", col1X, detailY);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(String(item[1]), col1X + 35, detailY);
+      } else {
+        pdf.setFont("helvetica", "bold");
+        pdf.text(item[0] + ":", col2X, detailY);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(String(item[1]), col2X + 35, detailY);
+        detailY += 7;
+      }
+    });
+
+    y = y + 40;
+
+    // Salary Breakdown
+    pdf.setFontSize(9);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("SALARY BREAKDOWN", 15, y);
+    y += 6;
+
+    // Table header
+    pdf.setDrawColor(100, 100, 100);
+    pdf.setFillColor(240, 240, 240);
+    pdf.rect(15, y - 4, pageWidth - 30, 6, "FD");
+    
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.text("Description", 18, y);
+    pdf.text("Amount", pageWidth - 35, y, { align: "right" });
+    y += 7;
+
+    // Salary rows
+    pdf.setFont("helvetica", "normal");
+    const particulars = JSON.parse(slip.particulars) as Array<{ name: string; amount: number }>;
+    
+    particulars.forEach((row) => {
+      const desc = String(row.name);
+      const amt = money(row.amount);
+      
+      // Draw row background alternating
+      if (particulars.indexOf(row) % 2 === 0) {
+        pdf.setFillColor(250, 250, 250);
+        pdf.rect(15, y - 3, pageWidth - 30, 5, "F");
+      }
+      
+      pdf.text(desc, 18, y);
+      pdf.text(String(amt), pageWidth - 18, y, { align: "right" });
+      y += 5;
+    });
+
+    // Total line
+    pdf.setDrawColor(100, 100, 100);
+    pdf.line(15, y, pageWidth - 15, y);
+    y += 4;
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    const totalStr = money(slip.total_amount);
+    pdf.text("TOTAL", 18, y);
+    pdf.text(String(totalStr), pageWidth - 18, y, { align: "right" });
+    y += 10;
+
+    // Footer - Company Address Placeholder
+    pdf.setFontSize(8);
+    pdf.setFont("helvetica", "normal");
+    pdf.setDrawColor(200, 200, 200);
+    pdf.setFillColor(250, 250, 250);
+    pdf.rect(15, pageHeight - 30, pageWidth - 30, 25, "FD");
+    
+    pdf.text("This is a computer-generated document. No signature required.", pageWidth / 2, pageHeight - 22, { align: "center" });
+    pdf.text(`Document generated on ${new Date().toLocaleDateString("en-IN")}`, pageWidth / 2, pageHeight - 18, { align: "center" });
+
+    pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
 
   const handleDownloadPersonalDoc = async (documentId: number) => {
@@ -262,39 +380,43 @@ export default function MyProfilePage() {
         {tab === "Profile" && (
           <div className="space-y-6">
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
-              <h2 className="mb-4 font-semibold">Profile Image</h2>
-              <div className="flex items-center gap-4">
-                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-2xl font-semibold text-brand-700">{photoUrl ? <img src={photoUrl} alt="Profile" className="h-full w-full object-cover" /> : profile?.name?.charAt(0)}</div>
-                <label className="cursor-pointer rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium text-brand-700">Upload / Update<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePhotoUpload(event.target.files?.[0] || null)} className="hidden" /></label>
-              </div>
-            </section>
-            <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <h2 className="mb-5 font-semibold">Basic Information</h2>
               {profile ? (
-                <dl className="grid gap-5 sm:grid-cols-2">
-                  {[
-                    ["Full name", profile.name],
-                    ["Designation", profile.designation],
-                    ["Department", profile.department],
-                    ["Phone number", profile.mobile || "—"],
-                    ["Email", profile.email || "—"],
-                    [
-                      "Joined",
-                      profile.date_of_joining
-                        ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "long",
-                            year: "numeric",
-                          })
-                        : "—",
-                    ],
-                  ].map(([label, value]) => (
-                    <div key={String(label)}>
-                      <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
-                      <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>
+                <div className="flex flex-col gap-6 sm:flex-row">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-3xl font-semibold text-brand-700">
+                      {photoUrl ? <img src={photoUrl} alt="Profile" className="h-full w-full object-cover" /> : profile?.name?.charAt(0)}
                     </div>
-                  ))}
-                </dl>
+                    <label className="cursor-pointer rounded-lg border border-ink-300 px-3 py-2 text-xs font-medium text-brand-700">
+                      Upload Photo
+                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePhotoUpload(event.target.files?.[0] || null)} className="hidden" />
+                    </label>
+                  </div>
+                  <dl className="flex-1 grid gap-5 sm:grid-cols-2">
+                    {[
+                      ["Full name", profile.name],
+                      ["Designation", profile.designation],
+                      ["Department", profile.department],
+                      ["Phone number", profile.mobile || "—"],
+                      ["Email", profile.email || "—"],
+                      [
+                        "Joined",
+                        profile.date_of_joining
+                          ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN", {
+                              day: "2-digit",
+                              month: "long",
+                              year: "numeric",
+                            })
+                          : "—",
+                      ],
+                    ].map(([label, value]) => (
+                      <div key={String(label)}>
+                        <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
+                        <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
               ) : (
                 <p className="text-sm text-ink-500">Loading profile…</p>
               )}
@@ -579,7 +701,25 @@ export default function MyProfilePage() {
         {tab === "Salary Slips" && (
           <section className="rounded-xl border border-ink-200 bg-white shadow-card">
             <div className="border-b border-ink-200 px-5 py-4">
-              <h2 className="font-semibold">Salary Slips</h2>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="font-semibold">Salary Slips</h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <select value={selectedSlipMonth} onChange={(e) => setSelectedSlipMonth(Number(e.target.value))} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>
+                        {new Date(2000, m - 1).toLocaleString("en-IN", { month: "long" })}
+                      </option>
+                    ))}
+                  </select>
+                  <select value={selectedSlipYear} onChange={(e) => setSelectedSlipYear(Number(e.target.value))} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
+                    {Array.from({ length: 5 }, (_, i) => today.getFullYear() - i).map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
             <div className="table-wrapper">
               <table className="w-full text-sm">
@@ -592,23 +732,32 @@ export default function MyProfilePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {slips.length ? (
-                    slips.map((slip) => (
-                      <tr key={slip.id} className="border-t border-ink-100">
-                        <td className="px-5 py-3">
-                          {new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}
-                        </td>
-                        <td className="px-5 py-3">{money(slip.total_amount)}</td>
-                        <td className="px-5 py-3">{slip.status}</td>
-                        <td className="px-5 py-3">
-                          <div className="flex gap-2"><button onClick={() => setSelectedSlip(slip)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-brand-700"><Eye size={14} /> View</button><button onClick={() => downloadSalarySlip(slip)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-brand-700"><Download size={14} /> Download</button></div>
-                        </td>
-                      </tr>
-                    ))
+                  {slips.filter((slip) => slip.month === selectedSlipMonth && slip.year === selectedSlipYear).length ? (
+                    slips
+                      .filter((slip) => slip.month === selectedSlipMonth && slip.year === selectedSlipYear)
+                      .map((slip) => (
+                        <tr key={slip.id} className="border-t border-ink-100">
+                          <td className="px-5 py-3">
+                            {new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}
+                          </td>
+                          <td className="px-5 py-3">{money(slip.total_amount)}</td>
+                          <td className="px-5 py-3">{slip.status}</td>
+                          <td className="px-5 py-3">
+                            <div className="flex gap-2">
+                              <button onClick={() => setSelectedSlip(slip)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-brand-700">
+                                <Eye size={14} /> View
+                              </button>
+                              <button onClick={() => downloadSalarySlip(slip)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-brand-700">
+                                <Download size={14} /> Download
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                   ) : (
                     <tr>
                       <td colSpan={4} className="px-5 py-8 text-center text-ink-500">
-                        No salary slips available yet.
+                        No salary slips for {new Date(selectedSlipYear, selectedSlipMonth - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}.
                       </td>
                     </tr>
                   )}

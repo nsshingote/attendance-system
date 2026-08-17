@@ -12,7 +12,7 @@ from typing import List, Optional
 from database import get_db
 from models import (
     User, Attendance, LeaveRequest, AttendanceCorrection, Holiday,
-    DailyReportData, DailyReport, DeviceRequest
+    DailyReportData, DailyReport, DeviceRequest, EmployeeProfileEditRequest, PastReportSubmissionRequest
 )
 from schemas import (
     AdminDashboardStats,
@@ -142,7 +142,7 @@ def get_admin_dashboard(
     
     pending_corrections = db.query(AttendanceCorrection).filter(
         AttendanceCorrection.status == "Pending"
-    ).count()
+    ).count() + db.query(EmployeeProfileEditRequest).filter(EmployeeProfileEditRequest.status == "Pending").count() + db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.status == "Pending").count()
     
     # 4. Pending device requests
     pending_device_requests = db.query(DeviceRequest).filter(

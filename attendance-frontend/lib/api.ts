@@ -159,3 +159,10 @@ export const getErrorMessage = (error: any): string => {
   }
   return "An unexpected error occurred";
 };
+
+export const getProfilePhotoUrl = (userId: number, timestamp?: number): string => {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  // Use timestamp for cache-busting so new photos appear immediately
+  const cacheBust = timestamp || Date.now();
+  return `${baseUrl}/uploads/profile_images/${userId}.jpg?t=${cacheBust}`;
+};

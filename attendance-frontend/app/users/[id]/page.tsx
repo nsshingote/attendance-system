@@ -27,6 +27,7 @@ interface UserDetail {
   status: string;
   annual_leave: number;
   leave_encashed: number;
+  date_of_joining?: string | null;
   address_line_1?: string | null;
   address_line_2?: string | null;
   city?: string | null;
@@ -287,6 +288,17 @@ export default function UserDetailPage() {
   const appointmentValues = selectedGeneratedDocument?.document_type === "appointment_letter" ? JSON.parse(selectedGeneratedDocument.content) as AppointmentLetterValues : null;
   const offerValues = selectedGeneratedDocument?.document_type === "offer_letter" ? JSON.parse(selectedGeneratedDocument.content) as OfferLetterValues : null;
 
+  const handleDeleteDocument = async (documentId: number) => {
+    if (!window.confirm("Are you sure you want to delete this document?")) return;
+    try {
+      await api.delete(`/employee-documents/documents/${documentId}`);
+      loadDocumentData();
+      toast.success("Document deleted successfully");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   if (loading) {
     return (
       <AppShell allowedRoles={["admin", "superadmin"]}>
@@ -384,7 +396,7 @@ export default function UserDetailPage() {
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <h2 className="mb-5 font-semibold">Basic Information</h2>
               <dl className="grid gap-5 sm:grid-cols-2">
-                {[ ["Name", user.name], ["Designation", user.designation], ["Department", user.department], ["Phone", user.mobile || "—"], ["Email", user.email || "—"] ].map(([label, value]) => (
+                {[ ["Name", user.name], ["Designation", user.designation], ["Department", user.department], ["Phone", user.mobile || "—"], ["Email", user.email || "—"], ["Joining Date", user.date_of_joining ? new Date(`${user.date_of_joining}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "—"] ].map(([label, value]) => (
                   <div key={String(label)}>
                     <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
                     <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>
@@ -458,6 +470,7 @@ export default function UserDetailPage() {
                             }
                           }} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">Download</button>
                         )}
+                        <button onClick={() => handleDeleteDocument(document.id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600">Delete</button>
                       </div>
                     </div>
                   )) : <p className="text-sm text-ink-500">No generated company documents.</p>}

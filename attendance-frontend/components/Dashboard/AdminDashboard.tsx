@@ -135,7 +135,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-4">
           <StatCard label="Absent Today" value={summary.absent_today} icon={UserX} tone="red" />
           <StatCard label="Pending Leaves" value={summary.pending_leave_requests} icon={Plane} tone="amber" />
-          <StatCard label="Pending Corrections" value={summary.pending_corrections} icon={ClipboardEdit} tone="amber" />
+          <StatCard label="Pending Requests" value={summary.pending_corrections} icon={ClipboardEdit} tone="amber" />
           <StatCard 
             label="Holidays This Month"
             value={summary.holiday_today || 0} 

@@ -447,3 +447,13 @@ def download_resource(
         filename=resource.file_name,
         media_type="application/octet-stream"
     )
+
+
+@router.get("/{resource_id}/view")
+def view_resource(resource_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    resource = db.query(Resource).filter(Resource.id == resource_id).first()
+    if not resource or not user_has_resource_access(current_user, resource, db):
+        raise HTTPException(status_code=404, detail="Resource not found")
+    if not os.path.exists(resource.file_path): raise HTTPException(status_code=404, detail="File not found")
+    from mimetypes import guess_type
+    return FileResponse(resource.file_path, media_type=guess_type(resource.file_name)[0] or "application/octet-stream", headers={"Content-Disposition": "inline"})
