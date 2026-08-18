@@ -65,6 +65,11 @@ export function updateAccessToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
+export function updateSessionName(name: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(NAME_KEY, name);
+}
+
 /** Returns true if the stored JWT is missing, malformed, or past its expiry. */
 export function isTokenExpired(): boolean {
   const token = getToken();

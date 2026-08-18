@@ -18,7 +18,19 @@ const replacePlaceholders = (content: string, values: Record<string, string>) =>
 export default function LettersGenerator() {
   const [employees, setEmployees] = useState<Employee[]>([]); const [templates, setTemplates] = useState<Template[]>([]); const [company, setCompany] = useState<Company | null>(null);
   const [employeeId, setEmployeeId] = useState(""); const [templateId, setTemplateId] = useState(""); const [saving, setSaving] = useState(false);
-  useEffect(() => { Promise.all([api.get<Employee[]>("/users/"), api.get<Template[]>("/employee-documents/letter-templates"), api.get<Company>("/settings/")]).then(([users, letters, settings]) => { setEmployees(users.data.filter(user => user.role === "user")); setTemplates(letters.data); setCompany(settings.data); }).catch(error => toast.error(getErrorMessage(error))); }, []);
+  useEffect(() => {
+    Promise.all([api.get<Employee[]>("/users/"), api.get<Template[]>("/employee-documents/letter-templates"), api.get<Company>("/settings/branding")])
+      .then(([users, letters, settings]) => {
+        setEmployees(users.data.filter(user => user.role === "user"));
+        setTemplates(letters.data);
+        setCompany(settings.data);
+      })
+      .catch(error => {
+        toast.error(getErrorMessage(error));
+        // Still set defaults so the component doesn't break
+        setCompany({ company_name: "", company_address: "" });
+      });
+  }, []);
   const employee = employees.find(item => String(item.id) === employeeId); const template = templates.find(item => String(item.id) === templateId);
   const isOffer = template?.document_type === "offer_letter"; const isAppointment = template?.document_type === "appointment_letter";
   const resolved = useMemo(() => { if (!employee || !template) return ""; const values: Record<string, string> = { employee_id: String(employee.id), employee_name: employee.name || "", designation: employee.designation || "", department: employee.department || "", email: employee.email || "", mobile: employee.mobile || "", phone: employee.mobile || "", place_of_posting: employee.place_of_posting || "", date_of_joining: dateValue(employee.date_of_joining), employee_address_line_1: employee.address_line_1 || "", employee_address_line_2: employee.address_line_2 || "", employee_city: employee.city || "", employee_state: employee.state || "", employee_pincode: employee.pincode || "", employee_country: employee.country || "", emergency_contact_name: employee.emergency_contact_name || "", emergency_contact_relationship: employee.emergency_contact_relationship || "", emergency_contact_phone: employee.emergency_contact_phone || "", company_name: company?.company_name || "", company_address: company?.company_address || "", letter_date: new Date().toLocaleDateString("en-GB") }; return replacePlaceholders(template.content, values); }, [employee, template, company]);

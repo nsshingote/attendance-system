@@ -47,6 +47,7 @@ export default function ResourcesPage() {
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [viewingResource, setViewingResource] = useState<Resource | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
@@ -124,13 +125,27 @@ export default function ResourcesPage() {
     return supportedExtensions.includes(ext);
   };
 
-  const getPreviewUrl = (resourceId: number, fileName: string): string => {
-    return `${api.defaults.baseURL}/resources/${resourceId}/view`;
+  const handleViewClick = async (resource: Resource) => {
+    setViewingResource(resource);
+    setPreviewUrl(null);
+    try {
+      const response = await api.get(`/resources/${resource.id}/view`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data]);
+      const blobUrl = window.URL.createObjectURL(blob);
+      setPreviewUrl(blobUrl);
+    } catch (error) {
+      toast.error("Unable to load preview: " + getErrorMessage(error));
+    }
+    setShowViewModal(true);
   };
 
-  const handleViewClick = (resource: Resource) => {
-    setViewingResource(resource);
-    setShowViewModal(true);
+  const handleViewModalClose = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setShowViewModal(false);
+    setViewingResource(null);
+    setPreviewUrl(null);
   };
 
   const resetForm = () => {
@@ -700,33 +715,36 @@ export default function ResourcesPage() {
       {viewingResource && (
         <Modal
           isOpen={showViewModal}
-          onClose={() => setShowViewModal(false)}
+          onClose={handleViewModalClose}
           title="Resource Details"
           size="lg"
         >
           <div className="space-y-4">
-            {isSupportedPreview(viewingResource.file_name) && (
+            {isSupportedPreview(viewingResource.file_name) && previewUrl && (
               <div className="border border-ink-200 rounded-lg overflow-hidden bg-ink-50">
                 {viewingResource.file_name.toLowerCase().endsWith(".pdf") ? (
                   <iframe
-                    src={getPreviewUrl(viewingResource.id, viewingResource.file_name)}
+                    src={previewUrl}
                     className="w-full h-96 border-0"
                     title="PDF Preview"
                   />
                 ) : /\.(jpg|jpeg|png|gif|webp)$/i.test(viewingResource.file_name) ? (
                   <img
-                    src={getPreviewUrl(viewingResource.id, viewingResource.file_name)}
+                    src={previewUrl}
                     alt={viewingResource.name}
                     className="max-w-full h-auto mx-auto"
                   />
                 ) : (
                   <iframe
-                    src={getPreviewUrl(viewingResource.id, viewingResource.file_name)}
+                    src={previewUrl}
                     className="w-full h-96 border-0"
                     title="File Preview"
                   />
                 )}
               </div>
+            )}
+            {!previewUrl && isSupportedPreview(viewingResource.file_name) && (
+              <div className="text-center py-8 text-ink-500">Loading preview...</div>
             )}
 
             <div>

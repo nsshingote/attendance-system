@@ -67,6 +67,12 @@ export default function UsersPage() {
   }, [fetchUsers]);
 
   useEffect(() => {
+    const handleProfileUpdate = () => fetchUsers();
+    window.addEventListener("profile-updated", handleProfileUpdate);
+    return () => window.removeEventListener("profile-updated", handleProfileUpdate);
+  }, [fetchUsers]);
+
+  useEffect(() => {
     api
       .get<{ id: number; name: string }[]>("/reports/departments")
       .then(({ data }) => setDepartments(data))

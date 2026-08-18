@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS company_settings (
     office_end_time TIME NOT NULL,
     late_grace_minutes INT NOT NULL DEFAULT 20,
     weekly_off_day VARCHAR(20) DEFAULT 'Sunday',
+    company_name VARCHAR(255) DEFAULT 'Your Company Name',
+    company_address TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

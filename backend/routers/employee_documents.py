@@ -19,7 +19,39 @@ router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path("backend/uploads/personal_documents")
 PERSONAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_PERSONAL_DOC_TYPES = {"pan", "bank_passbook", "highest_degree", "other"}
-PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
+PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+(?:\s+[a-zA-Z0-9_]+)*)\s*}}")
+
+
+DEFAULT_COMPANY_NAME = "PropCheckup"
+DEFAULT_COMPANY_ADDRESS = "Office No. 62, Xth Central Mall, 2nd Floor, Above Kotak Bank, Mahavir Nagar, Kandivali West, Mumbai - 400067"
+
+
+def _seed_default_letter_templates(db: Session):
+    existing = db.query(LetterTemplate).count()
+    if existing > 0:
+        return
+
+    creator = db.query(User).filter(User.role.in_(["admin", "superadmin"])).order_by(User.id.asc()).first()
+    if not creator:
+        return
+
+    default_templates = [
+        {
+            "name": "Offer Letter",
+            "document_type": "offer_letter",
+            "content": """PropCheckup\nIndia's First Home Inspection Startup\n\nOFFER LETTER\n\nDate: {{letter_date}}\n\nCompany Address - {{company_address}}\n\nTo,\n{{employee_name}}\n\nSubject: Offer of Employment\n\nDear {{employee_name}},\n\nWe are pleased to offer you the position of {{designation}} at {{company_name}}. Based on your qualifications and experience, we believe you will be a valuable addition to our team.\n\n• Designation: {{designation}}\n• Department: {{department}}\n• Place of Posting: {{place_of_posting}}\n• Date of Joining: {{date_of_joining}}\n\nThis offer is subject to verification of the documents and information provided by you during the recruitment process.\n\nPlease confirm your acceptance of this offer by signing and returning a copy of this letter as a token of your acceptance.\n\nWe are excited about the opportunity to have you join our team and look forward to a successful association.\n\nSincerely,\nAuthorized Signatory\n{{company_name}}\n\n• Offer Acceptance\nI, {{employee_name}}, accept the terms and conditions mentioned in this offer letter.\n\nSignature: ____________________                 Date: ______________""",
+        },
+        {
+            "name": "Appointment Letter",
+            "document_type": "appointment_letter",
+            "content": """PropCheckup\nIndia's First Home Inspection Startup\n\nAPPOINTMENT LETTER\n\nDate: {{letter_date}}\n\nCompany Address - {{company_address}}\n\nTo,\n{{employee_name}}\n\nSubject: Appointment for the Position of {{designation}}\n\nDear {{employee_name}},\n\nWe are pleased to offer you the position of {{designation}} at {{company_name}}. Based on your qualifications and experience, we believe you will be a valuable addition to our team.\n\n• Your appointment will be effective from {{date_of_joining}}. You will be working at our {{place_of_posting}} / {{department}}.\n• Your compensation details are as follows: Salary: {{salary}} per month/year.\n• Your working hours will be from {{working_hours}}, {{working_days}}.\n\nYou are expected to comply with company policies, rules, and regulations at all times. Any breach may result in disciplinary action. Kindly sign and return a copy of this letter as a token of your acceptance.\n\nWe look forward to having you on our team and wish you a successful career with us.\n\nSincerely,\n{{authorized_signatory}}\n{{company_name}}\n\n• Employee Acceptance\nI, {{employee_name}}, accept the terms and conditions mentioned above.\n\nSignature: ____________________                 Date: ______________""",
+        },
+    ]
+
+    for template in default_templates:
+        db.add(LetterTemplate(name=template["name"], document_type=template["document_type"], content=template["content"], created_by=creator.id))
+
+    db.commit()
 
 
 def _template_dict(item: LetterTemplate):
@@ -30,6 +62,15 @@ def _template_dict(item: LetterTemplate):
 def _placeholder_values(employee: User, db: Session):
     company = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
     date_value = lambda value: value.strftime("%d/%m/%Y") if value else ""
+    # Safely access company_name and company_address; they may not exist in older databases
+    company_name = DEFAULT_COMPANY_NAME
+    company_address = DEFAULT_COMPANY_ADDRESS
+    if company:
+        try:
+            company_name = company.company_name or DEFAULT_COMPANY_NAME
+            company_address = company.company_address or DEFAULT_COMPANY_ADDRESS
+        except AttributeError:
+            pass
     return {
         "employee_id": str(employee.id), "employee_name": employee.name or "", "designation": employee.designation or "",
         "department": employee.department or "", "email": employee.email or "", "mobile": employee.mobile or "",
@@ -38,13 +79,21 @@ def _placeholder_values(employee: User, db: Session):
         "employee_address_line_2": employee.address_line_2 or "", "employee_city": employee.city or "",
         "employee_state": employee.state or "", "employee_pincode": employee.pincode or "", "employee_country": employee.country or "",
         "emergency_contact_name": employee.emergency_contact_name or "", "emergency_contact_relationship": employee.emergency_contact_relationship or "",
-        "emergency_contact_phone": employee.emergency_contact_phone or "", "company_name": company.company_name if company else "",
-        "company_address": company.company_address if company else "", "letter_date": datetime.now().strftime("%d/%m/%Y"),
+        "emergency_contact_phone": employee.emergency_contact_phone or "", "company_name": company_name,
+        "company_address": company_address, "letter_date": datetime.now().strftime("%d/%m/%Y"),
+        "salary": "", "working_hours": "9:30 AM to 6:30 PM", "working_days": "6 days of the week",
+        "authorized_signatory": "Authorized Signatory", "office_location": employee.place_of_posting or "",
+        "date_of_leaving": "", "start_date": date_value(employee.date_of_joining),
     }
 
 
 def _resolve_template(content: str, values: dict[str, str]):
-    return PLACEHOLDER_PATTERN.sub(lambda match: values.get(match.group(1), match.group(0)), content)
+    def replace(match: re.Match[str]):
+        raw_name = match.group(1).strip()
+        key = re.sub(r"\s+", "_", raw_name).lower()
+        return values.get(key, values.get(raw_name, match.group(0)))
+
+    return PLACEHOLDER_PATTERN.sub(replace, content)
 
 
 def _document_dict(item: EmployeeDocument):
@@ -166,7 +215,39 @@ def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user
 
 @router.get("/letter-templates")
 def list_letter_templates(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    _seed_default_letter_templates(db)
     return [_template_dict(item) for item in db.query(LetterTemplate).order_by(LetterTemplate.name).all()]
+
+
+@router.post("/letter-templates/upload", status_code=201)
+async def upload_letter_template(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    document_type: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No template file selected")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Template file is empty")
+
+    try:
+        content = file_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Upload a text-based template file (.txt, .html, .md, .rtf)")
+
+    template_name = (name or file.filename).strip() or "Uploaded Template"
+    template_type = _clean_document_type(document_type or (Path(file.filename).stem or "uploaded_template"))
+
+    item = LetterTemplate(name=template_name, document_type=template_type, content=content, created_by=current_user.id)
+    db.add(item)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Uploaded letter template '{template_name}'"))
+    db.commit()
+    db.refresh(item)
+    return _template_dict(item)
 
 
 @router.get("/letter-templates/placeholders")
@@ -175,7 +256,9 @@ def list_letter_placeholders(current_user: User = Depends(require_admin)):
         {"key": key, "label": label} for key, label in [
             ("employee_name", "Employee name"), ("employee_id", "Employee ID"), ("designation", "Designation"),
             ("department", "Department"), ("email", "Email"), ("mobile", "Mobile / phone"),
-            ("place_of_posting", "Place of posting"), ("date_of_joining", "Date of joining"),
+            ("place_of_posting", "Place of posting"), ("date_of_joining", "Date of joining"), ("date_of_leaving", "Date of leaving"),
+            ("salary", "Salary"), ("working_hours", "Working hours"), ("working_days", "Working days"),
+            ("authorized_signatory", "Authorized signatory"), ("office_location", "Office location"),
             ("employee_address_line_1", "Address line 1"), ("employee_address_line_2", "Address line 2"),
             ("employee_city", "City"), ("employee_state", "State"), ("employee_pincode", "Pincode"),
             ("employee_country", "Country"), ("emergency_contact_name", "Emergency contact name"),

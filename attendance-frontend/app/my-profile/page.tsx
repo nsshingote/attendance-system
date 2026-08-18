@@ -11,10 +11,8 @@ import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLett
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
-import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
-import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
 import api, { getErrorMessage } from "@/lib/api";
-import { getToken } from "@/lib/auth";
+import { getToken, updateSessionName } from "@/lib/auth";
 
 type User = {
   id: number;
@@ -41,7 +39,6 @@ type Slip = { id: number; month: number; year: number; total_amount: number; sta
 type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
 type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
 type GeneratedDocument = { id: number; document_type: string; title: string; content: string; created_at: string };
-type DynamicLetterDocument = { format: "dynamic_letter_v1"; template_name: string; resolved_content: string };
 type PersonalDocument = {
   id: number;
   employee_id: number;
@@ -55,7 +52,11 @@ type PersonalDocument = {
   uploaded_at: string;
 };
 
-const money = (amount: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount);
+const money = (amount: number | string) => {
+  const normalized = Number(String(amount).replace(/[^0-9.-]/g, ""));
+  if (!Number.isFinite(normalized)) return "₹0.00";
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(normalized);
+};
 const getImageDataUrl = async (imageUrl: string) => {
   const response = await fetch(imageUrl);
   if (!response.ok) throw new Error("Company logo could not be loaded");
@@ -72,13 +73,6 @@ const personalDocLabels: Record<string, string> = {
   bank_passbook: "Bank Passbook",
   highest_degree: "Highest Degree",
   other: "Other",
-};
-const getDynamicLetter = (content: string): DynamicLetterDocument | null => {
-  try {
-    const parsed = JSON.parse(content) as Partial<DynamicLetterDocument>;
-    return parsed.format === "dynamic_letter_v1" && typeof parsed.template_name === "string" && typeof parsed.resolved_content === "string"
-      ? parsed as DynamicLetterDocument : null;
-  } catch { return null; }
 };
 
 export default function MyProfilePage() {
@@ -113,8 +107,6 @@ export default function MyProfilePage() {
     emergency_contact_phone: "",
   });
   const [filteredSlips, setFilteredSlips] = useState<Slip[]>([]);
-  const [selectedSlipMonth, setSelectedSlipMonth] = useState(today.getMonth() + 1);
-  const [selectedSlipYear, setSelectedSlipYear] = useState(today.getFullYear());
 
   const loadPersonalDocuments = async () => {
     const { data } = await api.get<PersonalDocument[]>("/employee-documents/personal-documents/mine");
@@ -178,6 +170,8 @@ export default function MyProfilePage() {
       } else {
         const { data } = await api.put<User>("/users/me/profile", requested_data);
         setProfile(data);
+        // Dispatch profile update event to refresh admin pages and user lists
+        window.dispatchEvent(new Event("profile-updated"));
         toast.success(`${section === "address" ? "Address" : "Emergency contact"} saved and locked`);
       }
     } catch (error) {
@@ -219,8 +213,9 @@ export default function MyProfilePage() {
       await api.post("/users/me/profile-photo", data, { headers: { "Content-Type": "multipart/form-data" } });
       if (photoUrl) URL.revokeObjectURL(photoUrl);
       setPhotoUrl(URL.createObjectURL(file));
-      // Emit event to refresh avatars across all pages with updated cache version
+      // Emit events to refresh avatars and user lists
       window.dispatchEvent(new Event("profile-photo-updated"));
+      window.dispatchEvent(new Event("profile-updated"));
       toast.success("Profile image updated");
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
@@ -349,18 +344,17 @@ export default function MyProfilePage() {
     y += 10;
 
     // Company address footer
-    pdf.setFontSize(7);
+    pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(75, 85, 99);
-    const address = companyBranding?.company_address || "—";
-    const addressLines = pdf.splitTextToSize(address, contentWidth - 10);
-    const documentNoteY = pageHeight - 8;
-    const addressStartY = documentNoteY - 6 - (addressLines.length - 1) * 7;
-    const footerTop = addressStartY - 7;
+    const footerTop = pageHeight - 37;
     pdf.setDrawColor(209, 213, 219);
     pdf.line(margin, footerTop, pageWidth - margin, footerTop);
-    pdf.text(addressLines, pageWidth / 2, addressStartY, { align: "center" });
-    pdf.text("This is a computer-generated salary slip and does not require a signature.", pageWidth / 2, documentNoteY, { align: "center" });
+    const address = companyBranding?.company_address || "—";
+    const addressLines = pdf.splitTextToSize(address, contentWidth - 10);
+    pdf.text(addressLines, pageWidth / 2, footerTop + 7, { align: "center" });
+    pdf.setFontSize(7);
+    pdf.text("This is a computer-generated salary slip and does not require a signature.", pageWidth / 2, pageHeight - 8, { align: "center" });
 
     pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
@@ -394,14 +388,13 @@ export default function MyProfilePage() {
   };
 
   const appointmentValues =
-    selectedDocument?.document_type === "appointment_letter" && !getDynamicLetter(selectedDocument.content)
+    selectedDocument?.document_type === "appointment_letter"
       ? (JSON.parse(selectedDocument.content) as AppointmentLetterValues)
       : null;
   const offerValues =
-    selectedDocument?.document_type === "offer_letter" && !getDynamicLetter(selectedDocument.content)
+    selectedDocument?.document_type === "offer_letter"
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
-  const dynamicLetter = selectedDocument ? getDynamicLetter(selectedDocument.content) : null;
 
   return (
     <AppShell allowedRoles={["user"]}>
@@ -718,13 +711,10 @@ export default function MyProfilePage() {
                           >
                             View
                           </button>
-                          {(document.document_type === "offer_letter" || document.document_type === "appointment_letter" || getDynamicLetter(document.content)) && (
+                          {(document.document_type === "offer_letter" || document.document_type === "appointment_letter") && (
                             <button
                               onClick={() => {
-                                const dynamic = getDynamicLetter(document.content);
-                                if (dynamic) {
-                                  downloadDynamicLetterPdf(dynamic.template_name, dynamic.resolved_content, profile?.name);
-                                } else if (document.document_type === "appointment_letter") {
+                                if (document.document_type === "appointment_letter") {
                                   downloadAppointmentLetterPdf(JSON.parse(document.content) as AppointmentLetterValues);
                                 } else if (document.document_type === "offer_letter") {
                                   downloadOfferLetterPdf(JSON.parse(document.content) as OfferLetterValues);
@@ -752,24 +742,8 @@ export default function MyProfilePage() {
             <div className="border-b border-ink-200 px-5 py-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="font-semibold">Salary Slips</h2>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <select value={selectedSlipMonth} onChange={(e) => setSelectedSlipMonth(Number(e.target.value))} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                      <option key={m} value={m}>
-                        {new Date(2000, m - 1).toLocaleString("en-IN", { month: "long" })}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={selectedSlipYear} onChange={(e) => setSelectedSlipYear(Number(e.target.value))} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
-                    {Array.from({ length: 5 }, (_, i) => today.getFullYear() - i).map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
-            </div>
             <div className="table-wrapper">
               <table className="w-full text-sm">
                 <thead className="bg-ink-50 text-left text-ink-600">
@@ -781,10 +755,8 @@ export default function MyProfilePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {slips.filter((slip) => slip.month === selectedSlipMonth && slip.year === selectedSlipYear).length ? (
-                    slips
-                      .filter((slip) => slip.month === selectedSlipMonth && slip.year === selectedSlipYear)
-                      .map((slip) => (
+                  {slips.length ? (
+                    slips.map((slip) => (
                         <tr key={slip.id} className="border-t border-ink-100">
                           <td className="px-5 py-3">
                             {new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}
@@ -806,17 +778,17 @@ export default function MyProfilePage() {
                   ) : (
                     <tr>
                       <td colSpan={4} className="px-5 py-8 text-center text-ink-500">
-                        No salary slips for {new Date(selectedSlipYear, selectedSlipMonth - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}.
+                        No salary slips available.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-            </div>
+              </div>
           </section>
         )}
 
-        {selectedDocument && (appointmentValues || offerValues || dynamicLetter) && (
+        {selectedDocument && (appointmentValues || offerValues) && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
             <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
               <div className="mb-3 flex justify-end gap-2">
@@ -836,21 +808,12 @@ export default function MyProfilePage() {
                     <Download size={15} /> Download PDF
                   </button>
                 )}
-                {dynamicLetter && (
-                  <button
-                    onClick={() => downloadDynamicLetterPdf(dynamicLetter.template_name, dynamicLetter.resolved_content, profile?.name)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
-                  >
-                    <Download size={15} /> Download PDF
-                  </button>
-                )}
                 <button onClick={() => setSelectedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">
                   Close
                 </button>
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicLetter && <DynamicLetterPreview title={dynamicLetter.template_name} content={dynamicLetter.resolved_content} />}
             </div>
           </div>
         )}
@@ -860,13 +823,13 @@ export default function MyProfilePage() {
               <div className="mb-3 flex justify-end">
                 <button onClick={() => setSelectedSlip(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium shadow-sm">Close</button>
               </div>
-              <article className="mx-auto min-h-[680px] max-w-[794px] bg-white p-6 text-sm text-ink-800 shadow-sm sm:p-10">
+              <article className="mx-auto min-h-680px max-w-794px bg-white p-6 text-sm text-ink-800 shadow-sm sm:p-10">
                 <header className="border-b-2 border-brand-600 pb-5">
                   <div className="flex items-center justify-between gap-5">
                     <div className="flex min-w-0 items-center gap-4">
                       {companyBranding?.logo_url && <img src={companyBranding.logo_url} alt="Company logo" className="h-14 w-14 shrink-0 rounded object-contain" />}
                       <div className="min-w-0">
-                        <h2 className="truncate text-xl font-bold text-ink-900">{companyBranding?.company_name || "—"}</h2>
+                        <h2 className="truncate text-xl font-bold text-ink-900">{companyBranding?.company_name || "PropCheckup"}</h2>
                         <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">Salary Slip</p>
                       </div>
                     </div>

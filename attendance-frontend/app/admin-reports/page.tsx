@@ -167,6 +167,12 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
     fetchReports();
   }, [selectedUserIds, selectedDepartmentId, fromDate, toDate]);
 
+  useEffect(() => {
+    const handleProfileUpdate = () => fetchReports();
+    window.addEventListener("profile-updated", handleProfileUpdate);
+    return () => window.removeEventListener("profile-updated", handleProfileUpdate);
+  }, [selectedUserIds, selectedDepartmentId, fromDate, toDate]);
+
   const clearDateFilter = () => { setSelectedDate(""); setShowDatePicker(false); };
 
 

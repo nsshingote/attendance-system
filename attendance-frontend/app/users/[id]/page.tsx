@@ -266,6 +266,15 @@ export default function UserDetailPage() {
     loadAttendanceSummary();
   }, [userId, year, month]);
 
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      loadUserData();
+      loadDocumentData();
+    };
+    window.addEventListener("profile-updated", handleProfileUpdate);
+    return () => window.removeEventListener("profile-updated", handleProfileUpdate);
+  }, [userId]);
+
   const formatAverageHours = (totalHours: number, presentDays: number) => {
     if (!presentDays || totalHours <= 0) {
       return "0h 0m";
