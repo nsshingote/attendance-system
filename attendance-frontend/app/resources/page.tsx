@@ -5,6 +5,7 @@ import { Upload, Trash2, Edit2, Download, Eye, X, FileText } from "lucide-react"
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
+import AppShell from "@/components/AppShell";
 import Modal from "@/components/Common/Modal";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 
@@ -115,6 +116,16 @@ export default function ResourcesPage() {
       file: null,
     });
     setShowEditModal(true);
+  };
+
+  const isSupportedPreview = (fileName: string): boolean => {
+    const ext = fileName.split(".").pop()?.toLowerCase() || "";
+    const supportedExtensions = ["pdf", "jpg", "jpeg", "png", "gif", "webp", "txt", "csv"];
+    return supportedExtensions.includes(ext);
+  };
+
+  const getPreviewUrl = (resourceId: number, fileName: string): string => {
+    return `${api.defaults.baseURL}/resources/${resourceId}/view`;
   };
 
   const handleViewClick = (resource: Resource) => {
@@ -242,7 +253,8 @@ export default function ResourcesPage() {
   };
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col bg-ink-50">
+    <AppShell>
+      <div className="flex-1 overflow-hidden flex flex-col bg-ink-50">
       <div className="flex-1 overflow-y-auto">
         {/* Header */}
         <div className="border-b border-ink-200 bg-white px-6 py-4 flex justify-between items-center">
@@ -690,8 +702,33 @@ export default function ResourcesPage() {
           isOpen={showViewModal}
           onClose={() => setShowViewModal(false)}
           title="Resource Details"
+          size="lg"
         >
           <div className="space-y-4">
+            {isSupportedPreview(viewingResource.file_name) && (
+              <div className="border border-ink-200 rounded-lg overflow-hidden bg-ink-50">
+                {viewingResource.file_name.toLowerCase().endsWith(".pdf") ? (
+                  <iframe
+                    src={getPreviewUrl(viewingResource.id, viewingResource.file_name)}
+                    className="w-full h-96 border-0"
+                    title="PDF Preview"
+                  />
+                ) : /\.(jpg|jpeg|png|gif|webp)$/i.test(viewingResource.file_name) ? (
+                  <img
+                    src={getPreviewUrl(viewingResource.id, viewingResource.file_name)}
+                    alt={viewingResource.name}
+                    className="max-w-full h-auto mx-auto"
+                  />
+                ) : (
+                  <iframe
+                    src={getPreviewUrl(viewingResource.id, viewingResource.file_name)}
+                    className="w-full h-96 border-0"
+                    title="File Preview"
+                  />
+                )}
+              </div>
+            )}
+
             <div>
               <label className="text-sm font-medium text-ink-900">Name</label>
               <p className="text-sm text-ink-600 mt-1">{viewingResource.name}</p>
@@ -743,5 +780,6 @@ export default function ResourcesPage() {
         </Modal>
       )}
     </div>
+    </AppShell>
   );
 }

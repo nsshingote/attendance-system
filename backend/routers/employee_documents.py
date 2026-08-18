@@ -1,6 +1,7 @@
 """Admin salary slips, employee docs, and employee-uploaded personal files."""
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -10,14 +11,40 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin
 from database import get_db
-from models import ActivityLog, EmployeeDocument, EmployeePersonalDocument, KundliNote, SalarySlip, User
-from schemas import AppointmentLetterCreate, KundliNoteCreate, OfferLetterCreate, SalarySlipCreate
+from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, KundliNote, LetterTemplate, SalarySlip, User
+from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, SalarySlipCreate
 from utils.email_service import send_email
 
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path("backend/uploads/personal_documents")
 PERSONAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_PERSONAL_DOC_TYPES = {"pan", "bank_passbook", "highest_degree", "other"}
+PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
+
+
+def _template_dict(item: LetterTemplate):
+    return {"id": item.id, "name": item.name, "document_type": item.document_type, "content": item.content,
+            "created_at": item.created_at, "updated_at": item.updated_at}
+
+
+def _placeholder_values(employee: User, db: Session):
+    company = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
+    date_value = lambda value: value.strftime("%d/%m/%Y") if value else ""
+    return {
+        "employee_id": str(employee.id), "employee_name": employee.name or "", "designation": employee.designation or "",
+        "department": employee.department or "", "email": employee.email or "", "mobile": employee.mobile or "",
+        "phone": employee.mobile or "", "place_of_posting": employee.place_of_posting or "",
+        "date_of_joining": date_value(employee.date_of_joining), "employee_address_line_1": employee.address_line_1 or "",
+        "employee_address_line_2": employee.address_line_2 or "", "employee_city": employee.city or "",
+        "employee_state": employee.state or "", "employee_pincode": employee.pincode or "", "employee_country": employee.country or "",
+        "emergency_contact_name": employee.emergency_contact_name or "", "emergency_contact_relationship": employee.emergency_contact_relationship or "",
+        "emergency_contact_phone": employee.emergency_contact_phone or "", "company_name": company.company_name if company else "",
+        "company_address": company.company_address if company else "", "letter_date": datetime.now().strftime("%d/%m/%Y"),
+    }
+
+
+def _resolve_template(content: str, values: dict[str, str]):
+    return PLACEHOLDER_PATTERN.sub(lambda match: values.get(match.group(1), match.group(0)), content)
 
 
 def _document_dict(item: EmployeeDocument):
@@ -135,6 +162,97 @@ def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user
     employee_name = note.employee.name
     db.delete(note); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'")); db.commit()
     return {"message": "Kundli note deleted"}
+
+
+@router.get("/letter-templates")
+def list_letter_templates(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return [_template_dict(item) for item in db.query(LetterTemplate).order_by(LetterTemplate.name).all()]
+
+
+@router.get("/letter-templates/placeholders")
+def list_letter_placeholders(current_user: User = Depends(require_admin)):
+    return [
+        {"key": key, "label": label} for key, label in [
+            ("employee_name", "Employee name"), ("employee_id", "Employee ID"), ("designation", "Designation"),
+            ("department", "Department"), ("email", "Email"), ("mobile", "Mobile / phone"),
+            ("place_of_posting", "Place of posting"), ("date_of_joining", "Date of joining"),
+            ("employee_address_line_1", "Address line 1"), ("employee_address_line_2", "Address line 2"),
+            ("employee_city", "City"), ("employee_state", "State"), ("employee_pincode", "Pincode"),
+            ("employee_country", "Country"), ("emergency_contact_name", "Emergency contact name"),
+            ("emergency_contact_relationship", "Emergency contact relationship"), ("emergency_contact_phone", "Emergency contact phone"),
+            ("company_name", "Company name"), ("company_address", "Company address"), ("letter_date", "Letter date"),
+        ]
+    ]
+
+
+def _clean_document_type(value: str):
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", value.strip().lower()).strip("_")
+    if not cleaned:
+        raise HTTPException(status_code=422, detail="Document type must contain letters or numbers")
+    if len(cleaned) > 80:
+        raise HTTPException(status_code=422, detail="Document type must be 80 characters or fewer")
+    return cleaned
+
+
+@router.post("/letter-templates", status_code=201)
+def create_letter_template(payload: LetterTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    name, content, document_type = payload.name.strip(), payload.content.strip(), _clean_document_type(payload.document_type)
+    if not name or not content:
+        raise HTTPException(status_code=422, detail="Template name and content are required")
+    if db.query(LetterTemplate).filter(LetterTemplate.document_type == document_type).first():
+        raise HTTPException(status_code=409, detail="A template already uses this document type")
+    item = LetterTemplate(name=name, document_type=document_type, content=content, created_by=current_user.id)
+    db.add(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Created letter template '{name}'")); db.commit(); db.refresh(item)
+    return _template_dict(item)
+
+
+@router.put("/letter-templates/{template_id}")
+def update_letter_template(template_id: int, payload: LetterTemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(LetterTemplate).filter(LetterTemplate.id == template_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Letter template not found")
+    name, content, document_type = payload.name.strip(), payload.content.strip(), _clean_document_type(payload.document_type)
+    if not name or not content:
+        raise HTTPException(status_code=422, detail="Template name and content are required")
+    duplicate = db.query(LetterTemplate).filter(LetterTemplate.document_type == document_type, LetterTemplate.id != template_id).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A template already uses this document type")
+    item.name, item.document_type, item.content = name, document_type, content
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated letter template '{name}'")); db.commit(); db.refresh(item)
+    return _template_dict(item)
+
+
+@router.delete("/letter-templates/{template_id}")
+def delete_letter_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(LetterTemplate).filter(LetterTemplate.id == template_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Letter template not found")
+    name = item.name
+    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted letter template '{name}'")); db.commit()
+    return {"message": "Letter template deleted"}
+
+
+@router.post("/letters/generate", status_code=201)
+def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    template = db.query(LetterTemplate).filter(LetterTemplate.id == payload.template_id).first()
+    employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Letter template not found")
+    if not employee:
+        raise HTTPException(status_code=404, detail="Active employee not found")
+    values = _placeholder_values(employee, db)
+    resolved_content = _resolve_template(template.content, values)
+    snapshot = {"format": "dynamic_letter_v1", "template_id": template.id, "template_name": template.name,
+                "template_content": template.content, "resolved_content": resolved_content, "placeholder_values": values}
+    status = "Sent" if payload.send else "Draft"
+    item = EmployeeDocument(employee_id=employee.id, document_type=template.document_type, title=template.name,
+                            content=json.dumps(snapshot), status=status, created_by=current_user.id,
+                            sent_at=datetime.utcnow() if payload.send else None)
+    db.add(item); db.commit(); db.refresh(item)
+    if payload.send and employee.email:
+        send_email([employee.email], template.name, f"<p>Hi {employee.name},</p><p>Your <b>{template.name}</b> is available in My Profile → Documents.</p>")
+    db.add(ActivityLog(user_id=current_user.id, activity=f"{'Sent' if payload.send else 'Generated'} {template.name} for '{employee.name}'")); db.commit()
+    return _document_dict(item)
 
 
 @router.get("/documents")

@@ -11,6 +11,8 @@ import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLett
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
+import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
+import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
 import api, { getErrorMessage } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
@@ -36,8 +38,10 @@ type User = {
 };
 
 type Slip = { id: number; month: number; year: number; total_amount: number; status: string; particulars: string };
+type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
 type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
 type GeneratedDocument = { id: number; document_type: string; title: string; content: string; created_at: string };
+type DynamicLetterDocument = { format: "dynamic_letter_v1"; template_name: string; resolved_content: string };
 type PersonalDocument = {
   id: number;
   employee_id: number;
@@ -52,17 +56,36 @@ type PersonalDocument = {
 };
 
 const money = (amount: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount);
+const getImageDataUrl = async (imageUrl: string) => {
+  const response = await fetch(imageUrl);
+  if (!response.ok) throw new Error("Company logo could not be loaded");
+  const blob = await response.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Company logo could not be read"));
+    reader.readAsDataURL(blob);
+  });
+};
 const personalDocLabels: Record<string, string> = {
   pan: "PAN Card",
   bank_passbook: "Bank Passbook",
   highest_degree: "Highest Degree",
   other: "Other",
 };
+const getDynamicLetter = (content: string): DynamicLetterDocument | null => {
+  try {
+    const parsed = JSON.parse(content) as Partial<DynamicLetterDocument>;
+    return parsed.format === "dynamic_letter_v1" && typeof parsed.template_name === "string" && typeof parsed.resolved_content === "string"
+      ? parsed as DynamicLetterDocument : null;
+  } catch { return null; }
+};
 
 export default function MyProfilePage() {
   const today = new Date();
   const [tab, setTab] = useState("Profile");
   const [profile, setProfile] = useState<User | null>(null);
+  const [companyBranding, setCompanyBranding] = useState<CompanyBranding | null>(null);
   const [slips, setSlips] = useState<Slip[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [personalDocuments, setPersonalDocuments] = useState<PersonalDocument[]>([]);
@@ -101,14 +124,16 @@ export default function MyProfilePage() {
   useEffect(() => {
     Promise.all([
       api.get("/users/me"),
+      api.get<CompanyBranding>("/settings/branding"),
       api.get("/employee-documents/salary-slips/mine"),
       api.get("/employee-documents/documents/mine"),
       api.get("/employee-documents/personal-documents/mine"),
       api.get("/users/me/profile-edit-requests"),
     ])
-      .then(([me, salary, employeeDocuments, personalDocs, requests]) => {
+      .then(([me, branding, salary, employeeDocuments, personalDocs, requests]) => {
         const userData = me.data as User;
         setProfile(userData);
+        setCompanyBranding(branding.data);
         setProfileForm({
           address_line_1: userData.address_line_1 || "",
           address_line_2: userData.address_line_2 || "",
@@ -194,86 +219,103 @@ export default function MyProfilePage() {
       await api.post("/users/me/profile-photo", data, { headers: { "Content-Type": "multipart/form-data" } });
       if (photoUrl) URL.revokeObjectURL(photoUrl);
       setPhotoUrl(URL.createObjectURL(file));
+      // Emit event to refresh avatars across all pages with updated cache version
+      window.dispatchEvent(new Event("profile-photo-updated"));
       toast.success("Profile image updated");
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
 
-  const downloadSalarySlip = (slip: Slip) => {
+  const downloadSalarySlip = async (slip: Slip) => {
     if (!profile) return;
     
     const pdf = new jsPDF();
     const period = new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    let y = 15;
+    const margin = 15;
+    const contentWidth = pageWidth - margin * 2;
+    let y = 17;
 
-    // Header - Company/Organization (using department as organization reference)
-    pdf.setFontSize(14);
+    // Company-branded header
+    if (companyBranding?.logo_url) {
+      try {
+        const logo = await getImageDataUrl(companyBranding.logo_url);
+        pdf.addImage(logo, "JPEG", margin, y - 5, 22, 22);
+      } catch {
+        // The salary slip remains usable if the optional branding image is unavailable.
+      }
+    }
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFontSize(16);
     pdf.setFont("helvetica", "bold");
-    pdf.text("SALARY SLIP", pageWidth / 2, y, { align: "center" });
-    y += 8;
-
-    // Period
-    pdf.setFontSize(10);
+    pdf.text(companyBranding?.company_name || "—", margin + 28, y + 3);
+    pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
-    pdf.text(`For the month of ${period}`, pageWidth / 2, y, { align: "center" });
-    y += 12;
+    pdf.setTextColor(107, 114, 128);
+    pdf.text("SALARY SLIP", pageWidth - margin, y - 1, { align: "right" });
+    pdf.setFontSize(9);
+    pdf.text(`For the month of ${period}`, pageWidth - margin, y + 5, { align: "right" });
+    y += 27;
+    pdf.setDrawColor(37, 99, 235);
+    pdf.setLineWidth(0.7);
+    pdf.line(margin, y, pageWidth - margin, y);
+    y += 11;
 
-    // Employee Details Box
+    // Employee details
+    pdf.setTextColor(31, 41, 55);
     pdf.setFontSize(9);
     pdf.setFont("helvetica", "bold");
-    pdf.text("EMPLOYEE DETAILS", 15, y);
+    pdf.text("EMPLOYEE DETAILS", margin, y);
     y += 6;
 
     pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
-    pdf.setDrawColor(200, 200, 200);
-    pdf.rect(15, y - 4, pageWidth - 30, 35);
+    pdf.setDrawColor(209, 213, 219);
+    pdf.setFillColor(249, 250, 251);
+    pdf.rect(margin, y - 4, contentWidth, 27, "FD");
 
     const detailsData = [
       ["Name", profile.name],
       ["Designation", profile.designation],
       ["Department", profile.department],
-      ["Mobile", profile.mobile || "—"],
+      ["Phone Number", profile.mobile || profile.phone || "—"],
       ["Email", profile.email || "—"],
     ];
 
     let detailY = y;
-    let col1X = 18;
-    let col2X = 95;
+    const col1X = 18;
+    const col2X = 105;
 
     detailsData.forEach((item, idx) => {
       if (idx % 2 === 0) {
         pdf.setFont("helvetica", "bold");
         pdf.text(item[0] + ":", col1X, detailY);
         pdf.setFont("helvetica", "normal");
-        pdf.text(String(item[1]), col1X + 35, detailY);
+        pdf.text(String(item[1]), col1X + 31, detailY, { maxWidth: 53 });
       } else {
         pdf.setFont("helvetica", "bold");
         pdf.text(item[0] + ":", col2X, detailY);
         pdf.setFont("helvetica", "normal");
-        pdf.text(String(item[1]), col2X + 35, detailY);
+        pdf.text(String(item[1]), col2X + 28, detailY, { maxWidth: 55 });
         detailY += 7;
       }
     });
 
-    y = y + 40;
+    y = y + 33;
 
-    // Salary Breakdown
     pdf.setFontSize(9);
     pdf.setFont("helvetica", "bold");
-    pdf.text("SALARY BREAKDOWN", 15, y);
+    pdf.text("SALARY BREAKDOWN", margin, y);
     y += 6;
 
-    // Table header
-    pdf.setDrawColor(100, 100, 100);
-    pdf.setFillColor(240, 240, 240);
-    pdf.rect(15, y - 4, pageWidth - 30, 6, "FD");
+    pdf.setDrawColor(37, 99, 235);
+    pdf.setFillColor(239, 246, 255);
+    pdf.rect(margin, y - 4, contentWidth, 7, "FD");
     
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(8);
     pdf.text("Description", 18, y);
-    pdf.text("Amount", pageWidth - 35, y, { align: "right" });
+    pdf.text("Amount", pageWidth - 18, y, { align: "right" });
     y += 7;
 
     // Salary rows
@@ -284,10 +326,9 @@ export default function MyProfilePage() {
       const desc = String(row.name);
       const amt = money(row.amount);
       
-      // Draw row background alternating
       if (particulars.indexOf(row) % 2 === 0) {
-        pdf.setFillColor(250, 250, 250);
-        pdf.rect(15, y - 3, pageWidth - 30, 5, "F");
+        pdf.setFillColor(249, 250, 251);
+        pdf.rect(margin, y - 3, contentWidth, 5, "F");
       }
       
       pdf.text(desc, 18, y);
@@ -296,26 +337,30 @@ export default function MyProfilePage() {
     });
 
     // Total line
-    pdf.setDrawColor(100, 100, 100);
-    pdf.line(15, y, pageWidth - 15, y);
+    pdf.setDrawColor(37, 99, 235);
+    pdf.line(margin, y, pageWidth - margin, y);
     y += 4;
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(9);
     const totalStr = money(slip.total_amount);
-    pdf.text("TOTAL", 18, y);
+    pdf.text("NET AMOUNT", 18, y);
     pdf.text(String(totalStr), pageWidth - 18, y, { align: "right" });
     y += 10;
 
-    // Footer - Company Address Placeholder
-    pdf.setFontSize(8);
+    // Company address footer
+    pdf.setFontSize(7);
     pdf.setFont("helvetica", "normal");
-    pdf.setDrawColor(200, 200, 200);
-    pdf.setFillColor(250, 250, 250);
-    pdf.rect(15, pageHeight - 30, pageWidth - 30, 25, "FD");
-    
-    pdf.text("This is a computer-generated document. No signature required.", pageWidth / 2, pageHeight - 22, { align: "center" });
-    pdf.text(`Document generated on ${new Date().toLocaleDateString("en-IN")}`, pageWidth / 2, pageHeight - 18, { align: "center" });
+    pdf.setTextColor(75, 85, 99);
+    const address = companyBranding?.company_address || "—";
+    const addressLines = pdf.splitTextToSize(address, contentWidth - 10);
+    const documentNoteY = pageHeight - 8;
+    const addressStartY = documentNoteY - 6 - (addressLines.length - 1) * 7;
+    const footerTop = addressStartY - 7;
+    pdf.setDrawColor(209, 213, 219);
+    pdf.line(margin, footerTop, pageWidth - margin, footerTop);
+    pdf.text(addressLines, pageWidth / 2, addressStartY, { align: "center" });
+    pdf.text("This is a computer-generated salary slip and does not require a signature.", pageWidth / 2, documentNoteY, { align: "center" });
 
     pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
@@ -349,13 +394,14 @@ export default function MyProfilePage() {
   };
 
   const appointmentValues =
-    selectedDocument?.document_type === "appointment_letter"
+    selectedDocument?.document_type === "appointment_letter" && !getDynamicLetter(selectedDocument.content)
       ? (JSON.parse(selectedDocument.content) as AppointmentLetterValues)
       : null;
   const offerValues =
-    selectedDocument?.document_type === "offer_letter"
+    selectedDocument?.document_type === "offer_letter" && !getDynamicLetter(selectedDocument.content)
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
+  const dynamicLetter = selectedDocument ? getDynamicLetter(selectedDocument.content) : null;
 
   return (
     <AppShell allowedRoles={["user"]}>
@@ -672,10 +718,13 @@ export default function MyProfilePage() {
                           >
                             View
                           </button>
-                          {(document.document_type === "offer_letter" || document.document_type === "appointment_letter") && (
+                          {(document.document_type === "offer_letter" || document.document_type === "appointment_letter" || getDynamicLetter(document.content)) && (
                             <button
                               onClick={() => {
-                                if (document.document_type === "appointment_letter") {
+                                const dynamic = getDynamicLetter(document.content);
+                                if (dynamic) {
+                                  downloadDynamicLetterPdf(dynamic.template_name, dynamic.resolved_content, profile?.name);
+                                } else if (document.document_type === "appointment_letter") {
                                   downloadAppointmentLetterPdf(JSON.parse(document.content) as AppointmentLetterValues);
                                 } else if (document.document_type === "offer_letter") {
                                   downloadOfferLetterPdf(JSON.parse(document.content) as OfferLetterValues);
@@ -767,7 +816,7 @@ export default function MyProfilePage() {
           </section>
         )}
 
-        {selectedDocument && (appointmentValues || offerValues) && (
+        {selectedDocument && (appointmentValues || offerValues || dynamicLetter) && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
             <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
               <div className="mb-3 flex justify-end gap-2">
@@ -787,16 +836,92 @@ export default function MyProfilePage() {
                     <Download size={15} /> Download PDF
                   </button>
                 )}
+                {dynamicLetter && (
+                  <button
+                    onClick={() => downloadDynamicLetterPdf(dynamicLetter.template_name, dynamicLetter.resolved_content, profile?.name)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
+                  >
+                    <Download size={15} /> Download PDF
+                  </button>
+                )}
                 <button onClick={() => setSelectedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">
                   Close
                 </button>
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
+              {dynamicLetter && <DynamicLetterPreview title={dynamicLetter.template_name} content={dynamicLetter.resolved_content} />}
             </div>
           </div>
         )}
-        {selectedSlip && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4"><div className="mx-auto my-12 max-w-lg rounded-xl bg-white p-6 shadow-xl"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">Salary Slip — {new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</h2><button onClick={() => setSelectedSlip(null)} className="rounded-lg border px-3 py-1.5 text-sm">Close</button></div><div className="space-y-2 text-sm">{JSON.parse(selectedSlip.particulars).map((row: { name: string; amount: number }) => <div key={row.name} className="flex justify-between"><span>{row.name}</span><span>{money(row.amount)}</span></div>)}<div className="mt-4 flex justify-between border-t pt-3 font-semibold"><span>Total</span><span>{money(selectedSlip.total_amount)}</span></div></div><button onClick={() => downloadSalarySlip(selectedSlip)} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download</button></div></div>}
+        {selectedSlip && (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
+            <div className="mx-auto my-8 max-w-3xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
+              <div className="mb-3 flex justify-end">
+                <button onClick={() => setSelectedSlip(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium shadow-sm">Close</button>
+              </div>
+              <article className="mx-auto min-h-[680px] max-w-[794px] bg-white p-6 text-sm text-ink-800 shadow-sm sm:p-10">
+                <header className="border-b-2 border-brand-600 pb-5">
+                  <div className="flex items-center justify-between gap-5">
+                    <div className="flex min-w-0 items-center gap-4">
+                      {companyBranding?.logo_url && <img src={companyBranding.logo_url} alt="Company logo" className="h-14 w-14 shrink-0 rounded object-contain" />}
+                      <div className="min-w-0">
+                        <h2 className="truncate text-xl font-bold text-ink-900">{companyBranding?.company_name || "—"}</h2>
+                        <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">Salary Slip</p>
+                      </div>
+                    </div>
+                    <p className="shrink-0 text-right text-xs text-ink-600">For the month of<br /><span className="font-semibold text-ink-900">{new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span></p>
+                  </div>
+                </header>
+
+                <section className="mt-7">
+                  <h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Employee Details</h3>
+                  <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                    {[
+                      ["Employee Name", profile?.name || "—"],
+                      ["Designation", profile?.designation || "—"],
+                      ["Department", profile?.department || "—"],
+                      ["Phone Number", profile?.mobile || profile?.phone || "—"],
+                      ["Email Address", profile?.email || "—"],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
+                        <dd className="mt-1 font-medium text-ink-900">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+
+                <section className="mt-8">
+                  <h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Salary Breakdown</h3>
+                  <div className="mt-4 overflow-hidden rounded-lg border border-ink-200">
+                    <table className="w-full text-sm">
+                      <thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800">
+                        <tr><th className="px-4 py-3">Description</th><th className="px-4 py-3 text-right">Amount</th></tr>
+                      </thead>
+                      <tbody>
+                        {JSON.parse(selectedSlip.particulars).map((row: { name: string; amount: number }, index: number) => (
+                          <tr key={row.name} className={index % 2 === 0 ? "bg-ink-50/60" : "bg-white"}>
+                            <td className="px-4 py-3">{row.name}</td><td className="px-4 py-3 text-right font-medium">{money(row.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="border-t-2 border-brand-600 bg-brand-50">
+                        <tr><th className="px-4 py-3 text-left text-sm">Net Amount</th><th className="px-4 py-3 text-right text-sm">{money(selectedSlip.total_amount)}</th></tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </section>
+
+                <footer className="mt-12 border-t border-ink-200 pt-4 text-center text-xs leading-relaxed text-ink-500">
+                  <p>{companyBranding?.company_address || "—"}</p>
+                  <p className="mt-2">This is a computer-generated salary slip and does not require a signature.</p>
+                </footer>
+              </article>
+              <button onClick={() => void downloadSalarySlip(selectedSlip)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download PDF</button>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

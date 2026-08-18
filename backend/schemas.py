@@ -250,6 +250,24 @@ class AppointmentLetterCreate(BaseModel):
     send: bool = False
 
 
+class LetterTemplateCreate(BaseModel):
+    name: str
+    document_type: str
+    content: str
+
+
+class LetterTemplateUpdate(BaseModel):
+    name: str
+    document_type: str
+    content: str
+
+
+class DynamicLetterCreate(BaseModel):
+    template_id: int
+    employee_id: int
+    send: bool = False
+
+
 # =========================================================
 # Attendance
 # =========================================================
@@ -502,10 +520,12 @@ class HolidayOut(ORMBase):
 # Company Settings
 # =========================================================
 class CompanySettingsUpdate(BaseModel):
-    office_start_time: time
-    office_end_time: time
-    late_grace_minutes: int
-    weekly_off_day: str
+    office_start_time: Optional[time] = None
+    office_end_time: Optional[time] = None
+    late_grace_minutes: Optional[int] = None
+    weekly_off_day: Optional[str] = None
+    company_name: Optional[str] = None
+    company_address: Optional[str] = None
 
 
 class CompanySettingsOut(ORMBase):
@@ -514,6 +534,8 @@ class CompanySettingsOut(ORMBase):
     office_end_time: time
     late_grace_minutes: int
     weekly_off_day: str
+    company_name: str
+    company_address: str
 
 
 # =========================================================

@@ -6,12 +6,24 @@ Office start/end time, late-grace period, and weekly-off-day configuration.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth import require_admin
+from auth import get_current_user, require_admin
 from database import get_db
 from models import CompanySettings, User, ActivityLog
 from schemas import CompanySettingsUpdate, CompanySettingsOut
 
 router = APIRouter()
+
+
+@router.get("/branding")
+def get_company_branding(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Return the existing company details needed on employee-facing documents."""
+    settings_row = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
+    return {
+        "company_name": settings_row.company_name if settings_row else "",
+        "company_address": settings_row.company_address if settings_row else "",
+        # The application already uses this shared branding asset in its navigation.
+        "logo_url": "/logo.jpg",
+    }
 
 
 @router.get("/", response_model=CompanySettingsOut)

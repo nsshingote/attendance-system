@@ -19,6 +19,8 @@ interface Settings {
   office_end_time: string;
   late_grace_minutes: number;
   weekly_off_day: string;
+  company_name: string;
+  company_address: string;
 }
 
 export default function CompanySettings() {
@@ -112,6 +114,28 @@ export default function CompanySettings() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink-700">Company Name</label>
+          <input
+            type="text"
+            value={form.company_name}
+            onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            placeholder="Your Company Name"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink-700">Company Address</label>
+          <textarea
+            value={form.company_address}
+            onChange={(e) => setForm({ ...form, company_address: e.target.value })}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            rows={3}
+            placeholder="Enter company address for salary slips and documents"
+          />
         </div>
 
         <button

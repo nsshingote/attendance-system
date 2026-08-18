@@ -360,6 +360,9 @@ export default function LeavePage() {
                 ? "Viewing all employees"
                 : "Request leave or a half day, and track your balance"}
             </p>
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Leave requests submitted at least 4 days in advance are accepted as Paid Leave. Requests submitted less than 4 days in advance are treated as LWP.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {admin && (

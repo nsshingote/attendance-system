@@ -98,7 +98,7 @@ class EmployeeDocument(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    document_type = Column(String(50), nullable=False)
+    document_type = Column(String(80), nullable=False)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)  # Generated document payload (JSON)
     status = Column(Enum("Draft", "Sent", name="employee_document_status"), nullable=False, default="Draft")
@@ -107,6 +107,22 @@ class EmployeeDocument(Base):
     sent_at = Column(DateTime, nullable=True)
 
     employee = relationship("User", back_populates="employee_documents", foreign_keys=[employee_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class LetterTemplate(Base):
+    __tablename__ = "letter_templates"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    # Reserved for a future tenant migration; this single-company app does not yet have companies.
+    company_id = Column(Integer, nullable=True, index=True)
+    name = Column(String(255), nullable=False)
+    document_type = Column(String(80), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(DateTime, nullable=True, onupdate=func.now())
+
     creator = relationship("User", foreign_keys=[created_by])
 
 
@@ -226,6 +242,8 @@ class CompanySettings(Base):
     office_end_time = Column(Time, nullable=False)
     late_grace_minutes = Column(Integer, nullable=False, default=20)
     weekly_off_day = Column(String(20), default="Sunday")
+    company_name = Column(String(255), default="Your Company Name")
+    company_address = Column(Text, default="")
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 

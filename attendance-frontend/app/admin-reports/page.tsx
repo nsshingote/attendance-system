@@ -68,7 +68,11 @@ const isHiddenMonthlyReportUser = (name: string | null | undefined) => {
   return (name || "").trim().toLowerCase() === "nilesh shingote";
 };
 
-export default function AdminReportsPage() {
+interface AdminReportsPageProps {
+  compact?: boolean;
+}
+
+export function AdminReportsContent({ compact = false }: AdminReportsPageProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -264,131 +268,164 @@ const getTotalDuration = (activities: ReportRow[]) => {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-ink-900">Team Reports</h1>
-            <p className="text-xs text-ink-500">
-              {selectedUserIds.length ? `Reports for ${selectedUserIds.length === 1 ? selectedUserName : `${selectedUserIds.length} employees`}` : "All employees"}
-            </p>
-          </div>
-
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
-            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
-            <label className="order-3 text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
-            <label className="order-4 text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
-            <select
-              value={selectedDepartmentId}
-              onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
-              className="order-2 min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
-            >
-              <option value="">All Departments</option>
-              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select>
-            <div className="hidden">
-              <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
-                <CalendarIcon size={13} />
-                {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
-                {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
-              </button>
-              {showDatePicker && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
-                    <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
-                      <button onClick={clearDateFilter} className="flex-1 rounded border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-ink-50">Clear</button>
-                    </div>
+    <div className="space-y-4">
+      {compact ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <h2 className="text-sm font-semibold text-amber-900">Pending report approvals</h2>
+          <div className="mt-2 space-y-2">
+            {pastSubmissionRequests.filter((request) => request.status === "Pending").length > 0 ? (
+              pastSubmissionRequests
+                .filter((request) => request.status === "Pending")
+                .map((request) => (
+                  <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
+                    <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
+                    <span className="flex gap-2">
+                      <button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button>
+                      <button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button>
+                    </span>
                   </div>
-                </>
-              )}
+                ))
+            ) : (
+              <p className="text-sm text-amber-800">No pending report approvals.</p>
+            )}
+          </div>
+        </section>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-base font-semibold text-ink-900">Team Reports</h1>
+              <p className="text-xs text-ink-500">
+                {selectedUserIds.length ? `Reports for ${selectedUserIds.length === 1 ? selectedUserName : `${selectedUserIds.length} employees`}` : "All employees"}
+              </p>
             </div>
-            <button onClick={handleExportCSV} className="order-5 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
-              <Download size={13} /> CSV
-            </button>
-            <button onClick={handleExportExcel} className="order-6 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
-              <FileSpreadsheet size={13} /> Excel
-            </button>
-          </div>
-        </div>
 
-        {selectedDate && (
-          <div className="flex items-center gap-2 text-sm text-ink-600">
-            <span className="font-medium">Filtering by date:</span>
-            <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
-            <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
-          </div>
-        )}
-
-        {pastSubmissionRequests.some((request) => request.status === "Pending") && (
-          <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <h2 className="text-sm font-semibold text-amber-900">Past-day report requests</h2>
-            <div className="mt-2 space-y-2">
-              {pastSubmissionRequests.filter((request) => request.status === "Pending").map((request) => (
-                <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
-                  <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
-                  <span className="flex gap-2">
-                    <button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button>
-                    <button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button>
-                  </span>
-                </div>
-              ))}
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+              <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
+              <label className="order-3 text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
+              <label className="order-4 text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
+              <select
+                value={selectedDepartmentId}
+                onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
+                className="order-2 min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+              >
+                <option value="">All Departments</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
+              <div className="hidden">
+                <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
+                  <CalendarIcon size={13} />
+                  {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
+                  {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
+                </button>
+                {showDatePicker && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                      <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
+                        <button onClick={clearDateFilter} className="flex-1 rounded border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-ink-50">Clear</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <button onClick={handleExportCSV} className="order-5 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+                <Download size={13} /> CSV
+              </button>
+              <button onClick={handleExportExcel} className="order-6 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+                <FileSpreadsheet size={13} /> Excel
+              </button>
             </div>
-          </section>
-        )}
-
-        {loading ? <Loading /> : reports.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-ink-300 bg-white py-8 text-center">
-            <p className="text-sm text-ink-500">No reports found.</p>
           </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-            <table className="w-full min-w-1050px text-left text-xs">
-              <thead>
-                <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
-                  <th className="px-3 py-2 font-medium">Employee</th>
-                  <th className="px-3 py-2 font-medium">Dept</th>
-                  <th className="px-3 py-2 font-medium">Date</th>
-                  <th className="px-3 py-2 font-medium">Type</th>
-                  <th className="px-3 py-2 font-medium">Subtype</th>
-                  <th className="px-3 py-2 font-medium">Quantity</th>
-                  <th className="px-3 py-2 font-medium">Duration</th>
-                  <th className="px-3 py-2 font-medium">Description</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-               {reports.map((group) => (
-                  <Fragment key={group.key}>
-                    {group.activities.map((activity, index) => (
-                      <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
-                        {index === 0 && <>
-                          <td rowSpan={group.activities.length + 1} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>
-                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
-                          <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
-                        </>}
-                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.type_name || "—"}</td>
-                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.subtype_name || "—"}</td>
-                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.quantity ?? "—"}</td>
-                        <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.duration || "—"}</td>
-                        <td className="max-w-64 px-3 py-2 text-ink-700"><ExpandableText text={activity.description} limit={52} /></td>
-                        {index === 0 && <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={group.status} /></td>}
+
+          {selectedDate && (
+            <div className="flex items-center gap-2 text-sm text-ink-600">
+              <span className="font-medium">Filtering by date:</span>
+              <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
+              <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
+            </div>
+          )}
+
+          {pastSubmissionRequests.some((request) => request.status === "Pending") && (
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <h2 className="text-sm font-semibold text-amber-900">Past-day report requests</h2>
+              <div className="mt-2 space-y-2">
+                {pastSubmissionRequests.filter((request) => request.status === "Pending").map((request) => (
+                  <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
+                    <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
+                    <span className="flex gap-2">
+                      <button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button>
+                      <button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {loading ? <Loading /> : reports.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-ink-300 bg-white py-8 text-center">
+              <p className="text-sm text-ink-500">No reports found.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
+              <table className="w-full min-w-1050px text-left text-xs">
+                <thead>
+                  <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
+                    <th className="px-3 py-2 font-medium">Employee</th>
+                    <th className="px-3 py-2 font-medium">Dept</th>
+                    <th className="px-3 py-2 font-medium">Date</th>
+                    <th className="px-3 py-2 font-medium">Type</th>
+                    <th className="px-3 py-2 font-medium">Subtype</th>
+                    <th className="px-3 py-2 font-medium">Quantity</th>
+                    <th className="px-3 py-2 font-medium">Duration</th>
+                    <th className="px-3 py-2 font-medium">Description</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.map((group) => (
+                    <Fragment key={group.key}>
+                      {group.activities.map((activity, index) => (
+                        <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
+                          {index === 0 && (
+                            <>
+                              <td rowSpan={group.activities.length + 1} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>
+                              <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
+                              <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
+                            </>
+                          )}
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.type_name || "—"}</td>
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.subtype_name || "—"}</td>
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.quantity ?? "—"}</td>
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.duration || "—"}</td>
+                          <td className="max-w-64 px-3 py-2 text-ink-700"><ExpandableText text={activity.description} limit={52} /></td>
+                          {index === 0 && <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={group.status} /></td>}
+                        </tr>
+                      ))}
+                      <tr className="border-t border-ink-200 bg-ink-50/40">
+                        <td colSpan={3} />
+                        <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(group.activities)}</td>
+                        <td />
                       </tr>
-                    ))}
-                    <tr className="border-t border-ink-200 bg-ink-50/40">
-                      <td colSpan={3} />
-                      <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(group.activities)}</td>
-                      <td />
-                    </tr>
-                  </Fragment>
-                ))} 
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function AdminReportsPage(props: AdminReportsPageProps) {
+  return (
+    <AppShell allowedRoles={["admin", "superadmin"]}>
+      <AdminReportsContent {...props} />
     </AppShell>
   );
 }

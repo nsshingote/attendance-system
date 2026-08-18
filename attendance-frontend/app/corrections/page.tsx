@@ -17,7 +17,7 @@ import Modal from "@/components/Common/Modal";
 import CorrectionForm from "@/components/Corrections/Correctionform";
 import CorrectionTable, { CorrectionRow } from "@/components/Corrections/CorrectionTable";
 
-export default function CorrectionsPage() {
+export function CorrectionsContent() {
   const session = getSession();
   const admin = isAdmin(session?.role);
 
@@ -67,78 +67,76 @@ export default function CorrectionsPage() {
   };
 
   return (
-    <AppShell>
-      <div className="space-y-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-ink-900">Attendance Corrections</h1>
-            <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
-          </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            <div className="relative">
-              <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-sm ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
-                <CalendarIcon size={16} />
-                {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
-                {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
-              </button>
-              {showDatePicker && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
-                    <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
-                      <button onClick={clearDateFilter} className="flex-1 rounded border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-ink-50">Clear</button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <button
-              onClick={() => setFormOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
-            >
-              <Plus size={16} />
-              Request Correction
-            </button>
-          </div>
+    <div className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-ink-900">Attendance Corrections</h1>
+          <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
         </div>
-
-        {admin && (
-          <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
-            <button
-              onClick={() => setTab("all")}
-              className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "all" ? "bg-brand-500 text-white" : "text-ink-600"}`}
-            >
-              All Requests
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="relative">
+            <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-sm ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
+              <CalendarIcon size={16} />
+              {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
+              {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
             </button>
-            <button
-              onClick={() => setTab("mine")}
-              className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
-            >
-              My Requests
-            </button>
+            {showDatePicker && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
+                  <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
+                    <button onClick={clearDateFilter} className="flex-1 rounded border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-ink-50">Clear</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-        )}
-
-        {selectedDate && (
-          <div className="flex items-center gap-2 text-sm text-ink-600">
-            <span className="font-medium">Filtering by date:</span>
-            <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
-            <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
-         </div>
-        )}
-
-        {loading ? (
-          <Loading />
-        ) : (
-          <CorrectionTable
-            corrections={tab === "all" ? all : mine}
-            canDecide={admin && tab === "all"}
-            onDecide={handleDecide}
-          />
-        )}
+          <button
+            onClick={() => setFormOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+          >
+            <Plus size={16} />
+            Request Correction
+          </button>
+        </div>
       </div>
+
+      {admin && (
+        <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
+          <button
+            onClick={() => setTab("all")}
+            className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "all" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+          >
+            All Requests
+          </button>
+          <button
+            onClick={() => setTab("mine")}
+            className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+          >
+            My Requests
+          </button>
+        </div>
+      )}
+
+      {selectedDate && (
+        <div className="flex items-center gap-2 text-sm text-ink-600">
+          <span className="font-medium">Filtering by date:</span>
+          <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
+          <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
+        </div>
+      )}
+
+      {loading ? (
+        <Loading />
+      ) : (
+        <CorrectionTable
+          corrections={tab === "all" ? all : mine}
+          canDecide={admin && tab === "all"}
+          onDecide={handleDecide}
+        />
+      )}
 
       <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Request Attendance Correction">
         <CorrectionForm
@@ -149,6 +147,14 @@ export default function CorrectionsPage() {
           onCancel={() => setFormOpen(false)}
         />
       </Modal>
+    </div>
+  );
+}
+
+export default function CorrectionsPage() {
+  return (
+    <AppShell>
+      <CorrectionsContent />
     </AppShell>
   );
 }

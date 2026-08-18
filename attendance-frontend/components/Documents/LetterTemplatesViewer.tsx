@@ -1,121 +1,30 @@
 "use client";
+import { useEffect, useRef, useState } from "react";
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import toast from "react-hot-toast";
+import api, { getErrorMessage } from "@/lib/api";
+import DynamicLetterPreview from "./DynamicLetterPreview";
 
-import { useState } from "react";
-import { OfferLetterPreview } from "./OfferLetterGenerator";
-import { AppointmentLetterPreview } from "./AppointmentLetterGenerator";
-import { type OfferLetterValues } from "@/lib/offerLetterPdf";
-import { type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
-
-const companyAddress = "D1, Plot No. 275, Shree Samarth CHS, Gorai 2, Mumbai - 400091";
-
-const templateExamples = {
-  offer: {
-    label: "Offer Letter",
-    description: "Template for offer letters sent to new candidates",
-    values: {
-      employee_name: "John Doe",
-      designation: "Senior Inspector",
-      department: "Property Inspection",
-      place_of_posting: "Mumbai",
-      date_of_joining: "01/09/2026",
-      letter_date: "15/08/2026",
-      company_address: companyAddress,
-      acceptance_date: "25/08/2026",
-    } satisfies OfferLetterValues,
-  },
-  appointment: {
-    label: "Appointment Letter",
-    description: "Template for appointment letters sent to selected candidates",
-    values: {
-      employee_name: "Jane Smith",
-      designation: "Property Analyst",
-      department: "Analysis",
-      office_location: "Mumbai",
-      start_date: "01/09/2026",
-      letter_date: "15/08/2026",
-      company_address: companyAddress,
-      salary: "₹25,000 - ₹35,000 per month",
-      working_hours: "9:30 AM to 6:30 PM",
-      working_days: "6 days of the week",
-      authorized_signatory: "Authorized Signatory",
-    } satisfies AppointmentLetterValues,
-  },
-} as const;
+type Template = { id: number; name: string; document_type: string; content: string };
+type Placeholder = { key: string; label: string };
+const blank = { name: "", document_type: "", content: "" };
 
 export default function LetterTemplatesViewer() {
-  const [selectedTemplate, setSelectedTemplate] = useState<"offer" | "appointment">(
-    "offer"
-  );
-
-  const currentTemplate =
-    selectedTemplate === "offer" ? templateExamples.offer : templateExamples.appointment;
-
-  return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-ink-200 bg-white p-4 shadow-card sm:p-6">
-        <div>
-          <h2 className="text-lg font-semibold">Letter Templates</h2>
-          <p className="text-sm text-ink-500">
-            View predefined templates. To generate and send letters to employees, go to
-            Letters tab.
-          </p>
-        </div>
-
-        <div className="mt-6 flex gap-3">
-          {(["offer", "appointment"] as const).map((templateType) => (
-            <button
-              key={templateType}
-              onClick={() => setSelectedTemplate(templateType)}
-              className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-                selectedTemplate === templateType
-                  ? "bg-brand-600 text-white"
-                  : "border border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
-              }`}
-            >
-              {templateExamples[templateType as "offer" | "appointment"].label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 rounded-lg bg-brand-50 p-3">
-          <p className="text-sm text-brand-900">
-            {currentTemplate.description}
-          </p>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-ink-200 bg-ink-100 p-3 sm:p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-medium text-ink-500">
-            TEMPLATE PREVIEW — {currentTemplate.label}
-          </p>
-          <p className="text-xs text-ink-400">
-            (Sample data shown for reference)
-          </p>
-        </div>
-        {selectedTemplate === "offer" ? (
-          <OfferLetterPreview values={templateExamples.offer.values} />
-        ) : (
-          <AppointmentLetterPreview values={templateExamples.appointment.values} />
-        )}
-      </section>
-
-      <section className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
-        <h3 className="font-semibold mb-3">How to Use</h3>
-        <ul className="space-y-2 text-sm text-ink-600">
-          <li>
-            ✓ Go to <strong>Letters</strong> tab to generate and send letters to
-            specific employees
-          </li>
-          <li>✓ Select an employee and choose the letter type</li>
-          <li>✓ Employee details will auto-populate from their profile</li>
-          <li>✓ Customize the letter content as needed</li>
-          <li>✓ Preview before sending</li>
-          <li>
-            ✓ Save as draft or send directly to the employee's Documents
-          </li>
-        </ul>
-      </section>
-    </div>
-  );
+  const [templates, setTemplates] = useState<Template[]>([]); const [placeholders, setPlaceholders] = useState<Placeholder[]>([]);
+  const [editing, setEditing] = useState<Template | typeof blank | null>(null); const [preview, setPreview] = useState<Template | null>(null);
+  const contentInput = useRef<HTMLTextAreaElement | null>(null);
+  const load = async () => { const [items, fields] = await Promise.all([api.get<Template[]>("/employee-documents/letter-templates"), api.get<Placeholder[]>("/employee-documents/letter-templates/placeholders")]); setTemplates(items.data); setPlaceholders(fields.data); };
+  useEffect(() => { load().catch(error => toast.error(getErrorMessage(error))); }, []);
+  const save = async () => { if (!editing) return; try { if ("id" in editing) await api.put(`/employee-documents/letter-templates/${editing.id}`, editing); else await api.post("/employee-documents/letter-templates", editing); setEditing(null); await load(); toast.success("Letter template saved"); } catch (error) { toast.error(getErrorMessage(error)); } };
+  const append = (key: string) => {
+    if (!editing) return;
+    const input = contentInput.current; const token = `{{${key}}}`; const start = input?.selectionStart ?? editing.content.length; const end = input?.selectionEnd ?? start;
+    setEditing({ ...editing, content: `${editing.content.slice(0, start)}${token}${editing.content.slice(end)}` });
+    requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + token.length, start + token.length); });
+  };
+  return <div className="space-y-6">
+    <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Letter Templates</h2><p className="text-sm text-ink-500">Create fully editable templates and insert employee/company placeholders anywhere.</p></div><button onClick={() => setEditing(blank)} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Plus size={16}/> Add Template</button></div><div className="mt-5 divide-y rounded-lg border">{templates.length ? templates.map(template => <div key={template.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="font-medium">{template.name}</p><p className="text-xs text-ink-500">Type: {template.document_type}</p></div><div className="flex gap-2"><button onClick={() => setPreview(template)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><Eye size={14}/> Preview</button><button onClick={() => setEditing(template)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><Pencil size={14}/> Edit</button><button onClick={async () => { if (!window.confirm(`Delete ${template.name}?`)) return; try { await api.delete(`/employee-documents/letter-templates/${template.id}`); await load(); toast.success("Template deleted"); } catch (error) { toast.error(getErrorMessage(error)); } }} className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600"><Trash2 size={14}/> Delete</button></div></div>) : <p className="p-6 text-sm text-ink-500">No templates are available. Run the provided migration to create the initial Offer and Appointment templates.</p>}</div></section>
+    {editing && <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"><div className="rounded-xl border border-ink-200 bg-white p-5 shadow-card"><h3 className="font-semibold">{"id" in editing ? "Edit Template" : "Add Template"}</h3><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="text-sm font-medium">Template Name<input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} className="mt-1 block w-full rounded-lg border-ink-200" /></label><label className="text-sm font-medium">Document Type<input value={editing.document_type} onChange={e => setEditing({ ...editing, document_type: e.target.value })} placeholder="experience_letter" className="mt-1 block w-full rounded-lg border-ink-200" /></label></div><label className="mt-4 block text-sm font-medium">Template Content<textarea ref={contentInput} value={editing.content} onChange={e => setEditing({ ...editing, content: e.target.value })} rows={18} className="mt-1 block w-full rounded-lg border-ink-200 font-mono text-sm" /></label><div className="mt-4 flex gap-3"><button onClick={save} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Save Template</button><button onClick={() => setEditing(null)} className="rounded-lg border px-4 py-2 text-sm font-medium">Cancel</button></div></div><aside className="rounded-xl border border-ink-200 bg-white p-5 shadow-card"><h3 className="font-semibold">Available Placeholders</h3><p className="mt-1 text-xs text-ink-500">Place the cursor in the text, then click a placeholder to insert it there.</p><div className="mt-4 flex flex-wrap gap-2">{placeholders.map(field => <button key={field.key} title={field.label} onClick={() => append(field.key)} className="rounded border border-brand-200 bg-brand-50 px-2 py-1 text-xs text-brand-800">{`{{${field.key}}}`}</button>)}</div></aside></section>}
+    {preview && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4"><div className="mx-auto my-8 max-w-4xl rounded-xl bg-ink-100 p-4 shadow-xl"><div className="mb-3 flex justify-end"><button onClick={() => setPreview(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">Close</button></div><DynamicLetterPreview title={preview.name} content={preview.content}/></div></div>}
+  </div>;
 }
