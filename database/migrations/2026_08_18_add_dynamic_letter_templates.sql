@@ -1,6 +1,17 @@
 -- Do not run automatically. This creates the single-company template store.
 -- company_id is intentionally nullable and reserved for a later tenant migration.
+
 -- Keep generated-document types compatible with the template type limit.
+
+-- Add company details required by the current CompanySettings model.
+ALTER TABLE company_settings
+    ADD COLUMN company_name VARCHAR(255) NULL,
+    ADD COLUMN company_address TEXT NULL;
+
+-- Do not run automatically. This creates the single-company template store.
+
+-- company_id is intentionally nullable and reserved for a later tenant migration.
+
 ALTER TABLE employee_documents MODIFY COLUMN document_type VARCHAR(80) NOT NULL;
 
 CREATE TABLE IF NOT EXISTS letter_templates (
