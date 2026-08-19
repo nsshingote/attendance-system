@@ -9,8 +9,10 @@ import MonthSelector from "@/components/Calendar/MonthSelector";
 import UserAttendanceChart from "@/components/Users/AttendanceChart";
 import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLetterGenerator";
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
+import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
+import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
 import api, { getErrorMessage, getProfilePhotoUrl } from "@/lib/api";
 import { getToken, updateSessionName } from "@/lib/auth";
 
@@ -401,6 +403,26 @@ export default function MyProfilePage() {
     selectedDocument?.document_type === "offer_letter"
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
+  const dynamicValues = selectedDocument && !appointmentValues && !offerValues
+    ? (JSON.parse(selectedDocument.content) as { resolved_content?: string })
+    : null;
+
+  const downloadGeneratedDocument = async (document: GeneratedDocument) => {
+    try {
+      const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
+      if (document.document_type === "appointment_letter") {
+        downloadAppointmentLetterPdf(values);
+      } else if (document.document_type === "offer_letter") {
+        downloadOfferLetterPdf(values);
+      } else if (values.resolved_content) {
+        await downloadDynamicLetterPdf(document.title, values.resolved_content, profile?.name);
+      } else {
+        throw new Error("This document has no renderable content");
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
 
   return (
     <AppShell allowedRoles={["user"]}>
@@ -713,20 +735,9 @@ export default function MyProfilePage() {
                           >
                             View
                           </button>
-                          {(document.document_type === "offer_letter" || document.document_type === "appointment_letter") && (
-                            <button
-                              onClick={() => {
-                                if (document.document_type === "appointment_letter") {
-                                  downloadAppointmentLetterPdf(JSON.parse(document.content) as AppointmentLetterValues);
-                                } else if (document.document_type === "offer_letter") {
-                                  downloadOfferLetterPdf(JSON.parse(document.content) as OfferLetterValues);
-                                }
-                              }}
-                              className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"
-                            >
-                              <Download size={14} /> Download
-                            </button>
-                          )}
+                          <button onClick={() => void downloadGeneratedDocument(document)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">
+                            <Download size={14} /> Download
+                          </button>
                         </div>
                       </div>
                     ))
@@ -790,7 +801,7 @@ export default function MyProfilePage() {
           </section>
         )}
 
-        {selectedDocument && (appointmentValues || offerValues) && (
+        {selectedDocument && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
             <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
               <div className="mb-3 flex justify-end gap-2">
@@ -816,6 +827,7 @@ export default function MyProfilePage() {
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview title={selectedDocument.title} content={dynamicValues.resolved_content} />}
             </div>
           </div>
         )}

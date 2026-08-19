@@ -13,8 +13,10 @@ import UserAttendanceChart from "@/components/Users/AttendanceChart";
 import MonthSelector from "@/components/Calendar/MonthSelector";
 import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLetterGenerator";
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
+import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
+import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
 import { getToken } from "@/lib/auth";
 
 interface UserDetail {
@@ -322,6 +324,24 @@ export default function UserDetailPage() {
 
   const appointmentValues = selectedGeneratedDocument?.document_type === "appointment_letter" ? JSON.parse(selectedGeneratedDocument.content) as AppointmentLetterValues : null;
   const offerValues = selectedGeneratedDocument?.document_type === "offer_letter" ? JSON.parse(selectedGeneratedDocument.content) as OfferLetterValues : null;
+  const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string } : null;
+
+  const downloadGeneratedDocument = async (document: GeneratedDocument) => {
+    try {
+      const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
+      if (document.document_type === "appointment_letter") {
+        downloadAppointmentLetterPdf(values);
+      } else if (document.document_type === "offer_letter") {
+        downloadOfferLetterPdf(values);
+      } else if (values.resolved_content) {
+        await downloadDynamicLetterPdf(document.title, values.resolved_content, user?.name);
+      } else {
+        throw new Error("This document has no renderable content");
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
 
   const handleDeleteDocument = async (documentId: number) => {
     if (!window.confirm("Are you sure you want to delete this document?")) return;
@@ -499,15 +519,7 @@ export default function UserDetailPage() {
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => setSelectedGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">View</button>
-                        {(document.document_type === "offer_letter" || document.document_type === "appointment_letter") && (
-                          <button onClick={() => {
-                            if (document.document_type === "appointment_letter") {
-                              downloadAppointmentLetterPdf(JSON.parse(document.content) as AppointmentLetterValues);
-                            } else if (document.document_type === "offer_letter") {
-                              downloadOfferLetterPdf(JSON.parse(document.content) as OfferLetterValues);
-                            }
-                          }} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">Download</button>
-                        )}
+                        <button onClick={() => void downloadGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">Download</button>
                         <button onClick={() => handleDeleteDocument(document.id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600">Delete</button>
                       </div>
                     </div>
@@ -519,7 +531,7 @@ export default function UserDetailPage() {
         )}
       </div>
 
-      {selectedGeneratedDocument && (appointmentValues || offerValues) && (
+      {selectedGeneratedDocument && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
           <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
             <div className="mb-3 flex justify-end gap-2">
@@ -527,8 +539,9 @@ export default function UserDetailPage() {
               {offerValues && <button onClick={() => downloadOfferLetterPdf(offerValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
               <button onClick={() => setSelectedGeneratedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">Close</button>
             </div>
-            {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
-            {offerValues && <OfferLetterPreview values={offerValues} />}
+              {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
+              {offerValues && <OfferLetterPreview values={offerValues} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} />}
           </div>
         </div>
       )}
