@@ -674,13 +674,7 @@ export default function MyProfilePage() {
                           {doc.original_filename} · {new Date(doc.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
-                        <button onClick={() => void handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
-                        <button onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
-                        <button onClick={() => void requestDeletePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 disabled:opacity-50"><Trash2 size={14} /> Delete</button>
-                        {pendingDocumentRequest(doc.id) && <span className="self-center text-xs text-amber-700">{pendingDocumentRequest(doc.id)?.request_type} pending</span>}
-                      </div>
+                      <span className="text-xs text-ink-500">Locked</span>
                     </div>
                   ))
                 ) : (

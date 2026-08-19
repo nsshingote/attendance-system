@@ -26,6 +26,10 @@ const refreshAccessToken = async (): Promise<string> => {
 // Request interceptor - add token
 api.interceptors.request.use(
   (config) => {
+    if (config.headers && typeof FormData !== "undefined" && config.data instanceof FormData) {
+      delete config.headers["Content-Type"];
+      delete config.headers["content-type"];
+    }
     const session = getSession();
     if (session?.token) {
       config.headers.Authorization = `Bearer ${session.token}`;
