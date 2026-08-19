@@ -51,12 +51,18 @@ def get_upload_path(filename: str) -> str:
 def get_resource_file_path(resource: Resource) -> Path:
     """Resolve stored paths while keeping older resource records readable."""
     stored_path = Path(resource.file_path)
-    if stored_path.exists():
-        return stored_path
-    legacy_path = Path("backend/uploads/resources") / stored_path.name
-    if legacy_path.exists():
-        return legacy_path
-    return UPLOAD_DIR / stored_path.name
+    candidates = [
+        stored_path,
+        Path.cwd() / stored_path,
+        Path(__file__).resolve().parents[1] / stored_path,
+        Path("backend/uploads/resources") / stored_path.name,
+        Path("uploads/resources") / stored_path.name,
+        UPLOAD_DIR / stored_path.name,
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
 
 
 def user_has_resource_access(user: User, resource: Resource, db: Session) -> bool:
@@ -470,6 +476,10 @@ def view_resource(resource_id: int, db: Session = Depends(get_db), current_user:
     if not resource or not user_has_resource_access(current_user, resource, db):
         raise HTTPException(status_code=404, detail="Resource not found")
     file_path = get_resource_file_path(resource)
-    if not file_path.exists(): raise HTTPException(status_code=404, detail="File not found")
+    if not file_path.is_file():
+        logger.error("Resource preview file not found: %s", resource.file_path)
+        raise HTTPException(status_code=404, detail="File not found")
     from mimetypes import guess_type
-    return FileResponse(file_path, media_type=guess_type(resource.file_name)[0] or "application/octet-stream", headers={"Content-Disposition": "inline"})
+    return FileResponse(str(file_path), filename=resource.file_name,
+                        media_type=guess_type(resource.file_name)[0] or "application/octet-stream",
+                        headers={"Content-Disposition": "inline"})

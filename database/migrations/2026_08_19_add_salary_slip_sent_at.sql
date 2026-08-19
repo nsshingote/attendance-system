@@ -1,0 +1,1 @@
+ALTER TABLE salary_slips ADD COLUMN sent_at DATETIME NULL;

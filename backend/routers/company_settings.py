@@ -4,6 +4,8 @@ Office start/end time, late-grace period, and weekly-off-day configuration.
 """
 
 from fastapi import APIRouter, Depends
+from datetime import time, timedelta
+
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -37,6 +39,13 @@ def _company_settings_columns(db: Session):
         return set()
 
 
+def _mysql_time_value(value, fallback: str) -> time | str:
+    if isinstance(value, timedelta):
+        total_seconds = int(value.total_seconds()) % (24 * 60 * 60)
+        return time(total_seconds // 3600, (total_seconds % 3600) // 60, total_seconds % 60)
+    return value or fallback
+
+
 def _read_company_settings_row(db: Session):
     columns = _company_settings_columns(db)
     select_columns = [
@@ -58,14 +67,14 @@ def _read_company_settings_row(db: Session):
     if not raw_row:
         defaults = _settings_default_payload()
         return {
-            "id": None,
+            "id": 0,
             **defaults,
         }
 
     payload = {
         "id": raw_row["id"],
-        "office_start_time": raw_row.get("office_start_time") or "10:00:00",
-        "office_end_time": raw_row.get("office_end_time") or "18:30:00",
+        "office_start_time": _mysql_time_value(raw_row.get("office_start_time"), "10:00:00"),
+        "office_end_time": _mysql_time_value(raw_row.get("office_end_time"), "18:30:00"),
         "late_grace_minutes": raw_row.get("late_grace_minutes") or 20,
         "weekly_off_day": raw_row.get("weekly_off_day") or "Sunday",
         "company_name": raw_row.get("company_name") or DEFAULT_COMPANY_NAME,
@@ -114,13 +123,7 @@ def get_company_branding(db: Session = Depends(get_db), current_user: User = Dep
 
 @router.get("/", response_model=CompanySettingsOut)
 def get_settings(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    settings = _read_company_settings_row(db)
-    if settings.get("id") is None:
-        settings = _upsert_company_settings_row(
-            db,
-            _settings_default_payload(),
-        )
-    return settings
+    return _read_company_settings_row(db)
 
 
 @router.put("/", response_model=CompanySettingsOut)

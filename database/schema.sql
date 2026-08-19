@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     emergency_contact_relationship VARCHAR(100) NULL,
     emergency_contact_phone VARCHAR(20) NULL,
     status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at DATETIME NULL,
     device_token VARCHAR(255),
     device_name VARCHAR(255),
     browser_name VARCHAR(100),
@@ -531,7 +531,7 @@ CREATE TABLE IF NOT EXISTS salary_slips (
     id INT PRIMARY KEY AUTO_INCREMENT, employee_id INT NOT NULL, month INT NOT NULL, year INT NOT NULL,
     particulars TEXT NOT NULL, total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
     status ENUM('Saved', 'Sent') NOT NULL DEFAULT 'Saved', created_by INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at DATETIME NULL,
     FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
 );

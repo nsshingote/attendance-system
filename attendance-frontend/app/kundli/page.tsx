@@ -93,8 +93,8 @@ export default function KundliPage() {
                     {notes.length ? notes.map((note) => (
                       <tr key={note.id} className="border-t border-ink-100 align-top">
                         <td className="whitespace-nowrap px-4 py-3">{new Date(note.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
-                        <td className="max-w-xs break-words px-4 py-3 text-ink-700">{note.positive_note || "—"}</td>
-                        <td className="max-w-xs break-words px-4 py-3 text-ink-700">{note.negative_note || "—"}</td>
+                        <td className="max-w-xs wrap-break-words px-4 py-3 text-ink-700">{note.positive_note || "—"}</td>
+                        <td className="max-w-xs wrap-break-words px-4 py-3 text-ink-700">{note.negative_note || "—"}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
                             <button onClick={() => { setEditingId(note.id); setPositive(note.positive_note || ""); setNegative(note.negative_note || ""); }} className="inline-flex items-center gap-1 text-brand-700"><Pencil size={14} /> Edit</button>

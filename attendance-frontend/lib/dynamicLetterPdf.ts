@@ -1,6 +1,5 @@
 import jsPDF from "jspdf";
-
-type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
+import { LETTER_BRANDING } from "@/lib/letterBranding";
 
 const loadImage = async (url: string) => {
   const response = await fetch(url);
@@ -14,17 +13,17 @@ const loadImage = async (url: string) => {
   });
 };
 
-export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: string, company?: CompanyBranding) {
+export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: string) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
   const height = pdf.internal.pageSize.getHeight();
   const margin = 17;
   let y = 18;
 
-  const companyName = company?.company_name || "PropCheckup";
-  const companyAddress = company?.company_address || "Office No. 62, Xth Central Mall, 2nd Floor, Above Kotak Bank, Mahavir Nagar, Kandivali West, Mumbai - 400067";
+  const companyName = LETTER_BRANDING.companyName;
+  const companyAddress = LETTER_BRANDING.address;
   try {
-    const logo = await loadImage(company?.logo_url || "/logo.jpg");
+    const logo = await loadImage(LETTER_BRANDING.logoUrl);
     pdf.addImage(logo, "JPEG", margin, y - 5, 18, 18);
   } catch {
     // Keep the generated document usable when the optional logo cannot load.
@@ -34,6 +33,14 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
   pdf.setFontSize(16);
   pdf.setTextColor(31, 41, 55);
   pdf.text(companyName, margin + 24, y + 3);
+  pdf.setFontSize(7);
+  pdf.setTextColor(234, 88, 12);
+  pdf.text(LETTER_BRANDING.tagline, margin + 24, y + 8);
+  pdf.setFontSize(8);
+  pdf.setTextColor(30, 58, 138);
+  pdf.text(LETTER_BRANDING.website, width - margin, y - 2, { align: "right" });
+  pdf.text(LETTER_BRANDING.email, width - margin, y + 3, { align: "right" });
+  pdf.text(LETTER_BRANDING.phone, width - margin, y + 8, { align: "right" });
   y += 20;
   pdf.setDrawColor(37, 99, 235); pdf.setLineWidth(0.7); pdf.line(margin, y, width - margin, y); y += 11;
   pdf.setFontSize(15); pdf.text(title.toUpperCase(), width / 2, y, { align: "center" }); y += 12;

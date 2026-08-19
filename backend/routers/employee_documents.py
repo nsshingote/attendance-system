@@ -105,7 +105,7 @@ def _document_dict(item: EmployeeDocument):
 def _salary_slip_dict(item: SalarySlip):
     return {"id": item.id, "employee_id": item.employee_id, "employee_name": item.employee.name if item.employee else None,
             "month": item.month, "year": item.year, "particulars": item.particulars,
-            "total_amount": float(item.total_amount), "status": item.status, "created_at": item.created_at}
+            "total_amount": float(item.total_amount), "status": item.status, "created_at": item.created_at, "sent_at": item.sent_at}
 
 
 @router.get("/salary-slips")
@@ -138,6 +138,7 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
         period = datetime(payload.year, payload.month, 1).strftime("%B %Y")
         if send_email([employee.email], f"Salary slip for {period}", f"<p>Hi {employee.name},</p><p>Your salary slip for <b>{period}</b> is now available in My Profile → Salary Slips.</p>"):
             item.status = "Sent"
+            item.sent_at = datetime.utcnow()
             db.commit()
             db.refresh(item)
     db.add(ActivityLog(user_id=current_user.id, activity=f"Created salary slip for '{employee.name}'"))
@@ -154,10 +155,11 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
     particulars = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in payload.particulars if row.name.strip()]
     if not particulars: raise HTTPException(status_code=422, detail="Add at least one salary particular")
     item.employee_id, item.month, item.year, item.particulars = employee.id, payload.month, payload.year, json.dumps(particulars)
-    item.total_amount, item.status = sum(max(0, row["amount"]) for row in particulars), "Saved"
+    item.total_amount, item.status, item.sent_at = sum(max(0, row["amount"]) for row in particulars), "Saved", None
     if payload.send and employee.email:
         period = datetime(payload.year, payload.month, 1).strftime("%B %Y")
-        if send_email([employee.email], f"Salary slip for {period}", f"<p>Hi {employee.name},</p><p>Your updated salary slip for <b>{period}</b> is available in My Profile.</p>"): item.status = "Sent"
+        if send_email([employee.email], f"Salary slip for {period}", f"<p>Hi {employee.name},</p><p>Your updated salary slip for <b>{period}</b> is available in My Profile.</p>"):
+            item.status, item.sent_at = "Sent", datetime.utcnow()
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated salary slip for '{employee.name}'")); db.commit(); db.refresh(item)
     return _salary_slip_dict(item)
 
