@@ -10,6 +10,7 @@ from typing import List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -480,6 +481,9 @@ def view_resource(resource_id: int, db: Session = Depends(get_db), current_user:
         logger.error("Resource preview file not found: %s", resource.file_path)
         raise HTTPException(status_code=404, detail="File not found")
     from mimetypes import guess_type
-    return FileResponse(str(file_path), filename=resource.file_name,
-                        media_type=guess_type(resource.file_name)[0] or "application/octet-stream",
-                        headers={"Content-Disposition": "inline"})
+    media_type = guess_type(resource.file_name)[0] or "application/octet-stream"
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{resource.file_name}"'},
+    )

@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Download, Eye, Pencil, Trash2, Upload } from "lucide-react";
+import { Download, Eye, Pencil, Upload } from "lucide-react";
 import { jsPDF } from "jspdf";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
@@ -37,7 +37,7 @@ type User = {
 
 type Slip = { id: number; month: number; year: number; total_amount: number; status: string; particulars: string };
 type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
-type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
+type ProfileEditRequest = { id: number; section: "address" | "emergency_contact" | "personal_document"; status: string; requested_data?: Record<string, string | null> };
 type GeneratedDocument = { id: number; document_type: string; title: string; content: string; created_at: string };
 type PersonalDocument = {
   id: number;
@@ -117,6 +117,24 @@ export default function MyProfilePage() {
   const loadPersonalDocuments = async () => {
     const { data } = await api.get<PersonalDocument[]>("/employee-documents/personal-documents/mine");
     setPersonalDocuments(data);
+  };
+
+  const requestPersonalDocumentEdit = async (documentId: number) => {
+    try {
+      await api.post("/users/me/profile-edit-requests", {
+        section: "personal_document",
+        requested_data: { document_id: String(documentId) },
+      });
+      setProfileRequests((previous) => [...previous, {
+        id: Date.now(),
+        section: "personal_document",
+        status: "Pending",
+        requested_data: { document_id: String(documentId) },
+      }]);
+      toast.success("Document edit request sent to Admin and Superadmin");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
   };
 
   useEffect(() => {
@@ -267,7 +285,7 @@ export default function MyProfilePage() {
     pdf.setFont("helvetica", "normal");
     pdf.setDrawColor(209, 213, 219);
     pdf.setFillColor(249, 250, 251);
-    pdf.rect(margin, y - 4, contentWidth, 27, "FD");
+    pdf.rect(margin, y - 4, contentWidth, 34, "FD");
 
     const detailsData = [
       ["Name", profile.name],
@@ -275,6 +293,7 @@ export default function MyProfilePage() {
       ["Department", profile.department],
       ["Phone Number", profile.mobile || profile.phone || "—"],
       ["Email", profile.email || "—"],
+      ["Joining Date", profile.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "—"],
     ];
 
     let detailY = y;
@@ -296,7 +315,7 @@ export default function MyProfilePage() {
       }
     });
 
-    y = y + 33;
+    y = y + 40;
 
     pdf.setFontSize(9);
     pdf.setFont("helvetica", "bold");
@@ -353,9 +372,6 @@ export default function MyProfilePage() {
     const address = companyBranding?.company_address || "—";
     const addressLines = pdf.splitTextToSize(address, contentWidth - 10);
     pdf.text(addressLines, pageWidth / 2, footerTop + 7, { align: "center" });
-    pdf.setFontSize(7);
-    pdf.text("This is a computer-generated salary slip and does not require a signature.", pageWidth / 2, pageHeight - 8, { align: "center" });
-
     pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
 
@@ -375,16 +391,6 @@ export default function MyProfilePage() {
     anchor.download = `document_${documentId}`;
     anchor.click();
     window.URL.revokeObjectURL(url);
-  };
-
-  const handleDeletePersonalDoc = async (documentId: number) => {
-    try {
-      await api.delete(`/employee-documents/personal-documents/${documentId}`);
-      await loadPersonalDocuments();
-      toast.success("Document deleted successfully");
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
   };
 
   const appointmentValues =
@@ -609,18 +615,14 @@ export default function MyProfilePage() {
                           {doc.original_filename} · {new Date(doc.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                         </p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-ink-500">Locked</span>
                         <button
-                          onClick={() => handleDownloadPersonalDoc(doc.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"
+                          onClick={() => void requestPersonalDocumentEdit(doc.id)}
+                          disabled={profileRequests.some((request) => request.section === "personal_document" && request.status === "Pending" && request.requested_data?.document_id === String(doc.id))}
+                          className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <Download size={14} /> Download
-                        </button>
-                        <button
-                          onClick={() => handleDeletePersonalDoc(doc.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600"
-                        >
-                          <Trash2 size={14} /> Delete
+                          <Pencil size={14} /> Request Edit
                         </button>
                       </div>
                     </div>
@@ -846,6 +848,7 @@ export default function MyProfilePage() {
                       ["Department", profile?.department || "—"],
                       ["Phone Number", profile?.mobile || profile?.phone || "—"],
                       ["Email Address", profile?.email || "—"],
+                      ["Joining Date", profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "—"],
                     ].map(([label, value]) => (
                       <div key={label}>
                         <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
@@ -878,7 +881,6 @@ export default function MyProfilePage() {
 
                 <footer className="mt-12 border-t border-ink-200 pt-4 text-center text-xs leading-relaxed text-ink-500">
                   <p>{companyBranding?.company_address || "—"}</p>
-                  <p className="mt-2">This is a computer-generated salary slip and does not require a signature.</p>
                 </footer>
               </article>
               <button onClick={() => void downloadSalarySlip(selectedSlip)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download PDF</button>

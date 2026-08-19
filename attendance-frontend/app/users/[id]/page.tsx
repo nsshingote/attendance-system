@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { Eye } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
@@ -257,6 +258,31 @@ export default function UserDetailPage() {
     window.URL.revokeObjectURL(url);
   };
 
+  const handleViewPersonalDoc = async (documentId: number) => {
+    const previewWindow = window.open("about:blank", "_blank");
+    const token = getToken();
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || "Unable to view file");
+      }
+      const url = window.URL.createObjectURL(await response.blob());
+      if (previewWindow) {
+        previewWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      } else {
+        window.URL.revokeObjectURL(url);
+        toast.error("Allow pop-ups to view the document");
+      }
+    } catch (error) {
+      previewWindow?.close();
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   useEffect(() => {
     loadUserData();
     loadDocumentData();
@@ -453,7 +479,10 @@ export default function UserDetailPage() {
                         <p className="font-medium text-ink-900">{doc.title || personalDocLabels[doc.document_type] || doc.document_type}</p>
                         <p className="text-xs text-ink-500">{doc.original_filename}</p>
                       </div>
-                      <button onClick={() => handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><span>Download</span></button>
+                      <div className="flex gap-2">
+                        <button onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={15} /> <span>View</span></button>
+                        <button onClick={() => void handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><span>Download</span></button>
+                      </div>
                     </div>
                   )) : <p className="text-sm text-ink-500">No personal documents uploaded.</p>}
                 </div>

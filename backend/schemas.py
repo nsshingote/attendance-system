@@ -161,8 +161,8 @@ class ProfileEditRequestCreate(BaseModel):
     @field_validator("section")
     @classmethod
     def validate_section(cls, value: str) -> str:
-        if value not in {"address", "emergency_contact"}:
-            raise ValueError("section must be address or emergency_contact")
+        if value not in {"address", "emergency_contact", "personal_document"}:
+            raise ValueError("section must be address, emergency_contact, or personal_document")
         return value
 
 
