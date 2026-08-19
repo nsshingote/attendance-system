@@ -126,13 +126,19 @@ export default function ResourcesPage() {
   };
 
   const handleViewClick = async (resource: Resource) => {
+    if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
     try {
       const response = await api.get(`/resources/${resource.id}/view`, {
         responseType: "blob",
       });
-      const blob = new Blob([response.data]);
+      const extension = resource.file_name.split(".").pop()?.toLowerCase();
+      const responseContentType = response.headers["content-type"];
+      const mediaType = extension === "pdf"
+        ? "application/pdf"
+        : typeof responseContentType === "string" ? responseContentType : "application/octet-stream";
+      const blob = new Blob([response.data], { type: mediaType });
       const blobUrl = window.URL.createObjectURL(blob);
       setPreviewUrl(blobUrl);
     } catch (error) {

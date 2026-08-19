@@ -10,13 +10,14 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin
+from config import settings
 from database import get_db
 from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, KundliNote, LetterTemplate, SalarySlip, User
 from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, SalarySlipCreate
 from utils.email_service import send_email
 
 router = APIRouter()
-PERSONAL_UPLOAD_DIR = Path("backend/uploads/personal_documents")
+PERSONAL_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "personal_documents"
 PERSONAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_PERSONAL_DOC_TYPES = {"aadhaar", "pan", "bank_passbook", "highest_degree", "other"}
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+(?:\s+[a-zA-Z0-9_]+)*)\s*}}")
@@ -24,6 +25,17 @@ PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+(?:\s+[a-zA-Z0-9_]+)*)\s*}
 
 DEFAULT_COMPANY_NAME = "PropCheckup"
 DEFAULT_COMPANY_ADDRESS = "Office No. 62, Xth Central Mall, 2nd Floor, Above Kotak Bank, Mahavir Nagar, Kandivali West, Mumbai - 400067"
+
+
+def _personal_document_path(item: EmployeePersonalDocument) -> Path:
+    stored_path = Path(item.file_path)
+    candidates = [stored_path, PERSONAL_UPLOAD_DIR / item.file_name]
+    if not stored_path.is_absolute():
+        candidates.append(Path.cwd() / stored_path)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return PERSONAL_UPLOAD_DIR / item.file_name
 
 
 def _seed_default_letter_templates(db: Session):
@@ -433,9 +445,10 @@ def download_personal_document(document_id: int, db: Session = Depends(get_db), 
         raise HTTPException(status_code=404, detail="Document not found")
     if current_user.role == "user" and current_user.id != item.employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
-    if not os.path.exists(item.file_path):
+    file_path = _personal_document_path(item)
+    if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found on disk")
-    return FileResponse(path=item.file_path, filename=item.original_filename, media_type=item.mime_type or "application/octet-stream")
+    return FileResponse(path=str(file_path), filename=item.original_filename, media_type=item.mime_type or "application/octet-stream")
 
 
 @router.delete("/personal-documents/{document_id}")
@@ -445,9 +458,10 @@ def delete_personal_document(document_id: int, db: Session = Depends(get_db), cu
         raise HTTPException(status_code=404, detail="Document not found")
     if current_user.role == "user" and current_user.id != item.employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
-    if os.path.exists(item.file_path):
+    file_path = _personal_document_path(item)
+    if file_path.is_file():
         try:
-            os.remove(item.file_path)
+            os.remove(file_path)
         except OSError:
             pass
     db.delete(item)
