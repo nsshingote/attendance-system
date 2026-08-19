@@ -161,8 +161,8 @@ class ProfileEditRequestCreate(BaseModel):
     @field_validator("section")
     @classmethod
     def validate_section(cls, value: str) -> str:
-        if value not in {"address", "emergency_contact", "personal_document"}:
-            raise ValueError("section must be address, emergency_contact, or personal_document")
+        if value not in {"address", "emergency_contact"}:
+            raise ValueError("section must be address or emergency_contact")
         return value
 
 
@@ -188,6 +188,17 @@ class EmployeePersonalDocumentOut(ORMBase):
     mime_type: Optional[str] = None
     file_size: int
     uploaded_at: datetime
+
+
+class PersonalDocumentRequestDecision(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in {"Approved", "Rejected"}:
+            raise ValueError("status must be Approved or Rejected")
+        return value
 
 
 class SalarySlipParticular(BaseModel):

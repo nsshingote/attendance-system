@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS personal_document_change_requests (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    employee_id INT NOT NULL,
+    document_id INT NULL,
+    request_type ENUM('replace', 'delete') NOT NULL,
+    pending_file_name VARCHAR(255) NULL,
+    pending_original_filename VARCHAR(255) NULL,
+    pending_file_path VARCHAR(500) NULL,
+    pending_mime_type VARCHAR(100) NULL,
+    pending_file_size INT NULL,
+    status ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Pending',
+    decided_by INT NULL,
+    decided_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES employee_personal_documents(id) ON DELETE SET NULL,
+    FOREIGN KEY (decided_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX ix_personal_document_change_requests_status (status),
+    INDEX ix_personal_document_change_requests_document (document_id, status)
+);

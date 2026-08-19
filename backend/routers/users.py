@@ -19,7 +19,7 @@ from auth import get_current_user, hash_password, require_admin, require_superad
 from config import settings
 from database import get_db
 from models import (
-    User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, EmployeePersonalDocument,
+    User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
@@ -115,18 +115,7 @@ def my_profile_edit_requests(db: Session = Depends(get_db), current_user: User =
 
 @router.post("/me/profile-edit-requests", status_code=201)
 def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if payload.section == "personal_document":
-        if set(payload.requested_data) != {"document_id"}:
-            raise HTTPException(status_code=422, detail="A personal document ID is required")
-        try:
-            document_id = int(payload.requested_data["document_id"] or "0")
-        except (TypeError, ValueError):
-            document_id = 0
-        if not db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id, EmployeePersonalDocument.employee_id == current_user.id).first():
-            raise HTTPException(status_code=404, detail="Personal document not found")
-        allowed = {"document_id"}
-    else:
-        allowed = ADDRESS_FIELDS if payload.section == "address" else EMERGENCY_FIELDS
+    allowed = ADDRESS_FIELDS if payload.section == "address" else EMERGENCY_FIELDS
     if not payload.requested_data or set(payload.requested_data) - allowed:
         raise HTTPException(status_code=422, detail="Requested data does not match the selected profile section")
     pending_requests = db.query(EmployeeProfileEditRequest).filter(
@@ -134,10 +123,7 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
         EmployeeProfileEditRequest.section == payload.section,
         EmployeeProfileEditRequest.status == "Pending",
     ).all()
-    if payload.section == "personal_document":
-        if any(json.loads(item.requested_data).get("document_id") == str(document_id) for item in pending_requests):
-            raise HTTPException(status_code=409, detail="An edit request for this document is already pending")
-    elif pending_requests:
+    if pending_requests:
         raise HTTPException(status_code=409, detail="An edit request for this section is already pending")
     item = EmployeeProfileEditRequest(employee_id=current_user.id, section=payload.section,
         requested_data=json.dumps({key: (value or "").strip() for key, value in payload.requested_data.items()}))
@@ -161,7 +147,7 @@ def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDeci
     if not item: raise HTTPException(status_code=404, detail="Profile edit request not found")
     if item.status != "Pending": raise HTTPException(status_code=409, detail="This request has already been decided")
     item.status, item.approved_by, item.decided_at = payload.status, current_user.id, datetime.utcnow()
-    if payload.status == "Approved" and item.section != "personal_document":
+    if payload.status == "Approved":
         for field, value in json.loads(item.requested_data).items(): setattr(item.employee, field, value)
     db.add(ActivityLog(user_id=current_user.id, activity=f"{payload.status} {item.section.replace('_', ' ')} edit request for {item.employee.name}"))
     db.commit(); db.refresh(item)

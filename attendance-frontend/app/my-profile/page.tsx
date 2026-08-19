@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Download, Eye, Pencil, Upload } from "lucide-react";
+import { Download, Eye, Pencil, Trash2, Upload } from "lucide-react";
 import { jsPDF } from "jspdf";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
@@ -39,7 +39,7 @@ type User = {
 
 type Slip = { id: number; month: number; year: number; total_amount: number; status: string; particulars: string };
 type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
-type ProfileEditRequest = { id: number; section: "address" | "emergency_contact" | "personal_document"; status: string; requested_data?: Record<string, string | null> };
+type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
 type GeneratedDocument = { id: number; document_type: string; title: string; content: string; created_at: string };
 type PersonalDocument = {
   id: number;
@@ -53,6 +53,7 @@ type PersonalDocument = {
   file_size: number;
   uploaded_at: string;
 };
+type PersonalDocumentRequest = { id: number; document_id: number; request_type: "replace" | "delete"; status: string; pending_original_filename?: string | null };
 
 const money = (amount: number | string) => {
   const normalized = Number(String(amount).replace(/[^0-9.-]/g, ""));
@@ -91,6 +92,7 @@ export default function MyProfilePage() {
   const [slips, setSlips] = useState<Slip[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [personalDocuments, setPersonalDocuments] = useState<PersonalDocument[]>([]);
+  const [personalDocumentRequests, setPersonalDocumentRequests] = useState<PersonalDocumentRequest[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<GeneratedDocument | null>(null);
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
@@ -121,24 +123,6 @@ export default function MyProfilePage() {
     setPersonalDocuments(data);
   };
 
-  const requestPersonalDocumentEdit = async (documentId: number) => {
-    try {
-      await api.post("/users/me/profile-edit-requests", {
-        section: "personal_document",
-        requested_data: { document_id: String(documentId) },
-      });
-      setProfileRequests((previous) => [...previous, {
-        id: Date.now(),
-        section: "personal_document",
-        status: "Pending",
-        requested_data: { document_id: String(documentId) },
-      }]);
-      toast.success("Document edit request sent to Admin and Superadmin");
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
-  };
-
   useEffect(() => {
     Promise.all([
       api.get("/users/me"),
@@ -146,9 +130,10 @@ export default function MyProfilePage() {
       api.get("/employee-documents/salary-slips/mine"),
       api.get("/employee-documents/documents/mine"),
       api.get("/employee-documents/personal-documents/mine"),
+      api.get<PersonalDocumentRequest[]>("/employee-documents/personal-document-requests/mine"),
       api.get("/users/me/profile-edit-requests"),
     ])
-      .then(([me, branding, salary, employeeDocuments, personalDocs, requests]) => {
+      .then(([me, branding, salary, employeeDocuments, personalDocs, documentRequests, requests]) => {
         const userData = me.data as User;
         setProfile(userData);
         setCompanyBranding(branding.data);
@@ -166,6 +151,7 @@ export default function MyProfilePage() {
         setSlips(salary.data);
         setDocuments(employeeDocuments.data);
         setPersonalDocuments(personalDocs.data);
+        setPersonalDocumentRequests(documentRequests.data);
         setProfileRequests(requests.data);
       })
       .catch((error) => toast.error(getErrorMessage(error)));
@@ -394,6 +380,57 @@ export default function MyProfilePage() {
     anchor.click();
     window.URL.revokeObjectURL(url);
   };
+
+  const handleViewPersonalDoc = async (documentId: number) => {
+    const previewWindow = window.open("about:blank", "_blank");
+    try {
+      const token = getToken();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!response.ok) throw new Error(await response.text() || "Unable to view document");
+      const url = window.URL.createObjectURL(await response.blob());
+      if (previewWindow) {
+        previewWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      }
+    } catch (error) {
+      previewWindow?.close();
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const requestReplacePersonalDoc = (documentId: number) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        await api.post(`/employee-documents/personal-documents/${documentId}/replace-request`, formData);
+        toast.success("Replace request sent for approval");
+        const { data } = await api.get<PersonalDocumentRequest[]>("/employee-documents/personal-document-requests/mine");
+        setPersonalDocumentRequests(data);
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+    };
+    input.click();
+  };
+
+  const requestDeletePersonalDoc = async (documentId: number) => {
+    if (!window.confirm("Request deletion of this document?")) return;
+    try {
+      await api.post(`/employee-documents/personal-documents/${documentId}/delete-request`);
+      toast.success("Delete request sent for approval");
+      const { data } = await api.get<PersonalDocumentRequest[]>("/employee-documents/personal-document-requests/mine");
+      setPersonalDocumentRequests(data);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const pendingDocumentRequest = (documentId: number) => personalDocumentRequests.find((request) => request.document_id === documentId && request.status === "Pending");
 
   const appointmentValues =
     selectedDocument?.document_type === "appointment_letter"
@@ -637,15 +674,12 @@ export default function MyProfilePage() {
                           {doc.original_filename} · {new Date(doc.uploaded_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-ink-500">Locked</span>
-                        <button
-                          onClick={() => void requestPersonalDocumentEdit(doc.id)}
-                          disabled={profileRequests.some((request) => request.section === "personal_document" && request.status === "Pending" && request.requested_data?.document_id === String(doc.id))}
-                          className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Pencil size={14} /> Request Edit
-                        </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
+                        <button onClick={() => void handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
+                        <button onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
+                        <button onClick={() => void requestDeletePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 disabled:opacity-50"><Trash2 size={14} /> Delete</button>
+                        {pendingDocumentRequest(doc.id) && <span className="self-center text-xs text-amber-700">{pendingDocumentRequest(doc.id)?.request_type} pending</span>}
                       </div>
                     </div>
                   ))
@@ -695,12 +729,13 @@ export default function MyProfilePage() {
                           </p>
                           <p className="text-xs text-ink-500">{doc.original_filename}</p>
                         </div>
-                        <button
-                          onClick={() => handleDownloadPersonalDoc(doc.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"
-                        >
-                          <Download size={14} /> Download
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
+                          <button onClick={() => void handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
+                          <button onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
+                          <button onClick={() => void requestDeletePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 disabled:opacity-50"><Trash2 size={14} /> Delete</button>
+                          {pendingDocumentRequest(doc.id) && <span className="self-center text-xs text-amber-700">{pendingDocumentRequest(doc.id)?.request_type} pending</span>}
+                        </div>
                       </div>
                     ))
                   ) : (

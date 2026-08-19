@@ -38,6 +38,7 @@ const NAV_ITEMS = [
   { href: "/users", label: "Users", icon: Users },
   { href: "/resources", label: "Resources", icon: BookOpen },
   { href: "/employee-documents", label: "Employee Documents", icon: FolderOpen },
+  { href: "/personal-document-requests", label: "Document Requests", icon: ClipboardEdit },
   { href: "/kundli", label: "Kundli", icon: NotebookPen },
   { href: "/admin/report-structure", label: "Report Structure", icon: Layers },
   { href: "/manage-departments", label: "Manage Departments", icon: Layers },

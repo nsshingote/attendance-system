@@ -59,6 +59,7 @@ class User(Base):
     kundli_notes = relationship("KundliNote", back_populates="employee", foreign_keys="KundliNote.employee_id")
     employee_documents = relationship("EmployeeDocument", back_populates="employee", foreign_keys="EmployeeDocument.employee_id")
     personal_documents = relationship("EmployeePersonalDocument", back_populates="employee", foreign_keys="EmployeePersonalDocument.employee_id")
+    personal_document_requests = relationship("PersonalDocumentChangeRequest", back_populates="employee", foreign_keys="PersonalDocumentChangeRequest.employee_id")
     profile_edit_requests = relationship("EmployeeProfileEditRequest", back_populates="employee", foreign_keys="EmployeeProfileEditRequest.employee_id")
 
 
@@ -142,6 +143,28 @@ class EmployeePersonalDocument(Base):
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
 
     employee = relationship("User", back_populates="personal_documents", foreign_keys=[employee_id])
+
+
+class PersonalDocumentChangeRequest(Base):
+    __tablename__ = "personal_document_change_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    document_id = Column(Integer, ForeignKey("employee_personal_documents.id", ondelete="SET NULL"), nullable=True)
+    request_type = Column(Enum("replace", "delete", name="personal_document_request_type"), nullable=False)
+    pending_file_name = Column(String(255), nullable=True)
+    pending_original_filename = Column(String(255), nullable=True)
+    pending_file_path = Column(String(500), nullable=True)
+    pending_mime_type = Column(String(100), nullable=True)
+    pending_file_size = Column(Integer, nullable=True)
+    status = Column(Enum("Pending", "Approved", "Rejected", name="personal_document_request_status"), nullable=False, default="Pending")
+    decided_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    employee = relationship("User", back_populates="personal_document_requests", foreign_keys=[employee_id])
+    document = relationship("EmployeePersonalDocument", foreign_keys=[document_id])
+    decider = relationship("User", foreign_keys=[decided_by])
 
 
 class EmployeeProfileEditRequest(Base):

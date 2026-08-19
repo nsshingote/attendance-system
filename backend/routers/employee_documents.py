@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from auth import get_current_user, require_admin
 from config import settings
 from database import get_db
-from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, KundliNote, LetterTemplate, SalarySlip, User
-from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, SalarySlipCreate
+from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
+from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate
 from utils.email_service import send_email
 
 router = APIRouter()
@@ -36,6 +36,15 @@ def _personal_document_path(item: EmployeePersonalDocument) -> Path:
         if candidate.is_file():
             return candidate
     return PERSONAL_UPLOAD_DIR / item.file_name
+
+
+def _personal_document_request_dict(item: PersonalDocumentChangeRequest):
+    return {
+        "id": item.id, "employee_id": item.employee_id, "employee_name": item.employee.name if item.employee else None,
+        "document_id": item.document_id, "document_title": item.document.title if item.document else None,
+        "request_type": item.request_type, "pending_original_filename": item.pending_original_filename,
+        "status": item.status, "created_at": item.created_at, "decided_at": item.decided_at,
+    }
 
 
 def _seed_default_letter_templates(db: Session):
@@ -451,12 +460,97 @@ def download_personal_document(document_id: int, db: Session = Depends(get_db), 
     return FileResponse(path=str(file_path), filename=item.original_filename, media_type=item.mime_type or "application/octet-stream")
 
 
+@router.post("/personal-documents/{document_id}/replace-request", status_code=201)
+async def request_personal_document_replace(
+    document_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id, EmployeePersonalDocument.employee_id == current_user.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Personal document not found")
+    if db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.document_id == document_id, PersonalDocumentChangeRequest.status == "Pending").first():
+        raise HTTPException(status_code=409, detail="A change request is already pending for this document")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file selected")
+    safe_name = "".join(ch for ch in file.filename if ch.isalnum() or ch in "._- ")
+    stored_name = f"pending_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}_{safe_name}"
+    stored_path = PERSONAL_UPLOAD_DIR / stored_name
+    file_bytes = await file.read()
+    stored_path.write_bytes(file_bytes)
+    request = PersonalDocumentChangeRequest(
+        employee_id=current_user.id, document_id=document_id, request_type="replace",
+        pending_file_name=stored_name, pending_original_filename=file.filename,
+        pending_file_path=str(stored_path).replace("\\", "/"), pending_mime_type=file.content_type,
+        pending_file_size=len(file_bytes),
+    )
+    db.add(request); db.commit(); db.refresh(request)
+    return _personal_document_request_dict(request)
+
+
+@router.post("/personal-documents/{document_id}/delete-request", status_code=201)
+def request_personal_document_delete(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id, EmployeePersonalDocument.employee_id == current_user.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Personal document not found")
+    if db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.document_id == document_id, PersonalDocumentChangeRequest.status == "Pending").first():
+        raise HTTPException(status_code=409, detail="A change request is already pending for this document")
+    request = PersonalDocumentChangeRequest(employee_id=current_user.id, document_id=document_id, request_type="delete")
+    db.add(request); db.commit(); db.refresh(request)
+    return _personal_document_request_dict(request)
+
+
+@router.get("/personal-document-requests/mine")
+def list_my_personal_document_requests(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return [_personal_document_request_dict(item) for item in db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.employee_id == current_user.id).order_by(PersonalDocumentChangeRequest.created_at.desc()).all()]
+
+
+@router.get("/personal-document-requests")
+def list_personal_document_requests(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return [_personal_document_request_dict(item) for item in db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.status == "Pending").order_by(PersonalDocumentChangeRequest.created_at.desc()).all()]
+
+
+@router.post("/personal-document-requests/{request_id}/decision")
+def decide_personal_document_request(request_id: int, payload: PersonalDocumentRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    request = db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Personal document request not found")
+    if request.status != "Pending":
+        raise HTTPException(status_code=409, detail="This request has already been decided")
+    document = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == request.document_id).first()
+    pending_path = Path(request.pending_file_path) if request.pending_file_path else None
+    if payload.status == "Approved" and document:
+        if request.request_type == "replace":
+            old_path = _personal_document_path(document)
+            if old_path.is_file() and old_path != pending_path:
+                old_path.unlink()
+            document.file_name = request.pending_file_name or document.file_name
+            document.original_filename = request.pending_original_filename or document.original_filename
+            document.file_path = request.pending_file_path or document.file_path
+            document.mime_type = request.pending_mime_type
+            document.file_size = request.pending_file_size or 0
+        else:
+            old_path = _personal_document_path(document)
+            if old_path.is_file():
+                old_path.unlink()
+            db.delete(document)
+    elif payload.status == "Rejected" and pending_path and pending_path.is_file():
+        pending_path.unlink()
+    request.status, request.decided_by, request.decided_at = payload.status, current_user.id, datetime.utcnow()
+    db.add(ActivityLog(user_id=current_user.id, activity=f"{payload.status} personal document {request.request_type} request for '{request.employee.name}'"))
+    db.commit()
+    return _personal_document_request_dict(request)
+
+
 @router.delete("/personal-documents/{document_id}")
 def delete_personal_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Document not found")
-    if current_user.role == "user" and current_user.id != item.employee_id:
+    if current_user.role == "user":
+        raise HTTPException(status_code=403, detail="Submit a delete request for approval")
+    if current_user.role not in {"admin", "superadmin"} and current_user.id != item.employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     file_path = _personal_document_path(item)
     if file_path.is_file():
