@@ -18,7 +18,7 @@ from utils.email_service import send_email
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path("backend/uploads/personal_documents")
 PERSONAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-ALLOWED_PERSONAL_DOC_TYPES = {"pan", "bank_passbook", "highest_degree", "other"}
+ALLOWED_PERSONAL_DOC_TYPES = {"aadhaar", "pan", "bank_passbook", "highest_degree", "other"}
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+(?:\s+[a-zA-Z0-9_]+)*)\s*}}")
 
 
@@ -219,37 +219,6 @@ def list_letter_templates(db: Session = Depends(get_db), current_user: User = De
     return [_template_dict(item) for item in db.query(LetterTemplate).order_by(LetterTemplate.name).all()]
 
 
-@router.post("/letter-templates/upload", status_code=201)
-async def upload_letter_template(
-    file: UploadFile = File(...),
-    name: str = Form(""),
-    document_type: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No template file selected")
-
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="Template file is empty")
-
-    try:
-        content = file_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Upload a text-based template file (.txt, .html, .md, .rtf)")
-
-    template_name = (name or file.filename).strip() or "Uploaded Template"
-    template_type = _clean_document_type(document_type or (Path(file.filename).stem or "uploaded_template"))
-
-    item = LetterTemplate(name=template_name, document_type=template_type, content=content, created_by=current_user.id)
-    db.add(item)
-    db.add(ActivityLog(user_id=current_user.id, activity=f"Uploaded letter template '{template_name}'"))
-    db.commit()
-    db.refresh(item)
-    return _template_dict(item)
-
-
 @router.get("/letter-templates/placeholders")
 def list_letter_placeholders(current_user: User = Depends(require_admin)):
     return [
@@ -431,7 +400,7 @@ async def upload_personal_document(
     item = EmployeePersonalDocument(
         employee_id=current_user.id,
         document_type=norm_type,
-        title=(title.strip() if norm_type == "other" and title.strip() else dict(pan="PAN Card", bank_passbook="Bank Passbook", highest_degree="Highest Degree", other="Other").get(norm_type, norm_type.title())),
+        title=(title.strip() if norm_type == "other" and title.strip() else dict(aadhaar="Aadhaar Card", pan="PAN Card", bank_passbook="Bank Passbook", highest_degree="Highest Degree", other="Other").get(norm_type, norm_type.title())),
         original_filename=file.filename,
         file_name=stored_name,
         file_path=str(stored_path).replace("\\", "/"),

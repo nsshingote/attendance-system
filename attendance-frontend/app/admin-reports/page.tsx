@@ -227,7 +227,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
     group.activities.map((activity) => ({
       Employee: group.user_name,
       Department: group.department_name,
-      Date: format(parseISO(group.attendance_date), "dd MMM yyyy"),
+      Date: format(parseISO(group.attendance_date), "yyyy-MM-dd"),
       Type: activity.type_name || "",
       Subtype: activity.subtype_name || "",
       Quantity: activity.quantity ?? "",
@@ -245,7 +245,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
 
     const headers = Object.keys(exportRows[0]);
     const csvContent = [headers.join(","), ...exportRows.map((row) =>
-      headers.map((header) => `"${String(row[header as keyof typeof row]).replace(/"/g, '""')}"`).join(",")
+      headers.map((header) => `"${String(row[header as keyof typeof row]).replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").replace(/"/g, '""').trim()}"`).join(",")
     )].join("\n");
 
     // Prefix with UTF-8 BOM so Excel renders special characters correctly
@@ -306,14 +306,14 @@ const getTotalDuration = (activities: ReportRow[]) => {
               </p>
             </div>
 
-            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+            <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto sm:flex-nowrap">
               <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
-              <label className="order-3 text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
-              <label className="order-4 text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="mt-1 block rounded border border-ink-200 px-2 py-1" /></label>
+              <label className="order-3 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
+              <label className="order-4 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
               <select
                 value={selectedDepartmentId}
                 onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
-                className="order-2 min-w-0 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+                className="order-2 h-9 min-w-40 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
               >
                 <option value="">All Departments</option>
                 {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -337,10 +337,10 @@ const getTotalDuration = (activities: ReportRow[]) => {
                   </>
                 )}
               </div>
-              <button onClick={handleExportCSV} className="order-5 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+              <button onClick={handleExportCSV} className="order-5 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
                 <Download size={13} /> CSV
               </button>
-              <button onClick={handleExportExcel} className="order-6 flex items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+              <button onClick={handleExportExcel} className="order-6 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
                 <FileSpreadsheet size={13} /> Excel
               </button>
             </div>

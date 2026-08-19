@@ -18,6 +18,7 @@ import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
 import { useSession, isAdmin } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
+import ExpandableText from "@/components/Common/ExpandableText";
 import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
 import Badge from "@/components/Common/Badge";
@@ -529,8 +530,8 @@ export default function LeavePage() {
                                   : `${format(parseISO(r.from_date), "dd MMM")} – ${format(parseISO(r.to_date), "dd MMM yyyy")}`}
                               </td>
                               <td className="px-4 py-3 text-ink-700">{r.detail}</td>
-                              <td className="max-w-220px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
-                                {r.reason ?? "—"}
+                              <td className="max-w-220px min-w-0 wrap-break-word whitespace-normal px-4 py-3 leading-5 text-ink-600">
+                                <ExpandableText text={r.reason} limit={42} />
                               </td>
                               <td className="px-4 py-3">
                                 <Badge status={r.status} />
@@ -609,8 +610,8 @@ export default function LeavePage() {
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
                           <td className="px-4 py-3 text-ink-700">{SLOT_LABELS[r.slot] ?? r.slot}</td>
-                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
-                            {r.reason ?? "—"}
+                          <td className="max-w-200px min-w-0 wrap-break-word whitespace-normal px-4 py-3 leading-5 text-ink-600">
+                            <ExpandableText text={r.reason} limit={42} />
                           </td>
                           <td className="px-4 py-3">
                             <Badge status={r.status} />
@@ -668,8 +669,8 @@ export default function LeavePage() {
                         <tr key={r.id} className="hover:bg-ink-50/60">
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
-                          <td className="max-w-200px truncate px-4 py-3 text-ink-600" title={r.reason ?? ""}>
-                            {r.reason ?? "—"}
+                          <td className="max-w-200px min-w-0 wrap-break-word whitespace-normal px-4 py-3 leading-5 text-ink-600">
+                            <ExpandableText text={r.reason} limit={42} />
                           </td>
                           <td className="px-4 py-3">
                             <Badge status={r.status} />

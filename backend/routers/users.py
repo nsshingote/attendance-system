@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, hash_password, require_admin, require_superadmin
+from config import settings
 from database import get_db
 from models import (
     User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest,
@@ -26,7 +27,7 @@ from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
 
 router = APIRouter()
-PROFILE_UPLOAD_DIR = Path("backend/uploads/profile_images")
+PROFILE_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "profile_images"
 PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ADDRESS_FIELDS = {"address_line_1", "address_line_2", "city", "state", "pincode", "country"}
 EMERGENCY_FIELDS = {"emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"}
@@ -158,13 +159,21 @@ async def upload_profile_photo(file: UploadFile = File(...), current_user: User 
     extension = Path(file.filename or "").suffix.lower()
     if extension not in {".jpg", ".jpeg", ".png", ".webp"}: raise HTTPException(status_code=400, detail="Upload a JPG, PNG, or WEBP image")
     data = await file.read()
+    if not data: raise HTTPException(status_code=400, detail="Profile image is empty")
     if len(data) > 5 * 1024 * 1024: raise HTTPException(status_code=400, detail="Profile image must be 5 MB or smaller")
     previous = _profile_photo_path(current_user.id)
-    if previous: previous.unlink(missing_ok=True)
     # A stable public filename lets every existing avatar surface use the same
     # uploaded image without persisting another user-table field.
     path = PROFILE_UPLOAD_DIR / f"{current_user.id}.jpg"
-    path.write_bytes(data)
+    temporary_path = PROFILE_UPLOAD_DIR / f".{current_user.id}.uploading"
+    try:
+        temporary_path.write_bytes(data)
+        temporary_path.replace(path)
+    except OSError as error:
+        temporary_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Unable to store profile image") from error
+    if previous and previous != path:
+        previous.unlink(missing_ok=True)
     return {"message": "Profile image updated"}
 
 

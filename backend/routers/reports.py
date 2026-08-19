@@ -421,7 +421,7 @@ def employee_wise_summary(
     current Carry Forward balance, and whether they have any pending or
     approved Encashment request on record.
     """
-    users = db.query(User).filter(User.status == "active").all()
+    users = db.query(User).filter(User.status == "active", User.role != "superadmin").all()
     results = []
 
     start_date = date(year, month, 1)
@@ -519,7 +519,7 @@ def leave_summary(
     month: Optional[int] = Query(None, ge=1, le=12),
     db: Session = Depends(get_db), current_user: User = Depends(require_admin)
 ):
-    users = db.query(User).filter(User.status == "active").all()
+    users = db.query(User).filter(User.status == "active", User.role != "superadmin").all()
     results = []
     for user in users:
         accrue_monthly_leave(db, user)

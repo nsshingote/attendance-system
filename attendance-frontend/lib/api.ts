@@ -161,7 +161,7 @@ export const getErrorMessage = (error: any): string => {
 };
 
 export const getProfilePhotoUrl = (userId: number, timestamp?: number): string => {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  const baseUrl = api.defaults.baseURL || (typeof window !== "undefined" ? window.location.origin : "");
   const cacheBust = typeof timestamp === "number" ? `?t=${timestamp}` : "";
   return `${baseUrl}/uploads/profile_images/${userId}.jpg${cacheBust}`;
 };

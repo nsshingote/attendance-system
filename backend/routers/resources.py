@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from auth import get_current_user, require_admin
+from config import settings
 from database import get_db
 from models import Resource, ResourceDepartmentAccess, ResourceEmployeeAccess, User, Department
 from schemas import ResourceCreate, ResourceOut, ResourceDetailOut
@@ -21,9 +22,9 @@ from utils.logger import logger
 
 router = APIRouter()
 
-# Upload directory for resources
-UPLOAD_DIR = "backend/uploads/resources"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Upload directory for resources. This is inside the Docker-persisted upload volume.
+UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "resources"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {
@@ -44,7 +45,18 @@ def get_upload_path(filename: str) -> str:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_")
     safe_name = "".join(c for c in filename if c.isalnum() or c in "._- ")
     unique_filename = timestamp + safe_name
-    return os.path.join(UPLOAD_DIR, unique_filename)
+    return str(UPLOAD_DIR / unique_filename)
+
+
+def get_resource_file_path(resource: Resource) -> Path:
+    """Resolve stored paths while keeping older resource records readable."""
+    stored_path = Path(resource.file_path)
+    if stored_path.exists():
+        return stored_path
+    legacy_path = Path("backend/uploads/resources") / stored_path.name
+    if legacy_path.exists():
+        return legacy_path
+    return UPLOAD_DIR / stored_path.name
 
 
 def user_has_resource_access(user: User, resource: Resource, db: Session) -> bool:
@@ -363,9 +375,10 @@ async def update_resource(
             raise HTTPException(status_code=400, detail="File too large (max 50MB)")
 
         # Delete old file
-        if os.path.exists(resource.file_path):
+        old_file_path = get_resource_file_path(resource)
+        if old_file_path.exists():
             try:
-                os.remove(resource.file_path)
+                old_file_path.unlink()
             except Exception as e:
                 logger.error(f"Error deleting old file: {e}")
 
@@ -401,9 +414,10 @@ def delete_resource(
         raise HTTPException(status_code=404, detail="Resource not found")
 
     # Delete file
-    if os.path.exists(resource.file_path):
+    file_path = get_resource_file_path(resource)
+    if file_path.exists():
         try:
-            os.remove(resource.file_path)
+            file_path.unlink()
         except Exception as e:
             logger.error(f"Error deleting file: {e}")
 
@@ -438,12 +452,13 @@ def download_resource(
         raise HTTPException(status_code=403, detail="Access denied to this resource")
 
     # Check file exists
-    if not os.path.exists(resource.file_path):
+    file_path = get_resource_file_path(resource)
+    if not file_path.exists():
         logger.error(f"Resource file not found: {resource.file_path}")
         raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(
-        path=resource.file_path,
+        path=file_path,
         filename=resource.file_name,
         media_type="application/octet-stream"
     )
@@ -454,6 +469,7 @@ def view_resource(resource_id: int, db: Session = Depends(get_db), current_user:
     resource = db.query(Resource).filter(Resource.id == resource_id).first()
     if not resource or not user_has_resource_access(current_user, resource, db):
         raise HTTPException(status_code=404, detail="Resource not found")
-    if not os.path.exists(resource.file_path): raise HTTPException(status_code=404, detail="File not found")
+    file_path = get_resource_file_path(resource)
+    if not file_path.exists(): raise HTTPException(status_code=404, detail="File not found")
     from mimetypes import guess_type
-    return FileResponse(resource.file_path, media_type=guess_type(resource.file_name)[0] or "application/octet-stream", headers={"Content-Disposition": "inline"})
+    return FileResponse(file_path, media_type=guess_type(resource.file_name)[0] or "application/octet-stream", headers={"Content-Disposition": "inline"})

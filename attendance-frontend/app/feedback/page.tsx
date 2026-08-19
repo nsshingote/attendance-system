@@ -102,12 +102,12 @@ export default function FeedbackPage() {
       const [positiveRows, negativeRows] = await Promise.all([fetchAll("positive"), fetchAll("negative")]);
       const rows = [...positiveRows, ...negativeRows];
       if (!rows.length) { toast.error("No feedback to export"); return; }
-      const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
+      const escapeCsv = (value: string) => `"${value.replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").replace(/"/g, '""').trim()}"`;
       const csvRows = rows.map((item) => [
         item.is_anonymous ? "Anonymous" : (item.employee_name || "Unknown"),
         item.feedback_type === "positive" ? "Positive" : "Negative",
         item.description,
-        dateOnly(item.created_at),
+        new Date(item.created_at).toISOString().slice(0, 10),
       ]);
       const csv = [["Name", "Feedback Type", "Feedback", "Date"], ...csvRows]
         .map((row) => row.map(escapeCsv).join(","))

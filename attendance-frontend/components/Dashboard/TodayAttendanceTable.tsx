@@ -14,6 +14,7 @@ import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
+import ExpandableText from "@/components/Common/ExpandableText";
 import { parseISTDateTime } from "@/lib/date";
 
 interface AttendanceReportRow {
@@ -195,11 +196,11 @@ export default function TodayAttendanceTable() {
                       <td className="px-4 py-3">
                         <Badge status={r.status} />
                       </td>
-                      <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={lateReason}>
-                        {lateReason || "—"}
+                      <td className="max-w-160px min-w-0 wrap-break-word whitespace-normal px-4 py-3 text-xs leading-5 text-ink-500">
+                        <ExpandableText text={lateReason} limit={42} />
                       </td>
-                      <td className="max-w-160px truncate px-4 py-3 text-xs text-ink-500" title={earlyReason}>
-                        {earlyReason || "—"}
+                      <td className="max-w-160px min-w-0 wrap-break-word whitespace-normal px-4 py-3 text-xs leading-5 text-ink-500">
+                        <ExpandableText text={earlyReason} limit={42} />
                       </td>
                       <td className="px-4 py-3 text-xs font-medium">
                         <span className={isSubmitted ? "text-green-600" : "text-red-500"}>
@@ -235,9 +236,9 @@ export default function TodayAttendanceTable() {
                   </div>
                   {(lateReason || earlyReason || remark) && (
                     <div className="mt-2 rounded-md bg-ink-50 px-2 py-2 text-[11px] text-ink-600">
-                      {lateReason && <p><span className="font-semibold text-ink-700">Late:</span> {lateReason}</p>}
-                      {earlyReason && <p><span className="font-semibold text-ink-700">Early:</span> {earlyReason}</p>}
-                      {remark && !lateReason && !earlyReason && <p>{remark}</p>}
+                      {lateReason && <p><span className="font-semibold text-ink-700">Late:</span> <ExpandableText text={lateReason} limit={42} /></p>}
+                      {earlyReason && <p><span className="font-semibold text-ink-700">Early:</span> <ExpandableText text={earlyReason} limit={42} /></p>}
+                      {remark && !lateReason && !earlyReason && <p><ExpandableText text={remark} limit={42} /></p>}
                     </div>
                   )}
                 </div>

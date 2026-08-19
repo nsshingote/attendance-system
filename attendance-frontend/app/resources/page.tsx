@@ -83,7 +83,7 @@ export default function ResourcesPage() {
 
   const loadDepartments = async () => {
     try {
-      const { data } = await api.get("/users/departments/");
+      const { data } = await api.get("/reports/departments");
       setDepartments(data);
     } catch (error) {
       console.error("Error loading departments:", error);
@@ -462,36 +462,14 @@ export default function ResourcesPage() {
               <label className="block text-sm font-medium text-ink-900 mb-1">
                 Select Departments *
               </label>
-              <div className="space-y-2">
-                {departments.map((dept) => (
-                  <label
-                    key={dept.id}
-                    className="flex items-center gap-2 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={formData.selected_departments.includes(dept.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setFormData((prev) => ({
-                            ...prev,
-                            selected_departments: [...prev.selected_departments, dept.id],
-                          }));
-                        } else {
-                          setFormData((prev) => ({
-                            ...prev,
-                            selected_departments: prev.selected_departments.filter(
-                              (id) => id !== dept.id
-                            ),
-                          }));
-                        }
-                      }}
-                      className="rounded"
-                    />
-                    <span className="text-sm text-ink-700">{dept.name}</span>
-                  </label>
-                ))}
-              </div>
+              <EmployeeMultiSelect
+                employees={departments}
+                value={formData.selected_departments}
+                onChange={(selectedIds) => setFormData((prev) => ({ ...prev, selected_departments: selectedIds }))}
+                allLabel="Select departments"
+                searchPlaceholder="Search departments"
+                className="w-full"
+              />
             </div>
           )}
 
@@ -626,36 +604,14 @@ export default function ResourcesPage() {
                 <label className="block text-sm font-medium text-ink-900 mb-1">
                   Select Departments *
                 </label>
-                <div className="space-y-2">
-                  {departments.map((dept) => (
-                    <label
-                      key={dept.id}
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.selected_departments.includes(dept.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData((prev) => ({
-                              ...prev,
-                              selected_departments: [...prev.selected_departments, dept.id],
-                            }));
-                          } else {
-                            setFormData((prev) => ({
-                              ...prev,
-                              selected_departments: prev.selected_departments.filter(
-                                (id) => id !== dept.id
-                              ),
-                            }));
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span className="text-sm text-ink-700">{dept.name}</span>
-                    </label>
-                  ))}
-                </div>
+                <EmployeeMultiSelect
+                  employees={departments}
+                  value={formData.selected_departments}
+                  onChange={(selectedIds) => setFormData((prev) => ({ ...prev, selected_departments: selectedIds }))}
+                  allLabel="Select departments"
+                  searchPlaceholder="Search departments"
+                  className="w-full"
+                />
               </div>
             )}
 

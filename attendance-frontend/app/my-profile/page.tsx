@@ -11,7 +11,7 @@ import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLett
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
-import api, { getErrorMessage } from "@/lib/api";
+import api, { getErrorMessage, getProfilePhotoUrl } from "@/lib/api";
 import { getToken, updateSessionName } from "@/lib/auth";
 
 type User = {
@@ -57,6 +57,11 @@ const money = (amount: number | string) => {
   if (!Number.isFinite(normalized)) return "₹0.00";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(normalized);
 };
+const pdfAmount = (amount: number | string) => {
+  const normalized = Number(String(amount).replace(/[^0-9.-]/g, ""));
+  if (!Number.isFinite(normalized)) return "0.00";
+  return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(normalized);
+};
 const getImageDataUrl = async (imageUrl: string) => {
   const response = await fetch(imageUrl);
   if (!response.ok) throw new Error("Company logo could not be loaded");
@@ -69,6 +74,7 @@ const getImageDataUrl = async (imageUrl: string) => {
   });
 };
 const personalDocLabels: Record<string, string> = {
+  aadhaar: "Aadhaar Card",
   pan: "PAN Card",
   bank_passbook: "Bank Passbook",
   highest_degree: "Highest Degree",
@@ -146,13 +152,8 @@ export default function MyProfilePage() {
   }, []);
 
   useEffect(() => {
-    const token = getToken();
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/users/me/profile-photo`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then(async (response) => response.ok ? URL.createObjectURL(await response.blob()) : null)
-      .then(setPhotoUrl)
-      .catch(() => {});
-    return () => { if (photoUrl) URL.revokeObjectURL(photoUrl); };
-  }, []);
+    if (profile) setPhotoUrl(getProfilePhotoUrl(profile.id, Date.now()));
+  }, [profile]);
 
   const handleProfileSave = async (event: FormEvent, section: "address" | "emergency_contact") => {
     event.preventDefault();
@@ -211,8 +212,7 @@ export default function MyProfilePage() {
     try {
       const data = new FormData(); data.append("file", file);
       await api.post("/users/me/profile-photo", data, { headers: { "Content-Type": "multipart/form-data" } });
-      if (photoUrl) URL.revokeObjectURL(photoUrl);
-      setPhotoUrl(URL.createObjectURL(file));
+      if (profile) setPhotoUrl(getProfilePhotoUrl(profile.id, Date.now()));
       // Emit events to refresh avatars and user lists
       window.dispatchEvent(new Event("profile-photo-updated"));
       window.dispatchEvent(new Event("profile-updated"));
@@ -243,7 +243,7 @@ export default function MyProfilePage() {
     pdf.setTextColor(31, 41, 55);
     pdf.setFontSize(16);
     pdf.setFont("helvetica", "bold");
-    pdf.text(companyBranding?.company_name || "—", margin + 28, y + 3);
+    pdf.text(companyBranding?.company_name || "PropCheckup", margin + 28, y + 3);
     pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(107, 114, 128);
@@ -319,7 +319,7 @@ export default function MyProfilePage() {
     
     particulars.forEach((row) => {
       const desc = String(row.name);
-      const amt = money(row.amount);
+      const amt = pdfAmount(row.amount);
       
       if (particulars.indexOf(row) % 2 === 0) {
         pdf.setFillColor(249, 250, 251);
@@ -338,7 +338,7 @@ export default function MyProfilePage() {
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(9);
-    const totalStr = money(slip.total_amount);
+    const totalStr = pdfAmount(slip.total_amount);
     pdf.text("NET AMOUNT", 18, y);
     pdf.text(String(totalStr), pageWidth - 18, y, { align: "right" });
     y += 10;
@@ -424,7 +424,7 @@ export default function MyProfilePage() {
                 <div className="flex flex-col gap-6 sm:flex-row">
                   <div className="flex flex-col items-center gap-3">
                     <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-3xl font-semibold text-brand-700">
-                      {photoUrl ? <img src={photoUrl} alt="Profile" className="h-full w-full object-cover" /> : profile?.name?.charAt(0)}
+                      {photoUrl ? <img src={photoUrl} alt="Profile" className="h-full w-full object-cover" onError={() => setPhotoUrl(null)} /> : profile?.name?.charAt(0)}
                     </div>
                     <label className="cursor-pointer rounded-lg border border-ink-300 px-3 py-2 text-xs font-medium text-brand-700">
                       Upload Photo
