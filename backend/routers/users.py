@@ -19,7 +19,7 @@ from auth import get_current_user, hash_password, require_admin, require_superad
 from config import settings
 from database import get_db
 from models import (
-    User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest,
+    User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, PersonalDocumentChangeRequest,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
@@ -103,8 +103,26 @@ def update_my_profile(
 def _profile_request_dict(item: EmployeeProfileEditRequest):
     return {"id": item.id, "employee_id": item.employee_id, "employee_name": item.employee.name if item.employee else None,
             "section": item.section, "requested_data": json.loads(item.requested_data), "status": item.status,
-            "approved_by": item.approved_by, "approver_name": item.approver.name if item.approver else None,
+            "request_source": "profile", "approved_by": item.approved_by, "approver_name": item.approver.name if item.approver else None,
             "decided_at": item.decided_at, "created_at": item.created_at}
+
+
+def _document_request_dict(item: PersonalDocumentChangeRequest):
+    return {
+        "id": item.id,
+        "employee_id": item.employee_id,
+        "employee_name": item.employee.name if item.employee else None,
+        "section": "Document Replace" if item.request_type == "replace" else "Document Delete",
+        "requested_data": {"document_name": item.document.title if item.document else f"Document #{item.document_id}"},
+        "status": item.status,
+        "request_source": "personal_document",
+        "request_type": item.request_type,
+        "document_id": item.document_id,
+        "approved_by": item.decided_by,
+        "approver_name": item.decider.name if item.decider else None,
+        "decided_at": item.decided_at,
+        "created_at": item.created_at,
+    }
 
 
 @router.get("/me/profile-edit-requests")
@@ -135,10 +153,14 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
 
 @router.get("/profile-edit-requests")
 def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    query = db.query(EmployeeProfileEditRequest)
+    profile_query = db.query(EmployeeProfileEditRequest)
+    document_query = db.query(PersonalDocumentChangeRequest)
     if status:
-        query = query.filter(EmployeeProfileEditRequest.status == status)
-    return [_profile_request_dict(item) for item in query.order_by(EmployeeProfileEditRequest.created_at.desc()).all()]
+        profile_query = profile_query.filter(EmployeeProfileEditRequest.status == status)
+        document_query = document_query.filter(PersonalDocumentChangeRequest.status == status)
+    requests = [_profile_request_dict(item) for item in profile_query.all()]
+    requests.extend(_document_request_dict(item) for item in document_query.all())
+    return sorted(requests, key=lambda item: item.get("created_at") or datetime.min, reverse=True)
 
 
 @router.post("/profile-edit-requests/{request_id}/decision")
