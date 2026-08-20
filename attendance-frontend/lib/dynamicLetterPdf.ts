@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
+import { isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 
 const loadImage = async (url: string) => {
   const response = await fetch(url);
@@ -47,15 +48,32 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
   pdf.setFont("times", "normal");
   pdf.setFontSize(11);
 
-  for (const paragraph of content.split(/\n\s*\n/)) {
-    const lines = pdf.splitTextToSize(paragraph || " ", width - margin * 2);
-    const blockHeight = Math.max(lines.length, 1) * 6 + 5;
-    if (y + blockHeight > height - 35) {
+  const writeSection = (section: string) => {
+    for (const paragraph of section.split(/\n\s*\n/)) {
+      const lines = pdf.splitTextToSize(paragraph || " ", width - margin * 2);
+      const blockHeight = Math.max(lines.length, 1) * 6 + 5;
+      if (y + blockHeight > height - 35) {
+        pdf.addPage();
+        y = 22;
+      }
+      pdf.text(lines, margin, y);
+      y += blockHeight;
+    }
+  };
+
+  let section: string[] = [];
+  content.split("\n").forEach((line) => {
+    if (isDynamicPageBreak(line)) {
+      writeSection(section.join("\n"));
       pdf.addPage();
       y = 22;
+      section = [];
+      return;
     }
-    pdf.text(lines, margin, y);
-    y += blockHeight;
+    section.push(line);
+  });
+  if (section.length) {
+    writeSection(section.join("\n"));
   }
 
   pdf.setDrawColor(37, 99, 235); pdf.line(margin, height - 28, width - margin, height - 28);
