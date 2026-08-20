@@ -685,11 +685,21 @@ export default function ResourcesPage() {
             {isSupportedPreview(viewingResource.file_name) && previewUrl && (
               <div className="border border-ink-200 rounded-lg overflow-hidden bg-ink-50">
                 {viewingResource.file_name.toLowerCase().endsWith(".pdf") ? (
-                  <iframe
-                    src={previewUrl}
-                    className="w-full h-96 border-0"
-                    title="PDF Preview"
-                  />
+                  <>
+                    <iframe
+                      src={previewUrl}
+                      className="hidden h-96 w-full border-0 sm:block"
+                      title="PDF Preview"
+                    />
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex h-24 items-center justify-center text-sm font-medium text-brand-700 sm:hidden"
+                    >
+                      Open PDF
+                    </a>
+                  </>
                 ) : /\.(jpg|jpeg|png|gif|webp)$/i.test(viewingResource.file_name) ? (
                   <img
                     src={previewUrl}
