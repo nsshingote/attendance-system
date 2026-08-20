@@ -10,8 +10,22 @@ export const PAGE_HEIGHT = 1120;
 const FIRST_PAGE_CONTENT_HEIGHT = 780;
 const OTHER_PAGE_CONTENT_HEIGHT = 920;
 
-export const splitDynamicTemplateBlocks = (value: string) => value.split(/\n\s*\n/).length ? value.split(/\n\s*\n/) : [""];
-export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.join("\n\n");
+export const splitDynamicTemplateBlocks = (value: string) => {
+  const blocks: string[] = [];
+  let text: string[] = [];
+  value.split("\n").forEach((line) => {
+    if (isDynamicPageBreak(line)) {
+      if (text.length) blocks.push(text.join("\n"));
+      blocks.push(DYNAMIC_PAGE_BREAK);
+      text = [];
+      return;
+    }
+    text.push(line);
+  });
+  if (text.length || !blocks.length || isDynamicPageBreak(blocks[blocks.length - 1])) blocks.push(text.join("\n"));
+  return blocks.length ? blocks : [""];
+};
+export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.join("\n");
 export type DynamicTemplateFragment = { blockIndex: number; start: number; end: number; text: string };
 export type DynamicTemplatePage = { fragments: DynamicTemplateFragment[]; manualBreakBefore?: number };
 
@@ -32,6 +46,17 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
   const pages: DynamicTemplatePage[] = [{ fragments: [] }]; let used = 0;
   blocks.forEach((block, blockIndex) => {
     if (isDynamicPageBreak(block)) { pages.push({ fragments: [], manualBreakBefore: blockIndex }); used = 0; return; }
+    if (!block) {
+      const page = pages[pages.length - 1];
+      const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
+      const gap = page.fragments.length ? 12 : 0;
+      const height = blockHeight("");
+      if (used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
+      const target = pages[pages.length - 1];
+      target.fragments.push({ blockIndex, start: 0, end: 0, text: "" });
+      used += (target.fragments.length > 1 ? 12 : 0) + height;
+      return;
+    }
     let start = 0;
     do {
       const page = pages[pages.length - 1]; const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
@@ -64,6 +89,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
     const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
+    if (!node) {
+      node = document.createTextNode("");
+      fragment.appendChild(node);
+    }
     let remaining = localPosition;
     while (node) {
       const length = node.textContent?.length ?? 0;
@@ -96,6 +125,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const replaceActiveSelection = (replacement: string) => {
     const active = activeSelection.current; const block = blocks[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
     const nextValue = `${block.slice(0, active.start)}${replacement}${block.slice(active.end)}`;
+    pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + replacement.length };
     applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
   };
   const insertPageBreak = () => {
@@ -120,7 +150,25 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
     applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
   };
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => { if (event.key === "Enter") { event.preventDefault(); updateActiveSelection(); replaceActiveSelection("\n"); } };
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!["Enter", "Backspace", "Delete"].includes(event.key)) return;
+    updateActiveSelection();
+    const active = activeSelection.current;
+    const block = blocks[active.blockIndex];
+    if (block === undefined || isDynamicPageBreak(block)) return;
+    event.preventDefault();
+    if (event.key === "Enter") { replaceActiveSelection("\n"); return; }
+    if (active.start !== active.end) { replaceActiveSelection(""); return; }
+    if (event.key === "Backspace" && active.start > 0) {
+      activeSelection.current = { ...active, start: active.start - 1 };
+      replaceActiveSelection("");
+      return;
+    }
+    if (event.key === "Delete" && active.end < block.length) {
+      activeSelection.current = { ...active, end: active.end + 1 };
+      replaceActiveSelection("");
+    }
+  };
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => { event.preventDefault(); updateActiveSelection(); replaceActiveSelection(event.clipboardData.getData("text/plain")); };
 
   return <div className="overflow-x-auto rounded-lg bg-ink-100 p-3 sm:p-6">
@@ -134,7 +182,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           <div className={`${pageIndex === 0 ? "h-[780px]" : "h-[920px]"} shrink-0`}>
             {page.fragments.map(fragment => <p key={`${fragment.blockIndex}:${fragment.start}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap break-words outline-none ${fragment.end === blocks[fragment.blockIndex].length ? "mb-3" : ""}`}>{fragment.text}</p>)}
           </div>
-          <div contentEditable={false} className="mt-4 border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">{pageIndex + 1}</div>
+          <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
         </section>
       </div>)}
     </div>

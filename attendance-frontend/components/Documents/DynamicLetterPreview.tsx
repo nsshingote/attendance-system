@@ -40,10 +40,10 @@ export default function DynamicLetterPreview({ title, content }: DynamicLetterPr
             <div className={`${pageIndex === 0 ? "h-844px" : "h-984px"} shrink-0 whitespace-pre-wrap py-8`}>
               {page.fragments.map((fragment) => <p key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3">{fragment.text}</p>)}
             </div>
-            {pageIndex === pages.length - 1 && <footer className="border-t-2 border-brand-600 pt-4 text-center font-sans text-[10px] text-slate-600">
+            <footer className="mt-auto border-t-2 border-brand-600 pt-4 text-center font-sans text-[10px] text-slate-600">
               <p>{LETTER_BRANDING.address}</p>
               <p className="mt-1 text-ink-400">Page {pageIndex + 1}</p>
-            </footer>}
+            </footer>
           </article>
         );
       })}
