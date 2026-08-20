@@ -48,7 +48,7 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
 const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, PaginatedTemplateEditorProps>(function PaginatedTemplateEditor({ value, onChange, title }, ref) {
   const [blocks, setBlocks] = useState(() => splitDynamicTemplateBlocks(value));
   const [pages, setPages] = useState<DynamicTemplatePage[]>([{ fragments: [] }]);
-  const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0 });
+  const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const editor = useRef<HTMLDivElement | null>(null);
   useEffect(() => { const next = splitDynamicTemplateBlocks(value); setBlocks(current => JSON.stringify(current) === JSON.stringify(next) ? current : next); }, [value]);
@@ -80,7 +80,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       remaining -= length;
       node = walker.nextNode();
     }
-  }, [blocks, pages]);
+  }, [pages]);
 
   const updateActiveSelection = () => {
     const selection = window.getSelection(); if (!selection?.rangeCount) return;
@@ -90,7 +90,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (!startElement || startElement !== endElement) return;
     const offsetIn = (node: Node, offset: number) => { const before = document.createRange(); before.selectNodeContents(startElement); before.setEnd(node, offset); return before.toString().length; };
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
-    activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset) };
+    activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset), fragmentStart, fragmentEnd: Number(startElement.dataset.fragmentEnd) };
   };
   const applyBlocks = (next: string[]) => { setBlocks(next); onChange(joinDynamicTemplateBlocks(next)); };
   const replaceActiveSelection = (replacement: string) => {
@@ -108,23 +108,31 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   useImperativeHandle(ref, () => ({ insertPlaceholder: replaceActiveSelection, insertPageBreak }));
   const updateDocument = () => {
     if (!editor.current) return;
-    updateActiveSelection();
-    pendingCaret.current = { blockIndex: activeSelection.current.blockIndex, position: activeSelection.current.end };
-    applyBlocks(blocks.map((block, index) => isDynamicPageBreak(block) ? block : Array.from(editor.current!.querySelectorAll<HTMLElement>(`[data-block-index="${index}"]`)).map(fragment => fragment.innerText).join("")));
+    const active = activeSelection.current;
+    const fragment = editor.current.querySelector<HTMLElement>(`[data-block-index="${active.blockIndex}"][data-fragment-start="${active.fragmentStart}"]`);
+    const block = blocks[active.blockIndex];
+    if (!fragment || block === undefined) return;
+    const nextFragmentText = fragment.innerText;
+    const previousFragmentLength = active.fragmentEnd - active.fragmentStart;
+    const selectedLength = active.end - active.start;
+    const insertedLength = nextFragmentText.length - (previousFragmentLength - selectedLength);
+    const nextValue = `${block.slice(0, active.fragmentStart)}${nextFragmentText}${block.slice(active.fragmentEnd)}`;
+    pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
+    applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => { if (event.key === "Enter") { event.preventDefault(); updateActiveSelection(); replaceActiveSelection("\n"); } };
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => { event.preventDefault(); updateActiveSelection(); replaceActiveSelection(event.clipboardData.getData("text/plain")); };
 
   return <div className="overflow-x-auto rounded-lg bg-ink-100 p-3 sm:p-6">
     <div className="mb-3 flex justify-end"><button type="button" onClick={insertPageBreak} className="rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button></div>
-    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onInput={updateDocument} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseUp={updateActiveSelection} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
+    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseUp={updateActiveSelection} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section className="mx-auto flex h-[1120px] w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-mono text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div className={`${pageIndex === 0 ? "h-[780px]" : "h-[920px]"} shrink-0`}>
-            {page.fragments.map(fragment => <p key={`${fragment.blockIndex}:${fragment.start}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} className={`whitespace-pre-wrap break-words outline-none ${fragment.end === blocks[fragment.blockIndex].length ? "mb-3" : ""}`}>{fragment.text}</p>)}
+            {page.fragments.map(fragment => <p key={`${fragment.blockIndex}:${fragment.start}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap break-words outline-none ${fragment.end === blocks[fragment.blockIndex].length ? "mb-3" : ""}`}>{fragment.text}</p>)}
           </div>
           <div contentEditable={false} className="mt-4 border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">{pageIndex + 1}</div>
         </section>
