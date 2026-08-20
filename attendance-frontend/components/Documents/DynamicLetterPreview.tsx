@@ -8,7 +8,7 @@ type DynamicLetterPreviewProps = { title: string; content: string; companyName?:
 
 export default function DynamicLetterPreview({ title, content }: DynamicLetterPreviewProps) {
   const blocks = useMemo(() => splitDynamicTemplateBlocks(content), [content]);
-  const [pages, setPages] = useState<ReturnType<typeof paginateDynamicTemplateBlocks>>([[]]);
+  const [pages, setPages] = useState<ReturnType<typeof paginateDynamicTemplateBlocks>>([{ fragments: [] }]);
 
   useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => setPages(paginateDynamicTemplateBlocks(blocks)));
@@ -38,7 +38,7 @@ export default function DynamicLetterPreview({ title, content }: DynamicLetterPr
               <h1 className="mt-6 text-center text-lg font-bold uppercase tracking-[0.12em]">{title}</h1>
             </header>}
             <div className={`${pageIndex === 0 ? "h-844px" : "h-984px"} shrink-0 whitespace-pre-wrap py-8`}>
-              {page.map((fragment) => <p key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3">{fragment.text}</p>)}
+              {page.fragments.map((fragment) => <p key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3">{fragment.text}</p>)}
             </div>
             {pageIndex === pages.length - 1 && <footer className="border-t-2 border-brand-600 pt-4 text-center font-sans text-[10px] text-slate-600">
               <p>{LETTER_BRANDING.address}</p>
