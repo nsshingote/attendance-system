@@ -49,9 +49,38 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [blocks, setBlocks] = useState(() => splitDynamicTemplateBlocks(value));
   const [pages, setPages] = useState<DynamicTemplatePage[]>([{ fragments: [] }]);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0 });
+  const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const editor = useRef<HTMLDivElement | null>(null);
   useEffect(() => { const next = splitDynamicTemplateBlocks(value); setBlocks(current => JSON.stringify(current) === JSON.stringify(next) ? current : next); }, [value]);
   useLayoutEffect(() => { if (typeof document !== "undefined") setPages(paginateDynamicTemplateBlocks(blocks)); }, [blocks]);
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current;
+    if (!caret || !editor.current) return;
+    const fragment = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`)).find(element => {
+      const start = Number(element.dataset.fragmentStart);
+      return caret.position >= start && caret.position <= start + element.innerText.length;
+    });
+    if (!fragment) return;
+    const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
+    const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    let remaining = localPosition;
+    while (node) {
+      const length = node.textContent?.length ?? 0;
+      if (remaining <= length) {
+        const range = document.createRange();
+        range.setStart(node, remaining);
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        pendingCaret.current = null;
+        return;
+      }
+      remaining -= length;
+      node = walker.nextNode();
+    }
+  }, [blocks, pages]);
 
   const updateActiveSelection = () => {
     const selection = window.getSelection(); if (!selection?.rangeCount) return;
@@ -79,6 +108,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   useImperativeHandle(ref, () => ({ insertPlaceholder: replaceActiveSelection, insertPageBreak }));
   const updateDocument = () => {
     if (!editor.current) return;
+    updateActiveSelection();
+    pendingCaret.current = { blockIndex: activeSelection.current.blockIndex, position: activeSelection.current.end };
     applyBlocks(blocks.map((block, index) => isDynamicPageBreak(block) ? block : Array.from(editor.current!.querySelectorAll<HTMLElement>(`[data-block-index="${index}"]`)).map(fragment => fragment.innerText).join("")));
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => { if (event.key === "Enter") { event.preventDefault(); updateActiveSelection(); replaceActiveSelection("\n"); } };
