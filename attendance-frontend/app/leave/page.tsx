@@ -437,7 +437,7 @@ export default function LeavePage() {
                   )}
                 </button>
               )}
-              {isViewingAllEmployees && (
+              {admin && (
                 <>
                   <button
                     onClick={() => setTab("all")}
@@ -575,7 +575,7 @@ export default function LeavePage() {
             )}
 
             {/* All Leave Requests tab - only for admin viewing all employees */}
-            {isViewingAllEmployees && tab === "all" && (
+            {admin && tab === "all" && (
               <LeaveTable
                 requests={allRequests}
                 canDecide={admin}
@@ -586,7 +586,7 @@ export default function LeavePage() {
             )}
 
             {/* Half Day Requests tab - only for admin viewing all employees */}
-            {isViewingAllEmployees && tab === "halfday" && (
+            {admin && tab === "halfday" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {halfDayRequests.length === 0 ? (
                   <div className="py-12 text-center">
@@ -647,7 +647,7 @@ export default function LeavePage() {
             )}
 
             {/* WFH Requests tab - only for admin viewing all employees */}
-            {isViewingAllEmployees && tab === "wfh" && (
+            {admin && tab === "wfh" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {wfhRequests.length === 0 ? (
                   <div className="py-12 text-center">

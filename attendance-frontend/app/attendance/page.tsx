@@ -813,7 +813,6 @@ setSummary(
                         "Absent",
                         "WFH",
                         "Half Day",
-                        "On Leave",
                         "Extra Working Day",
                       ].map((status) => (
                         <option key={status} value={status}>{status}</option>
@@ -965,7 +964,6 @@ setSummary(
                   "Half Day",
                   "Absent",
                   "WFH",
-                  "On Leave",
                 ].map((status) => (
                   <option key={status} value={status}>
                     {status}
