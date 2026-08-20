@@ -428,7 +428,6 @@ export default function AttendancePage() {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>("");
   const [calendarSelectedStatus, setCalendarSelectedStatus] = useState<string>("Present");
-  const [calendarLeaveCategory, setCalendarLeaveCategory] = useState<string>("Paid");
   const [calendarSelectedUserId, setCalendarSelectedUserId] = useState<number | null>(null);
   const [savingCalendarOverride, setSavingCalendarOverride] = useState(false);
   const [calendarEnterTimes, setCalendarEnterTimes] = useState<boolean>(false);
@@ -442,7 +441,6 @@ export default function AttendancePage() {
   const [correctionModal, setCorrectionModal] = useState<PageAttendanceRecord | null>(null);
   const [manualOverrideModal, setManualOverrideModal] = useState<PageAttendanceRecord | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<string>("Present");
-  const [leaveCategory, setLeaveCategory] = useState<string>("Paid");
   const [enterTimes, setEnterTimes] = useState<boolean>(false);
   const [checkInTime, setCheckInTime] = useState<string>("");
   const [checkOutTime, setCheckOutTime] = useState<string>("");
@@ -471,9 +469,7 @@ export default function AttendancePage() {
         check_out: null,
       };
 
-      if (normalizedStatus === "On Leave") {
-        payload.leave_category = calendarLeaveCategory;
-      } else if (calendarEnterTimes) {
+      if (calendarEnterTimes) {
         payload.check_in = calendarCheckInTime ? `${calendarSelectedDate}T${calendarCheckInTime}:00` : null;
         payload.check_out = calendarCheckOutTime ? `${calendarSelectedDate}T${calendarCheckOutTime}:00` : null;
       }
@@ -498,11 +494,7 @@ export default function AttendancePage() {
       const normalizedOverrideStatus = normalizeOverrideStatus(overrideStatus);
       const payload: any = { status: normalizedOverrideStatus };
 
-      if (normalizedOverrideStatus === "On Leave") {
-        payload.leave_category = leaveCategory;
-        payload.check_in = null;
-        payload.check_out = null;
-      } else if (enterTimes) {
+      if (enterTimes) {
         payload.check_in = checkInTime ? `${manualOverrideModal.attendance_date}T${checkInTime}:00` : null;
         payload.check_out = checkOutTime ? `${manualOverrideModal.attendance_date}T${checkOutTime}:00` : null;
       } else {
@@ -556,7 +548,6 @@ export default function AttendancePage() {
     };
 
     setOverrideStatus(manualOverrideModal.status || "Present");
-    setLeaveCategory(manualOverrideModal.leave_category || "Paid");
     setEnterTimes(Boolean(manualOverrideModal.check_in || manualOverrideModal.check_out));
     setCheckInTime(toTimeInput(manualOverrideModal.check_in));
     setCheckOutTime(toTimeInput(manualOverrideModal.check_out));
@@ -796,14 +787,6 @@ setSummary(
                       onChange={(e) => {
                         const nextStatus = e.target.value;
                         setCalendarSelectedStatus(nextStatus);
-                        if (nextStatus === "On Leave") {
-                          setCalendarEnterTimes(false);
-                          setCalendarCheckInTime("");
-                          setCalendarCheckOutTime("");
-                        }
-                        if (nextStatus !== "On Leave") {
-                          setCalendarLeaveCategory("Paid");
-                        }
                       }}
                       className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                     >
@@ -819,18 +802,7 @@ setSummary(
                       ))}
                     </select>
                   </label>
-                  {calendarSelectedStatus === "On Leave" && (
-                    <label className="mt-3 block text-sm font-medium text-ink-700">
-                      Leave category
-                      <select value={calendarLeaveCategory} onChange={(e) => setCalendarLeaveCategory(e.target.value)} className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
-                        <option value="Paid">Paid</option>
-                        <option value="Unpaid">Unpaid</option>
-                        <option value="Carried">Carried</option>
-                      </select>
-                    </label>
-                  )}
-                  {calendarSelectedStatus !== "On Leave" && (
-                    <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
+                  <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
                       <p className="mb-2 text-sm font-medium text-ink-700">Do you want to fill Check-in and Check-out time?</p>
                       <div className="flex flex-wrap gap-2">
                         <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${calendarEnterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
@@ -880,8 +852,7 @@ setSummary(
                           </label>
                         </div>
                       )}
-                    </div>
-                  )}
+                  </div>
                   <button
                     type="button"
                     onClick={saveSelectedCalendarOverride}
@@ -950,11 +921,6 @@ setSummary(
                 value={overrideStatus}
                 onChange={(e) => {
                   setOverrideStatus(e.target.value);
-                  if (e.target.value === "On Leave") {
-                    setEnterTimes(false);
-                    setCheckInTime("");
-                    setCheckOutTime("");
-                  }
                 }}
                 className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
               >
@@ -964,6 +930,7 @@ setSummary(
                   "Half Day",
                   "Absent",
                   "WFH",
+                  "Extra Working Day",
                 ].map((status) => (
                   <option key={status} value={status}>
                     {status}
@@ -972,61 +939,36 @@ setSummary(
               </select>
             </div>
 
-            {overrideStatus === "On Leave" ? (
-              <div>
-                <label className="mb-1 block text-sm font-medium text-ink-700">Leave Category</label>
-                <select
-                  value={leaveCategory}
-                  onChange={(e) => setLeaveCategory(e.target.value)}
-                  className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-                >
-                  {[
-                    "Paid",
-                    "Carried",
-                    "Unpaid",
-                    "Privilege",
-                  ].map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-xs text-ink-500">
-                  Leave overrides create a one-day approved leave record and mark attendance as On Leave.
-                </p>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-ink-700">Enter Check-in/Check-out time?</label>
+              <div className="flex flex-wrap gap-2">
+                <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                  <input
+                    type="radio"
+                    name="enterTimes"
+                    checked={enterTimes}
+                    onChange={() => setEnterTimes(true)}
+                    className="mr-2 h-4 w-4"
+                  />
+                  Yes
+                </label>
+                <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${!enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
+                  <input
+                    type="radio"
+                    name="enterTimes"
+                    checked={!enterTimes}
+                    onChange={() => setEnterTimes(false)}
+                    className="mr-2 h-4 w-4"
+                  />
+                  No
+                </label>
               </div>
-            ) : (
-              <div>
-                <label className="mb-1 block text-sm font-medium text-ink-700">Enter Check-in/Check-out time?</label>
-                <div className="flex flex-wrap gap-2">
-                  <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
-                    <input
-                      type="radio"
-                      name="enterTimes"
-                      checked={enterTimes}
-                      onChange={() => setEnterTimes(true)}
-                      className="mr-2 h-4 w-4"
-                    />
-                    Yes
-                  </label>
-                  <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${!enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
-                    <input
-                      type="radio"
-                      name="enterTimes"
-                      checked={!enterTimes}
-                      onChange={() => setEnterTimes(false)}
-                      className="mr-2 h-4 w-4"
-                    />
-                    No
-                  </label>
-                </div>
-                <p className="mt-2 text-xs text-ink-500">
-                  Choose No to clear any existing check-in/check-out times and save only the override status.
-                </p>
-              </div>
-            )}
+              <p className="mt-2 text-xs text-ink-500">
+                Choose No to clear any existing check-in/check-out times and save only the override status.
+              </p>
+            </div>
 
-            {enterTimes && overrideStatus !== "On Leave" && (
+            {enterTimes && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-ink-700">Check In</label>

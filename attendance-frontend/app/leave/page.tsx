@@ -75,6 +75,30 @@ interface UserOption {
   name: string;
 }
 
+function countPrivilegeLeaveDays(requests: LeaveRow[], year: number, month: number) {
+  return requests.reduce((total, request) => {
+    if (request.status !== "Approved") return total;
+    if (request.allocations?.length) {
+      return total + request.allocations.filter((allocation) => {
+        const allocationDate = new Date(`${allocation.allocation_date}T00:00:00`);
+        return allocation.leave_category === "Privilege"
+          && allocationDate.getFullYear() === year
+          && allocationDate.getMonth() + 1 === month;
+      }).length;
+    }
+
+    if (request.leave_category !== "Privilege") return total;
+    const current = new Date(`${request.from_date}T00:00:00`);
+    const end = new Date(`${request.to_date}T00:00:00`);
+    let count = 0;
+    while (current <= end) {
+      if (current.getFullYear() === year && current.getMonth() + 1 === month) count += 1;
+      current.setDate(current.getDate() + 1);
+    }
+    return total + count;
+  }, 0);
+}
+
 // A unified row shape so Leave and Half Day requests can render together
 // in one "My Requests" table with a Type column.
 interface UnifiedRequestRow {
@@ -103,6 +127,8 @@ export default function LeavePage() {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [fromDate, setAdminFromDate] = useState<string>("");
   const [toDate, setAdminToDate] = useState<string>("");
+  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
 
   const [myRequests, setMyRequests] = useState<LeaveRow[]>([]);
   const [myHalfDayRequests, setMyHalfDayRequests] = useState<HalfDayRequestRow[]>([]);
@@ -149,8 +175,8 @@ export default function LeavePage() {
         if (toDate) params.to_date = toDate;
       } else if (!admin) {
         // Employee viewing own requests - use month filter
-        params.year = today.getFullYear();
-        params.month = today.getMonth() + 1;
+        params.year = selectedYear;
+        params.month = selectedMonth;
       }
 
       if (admin && selectedUserIds.length === 0) {
@@ -174,13 +200,19 @@ export default function LeavePage() {
       } else if (admin && selectedUserIds.length > 0) {
         // Admin filtering by specific employees
         const userLeavePromises = selectedUserIds.map((userId) =>
-          api.get<LeaveRow[]>(`/leave/user/${userId}`, { params }).catch(() => ({ data: [] }))
+          api.get<LeaveRow[]>(`/leave/user/${userId}`, {
+            params: fromDate || toDate ? params : { ...params, year: selectedYear, month: selectedMonth },
+          }).catch(() => ({ data: [] }))
         );
         const userHalfDayPromises = selectedUserIds.map((userId) =>
-          api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${userId}`, { params }).catch(() => ({ data: [] }))
+          api.get<HalfDayRequestRow[]>(`/attendance/half-day-requests/user/${userId}`, {
+            params: fromDate || toDate ? params : { ...params, year: selectedYear, month: selectedMonth },
+          }).catch(() => ({ data: [] }))
         );
         const userWfhPromises = selectedUserIds.map((userId) =>
-          api.get<WFHRequestRow[]>(`/attendance/wfh/user/${userId}`, { params }).catch(() => ({ data: [] }))
+          api.get<WFHRequestRow[]>(`/attendance/wfh/user/${userId}`, {
+            params: fromDate || toDate ? params : { ...params, year: selectedYear, month: selectedMonth },
+          }).catch(() => ({ data: [] }))
         );
 
         const [leaveResults, halfDayResults, wfhResults] = await Promise.all([
@@ -194,13 +226,18 @@ export default function LeavePage() {
         setWfhRequests(wfhResults.flatMap((r) => r.data || []));
         setEncashmentRequests([]);
         setMyRequests([]);
-        setBalance(null);
+        if (selectedUserIds.length === 1) {
+          const { data } = await api.get<LeaveBalance>(`/leave/balance/${selectedUserIds[0]}`);
+          setBalance(data);
+        } else {
+          setBalance(null);
+        }
         setMyHalfDayRequests([]);
         setMyEncashmentRequests([]);
         setMyWfhRequests([]);
       } else {
         // Employee view - only their own
-        const params: any = { year: today.getFullYear(), month: today.getMonth() + 1 };
+        const params: any = { year: selectedYear, month: selectedMonth };
         const [leaveRes, balanceRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
           api.get<LeaveRow[]>("/leave/me", { params }),
           api.get<LeaveBalance>(`/leave/balance/${session.userId}`),
@@ -220,7 +257,7 @@ export default function LeavePage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.userId, admin, selectedUserIds, fromDate, toDate]);
+  }, [session?.userId, admin, selectedUserIds, fromDate, toDate, selectedYear, selectedMonth]);
 
   useEffect(() => {
     fetchAll();
@@ -347,6 +384,12 @@ export default function LeavePage() {
   const isViewingAllEmployees = admin && selectedUserIds.length === 0;
   const isViewingSpecificUsers = admin && selectedUserIds.length > 0;
   const isEmployee = !admin;
+  const showBalance = Boolean(balance && (isEmployee || selectedUserIds.length === 1));
+  const privilegeLeaveThisMonth = countPrivilegeLeaveDays(
+    isEmployee ? myRequests : selectedUserIds.length === 1 ? allRequests : [],
+    selectedYear,
+    selectedMonth,
+  );
 
   return (
     <AppShell>
@@ -390,6 +433,16 @@ export default function LeavePage() {
                 />
               </>
             )}
+            {(isEmployee || selectedUserIds.length === 1) && (
+              <MonthSelector
+                year={selectedYear}
+                month={selectedMonth}
+                onChange={(year, month) => {
+                  setSelectedYear(year);
+                  setSelectedMonth(month);
+                }}
+              />
+            )}
             {isEmployee && (
               <button
                 onClick={() => {
@@ -410,12 +463,13 @@ export default function LeavePage() {
         ) : (
           <>
             {/* Show balance for employees */}
-            {isEmployee && balance && (
+            {showBalance && balance && (
               <LeaveSummary
                 paidLeaveAvailableThisMonth={balance.paid_leave_available_this_month}
                 carriedLeave={balance.carried_leave}
                 leaveEncashed={balance.leave_encashed}
                 totalLeaveBalance={balance.total_leave_balance}
+                privilegeLeaveThisMonth={privilegeLeaveThisMonth}
               />
             )}
             {/* Show encashment for employees */}

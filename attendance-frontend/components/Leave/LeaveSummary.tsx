@@ -8,6 +8,7 @@ interface LeaveSummaryProps {
   carriedLeave: number;
   leaveEncashed: number;
   totalLeaveBalance: number;
+  privilegeLeaveThisMonth: number;
 }
 
 export default function LeaveSummary({
@@ -15,6 +16,7 @@ export default function LeaveSummary({
   carriedLeave,
   leaveEncashed,
   totalLeaveBalance,
+  privilegeLeaveThisMonth,
 }: LeaveSummaryProps) {
   const items = [
     {
@@ -34,10 +36,14 @@ export default function LeaveSummary({
       label: "Encashed",
       value: leaveEncashed,
     },
+    {
+      label: "Privilege Leave This Month",
+      value: privilegeLeaveThisMonth,
+    },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
       {items.map((item) => (
         <div
           key={item.label}
