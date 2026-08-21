@@ -34,7 +34,6 @@ def log_activity(db: Session, user_id: int, activity: str):
     log_entry = ActivityLog(
         user_id=user_id,
         activity=activity,
-        created_at=datetime.now(ZoneInfo("Asia/Kolkata"))
     )
     db.add(log_entry)
     db.commit()
