@@ -509,6 +509,7 @@ class Feedback(Base):
     feedback_type = Column(Enum("positive", "negative", name="feedback_type"), nullable=False)
     description = Column(Text, nullable=False)
     is_anonymous = Column(Boolean, nullable=False, default=False)
+    viewed_at = Column(DateTime, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     user = relationship("User", foreign_keys=[user_id])

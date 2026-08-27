@@ -58,7 +58,7 @@ interface ReportGroup {
   status: string;
   activities: ReportRow[];
 }
-interface PastSubmissionRequest { id: number; user_name: string; attendance_date: string; reason?: string | null; request_type?: string; status: string; }
+interface PastSubmissionRequest { id: number; user_id: number; user_name: string; attendance_date: string; reason?: string | null; request_type?: string; status: string; }
 
 function uniqueById<T extends { id: number }>(items: T[]): T[] {
   return Array.from(new Map(items.map((item) => [item.id, item])).values());
@@ -277,10 +277,13 @@ const getTotalDuration = (activities: ReportRow[]) => {
     <div className="space-y-4">
       {compact ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <h2 className="text-sm font-semibold text-amber-900">Pending report approvals</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-amber-900">Report approvals</h2>
+            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
+          </div>
           <div className="mt-2 space-y-2">
-            {pastSubmissionRequests.length > 0 ? (
-              pastSubmissionRequests.map((request) => (
+            {pastSubmissionRequests.filter((request) => selectedUserIds.length === 0 || selectedUserIds.includes(request.user_id)).length > 0 ? (
+              pastSubmissionRequests.filter((request) => selectedUserIds.length === 0 || selectedUserIds.includes(request.user_id)).map((request) => (
                   <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
                     <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
                     {request.status === "Pending" ? <span className="flex gap-2"><button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button><button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button></span> : <strong>{request.status}</strong>}
@@ -347,20 +350,6 @@ const getTotalDuration = (activities: ReportRow[]) => {
               <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
               <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
             </div>
-          )}
-
-          {pastSubmissionRequests.length > 0 && (
-            <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <h2 className="text-sm font-semibold text-amber-900">Past-day report requests</h2>
-              <div className="mt-2 space-y-2">
-                {pastSubmissionRequests.map((request) => (
-                  <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
-                    <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
-                    {request.status === "Pending" ? <span className="flex gap-2"><button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button><button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button></span> : <strong>{request.status}</strong>}
-                  </div>
-                ))}
-              </div>
-            </section>
           )}
 
           {loading ? <Loading /> : reports.length === 0 ? (

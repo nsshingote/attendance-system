@@ -368,16 +368,11 @@ export default function MyProfilePage() {
 
   const handleDownloadPersonalDoc = async (documentId: number) => {
     const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
-    const token = getToken();
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, {
+        responseType: "blob",
       });
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Unable to download file");
-      }
-      const url = window.URL.createObjectURL(await response.blob());
+      const url = window.URL.createObjectURL(data);
       if (previewWindow) {
         previewWindow.location.href = url;
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
@@ -401,13 +396,13 @@ export default function MyProfilePage() {
   const handleViewPersonalDoc = async (documentId: number) => {
     const previewWindow = window.open("about:blank", "_blank");
     try {
-      const token = getToken();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      if (!response.ok) throw new Error(await response.text() || "Unable to view document");
-      const url = window.URL.createObjectURL(await response.blob());
+      const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(data);
       if (previewWindow) {
         previewWindow.location.href = url;
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      } else {
+        window.location.href = url;
       }
     } catch (error) {
       previewWindow?.close();

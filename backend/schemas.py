@@ -657,6 +657,10 @@ class AdminDashboardStats(BaseModel):
     extra_working_day_today: int = 0
     holiday_today: int
     pending_leave_requests: int
+    pending_half_day_requests: int
+    pending_wfh_requests: int
+    feedback_count: int
+    new_feedback_count: int
     pending_corrections: int
     pending_device_requests: int
     monthly_leave_used: int

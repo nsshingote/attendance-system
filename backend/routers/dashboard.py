@@ -12,7 +12,8 @@ from typing import List, Optional
 from database import get_db
 from models import (
     User, Attendance, LeaveRequest, AttendanceCorrection, Holiday,
-    DailyReportData, DailyReport, DeviceRequest, EmployeeProfileEditRequest, PastReportSubmissionRequest
+    DailyReportData, DailyReport, DeviceRequest, EmployeeProfileEditRequest, PastReportSubmissionRequest,
+    HalfDayRequest, WFHRequest, Feedback
 )
 from schemas import (
     AdminDashboardStats,
@@ -139,6 +140,17 @@ def get_admin_dashboard(
     pending_leave = db.query(LeaveRequest).filter(
         LeaveRequest.status == "Pending"
     ).count()
+
+    pending_half_day = db.query(HalfDayRequest).filter(
+        HalfDayRequest.status == "Pending"
+    ).count()
+
+    pending_wfh = db.query(WFHRequest).filter(
+        WFHRequest.status == "Pending"
+    ).count()
+
+    feedback_count = db.query(Feedback).count()
+    new_feedback_count = db.query(Feedback).filter(Feedback.viewed_at.is_(None)).count()
     
     pending_corrections = db.query(AttendanceCorrection).filter(
         AttendanceCorrection.status == "Pending"
@@ -202,6 +214,10 @@ def get_admin_dashboard(
         extra_working_day_today=extra_working_day_count,
         holiday_today=monthly_holidays,
         pending_leave_requests=pending_leave,
+        pending_half_day_requests=pending_half_day,
+        pending_wfh_requests=pending_wfh,
+        feedback_count=feedback_count,
+        new_feedback_count=new_feedback_count,
         pending_corrections=pending_corrections,
         pending_device_requests=pending_device_requests,
         monthly_leave_used=monthly_leave,

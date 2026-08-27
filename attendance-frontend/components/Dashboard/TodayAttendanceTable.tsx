@@ -160,7 +160,18 @@ export default function TodayAttendanceTable() {
       ) : (
         <div>
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-900px table-fixed text-left text-sm">
+            <table className="w-full table-fixed text-left text-sm" style={{ minWidth: "1120px" }}>
+              <colgroup>
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "17%" }} />
+                <col style={{ width: "17%" }} />
+                <col style={{ width: "8%" }} />
+              </colgroup>
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
@@ -169,9 +180,9 @@ export default function TodayAttendanceTable() {
                   <th className="px-4 py-3 font-medium">Check Out</th>
                   <th className="px-4 py-3 font-medium">Hours Worked</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Late Entry Reason</th>
-                  <th className="px-4 py-3 font-medium">Early Logout Reason</th>
-                  <th className="px-4 py-3 font-medium">Report</th>
+                  <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Late Entry Reason</th>
+                  <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Early Logout Reason</th>
+                  <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Report</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">

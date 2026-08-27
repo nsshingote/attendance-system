@@ -74,7 +74,17 @@ def list_feedback(
     stats = {"total": db.query(Feedback).count(), "positive": db.query(Feedback).filter(Feedback.feedback_type == "positive").count(), "negative": db.query(Feedback).filter(Feedback.feedback_type == "negative").count(), "anonymous": db.query(Feedback).filter(Feedback.is_anonymous.is_(True)).count()}
     order = Feedback.created_at.asc() if sort == "oldest" else Feedback.created_at.desc()
     rows = query.order_by(order).offset((page - 1) * page_size).limit(page_size).all()
-    return {"items": [{"id": item.id, "employee_name": None if item.is_anonymous else item.user.name, "description": item.description, "feedback_type": item.feedback_type, "is_anonymous": item.is_anonymous, "created_at": iso_with_offset(item.created_at)} for item in rows], "total": total, "stats": stats}
+    return {"items": [{"id": item.id, "employee_name": None if item.is_anonymous else item.user.name, "description": item.description, "feedback_type": item.feedback_type, "is_anonymous": item.is_anonymous, "viewed_at": iso_with_offset(item.viewed_at) if item.viewed_at else None, "created_at": iso_with_offset(item.created_at)} for item in rows], "total": total, "stats": stats}
+
+@router.post("/{feedback_id}/view")
+def mark_feedback_viewed(feedback_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    item = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    if item.viewed_at is None:
+        item.viewed_at = datetime.utcnow()
+        db.commit()
+    return {"message": "Feedback marked as viewed"}
 
 @router.delete("/{feedback_id}")
 def delete_feedback(feedback_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_superadmin)):

@@ -147,6 +147,8 @@ export default function ResourcesPage() {
       if (previewWindow) {
         previewWindow.location.href = blobUrl;
         window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+      } else if (isIOSBrowser()) {
+        window.location.href = blobUrl;
       }
     } catch (error) {
       previewWindow?.close();

@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus, Calendar as CalendarIcon } from "lucide-react";
+import { Plus } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import { isAdmin, getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
@@ -16,6 +16,7 @@ import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
 import CorrectionForm from "@/components/Corrections/Correctionform";
 import CorrectionTable, { CorrectionRow } from "@/components/Corrections/CorrectionTable";
+import EmployeeMultiSelect, { EmployeeOption } from "@/components/Common/EmployeeMultiSelect";
 
 export function CorrectionsContent() {
   const session = getSession();
@@ -24,36 +25,36 @@ export function CorrectionsContent() {
   const [mine, setMine] = useState<CorrectionRow[]>([]);
   const [all, setAll] = useState<CorrectionRow[]>([]);
   const [tab, setTab] = useState<"mine" | "all">(admin ? "all" : "mine");
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
+
+  useEffect(() => {
+    if (admin) {
+      api.get<EmployeeOption[]>("/users/").then(({ data }) => setEmployees(data)).catch(() => toast.error("Failed to load employees"));
+    }
+  }, [admin]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = selectedDate ? { date_value: selectedDate } : {};
-      const requests: Promise<any>[] = [api.get<CorrectionRow[]>("/corrections/me", { params })];
-      if (admin) requests.push(api.get<CorrectionRow[]>("/corrections/", { params }));
+      const requests: Promise<any>[] = [api.get<CorrectionRow[]>("/corrections/me")];
+      if (admin) requests.push(api.get<CorrectionRow[]>("/corrections/"));
 
       const results = await Promise.all(requests);
       setMine(results[0].data);
-      if (admin) setAll(results[1].data);
+      if (admin) setAll(results[1].data.filter((row: CorrectionRow) => selectedEmployeeIds.length === 0 || selectedEmployeeIds.includes(row.requested_by)));
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [admin, selectedDate]);
+  }, [admin, selectedEmployeeIds]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  const clearDateFilter = () => {
-    setSelectedDate("");
-    setShowDatePicker(false);
-  };
 
   const handleDecide = async (id: number, status: "Approved" | "Rejected") => {
     try {
@@ -74,25 +75,7 @@ export function CorrectionsContent() {
           <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <div className="relative">
-            <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-sm ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
-              <CalendarIcon size={16} />
-              {selectedDate ? new Date(selectedDate).toLocaleDateString() : "Date"}
-              {selectedDate && <span onClick={(e) => { e.stopPropagation(); clearDateFilter(); }} className="ml-1 cursor-pointer text-ink-400 hover:text-ink-600">×</span>}
-            </button>
-            {showDatePicker && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-220px w-260px rounded-lg border border-ink-200 bg-white p-3 shadow-lg">
-                  <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setShowDatePicker(false); }} className="w-full rounded border border-ink-200 px-3 py-2 text-sm" />
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button onClick={() => { setSelectedDate(new Date().toISOString().split("T")[0]); setShowDatePicker(false); }} className="flex-1 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600">Today</button>
-                    <button onClick={clearDateFilter} className="flex-1 rounded border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-ink-50">Clear</button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          {admin && <EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} />}
           <button
             onClick={() => setFormOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
@@ -120,13 +103,6 @@ export function CorrectionsContent() {
         </div>
       )}
 
-      {selectedDate && (
-        <div className="flex items-center gap-2 text-sm text-ink-600">
-          <span className="font-medium">Filtering by date:</span>
-          <span className="rounded bg-brand-50 px-2 py-1 text-brand-700">{new Date(selectedDate).toLocaleDateString()}</span>
-          <button onClick={clearDateFilter} className="text-ink-400 hover:text-ink-600">× Clear</button>
-        </div>
-      )}
 
       {loading ? (
         <Loading />

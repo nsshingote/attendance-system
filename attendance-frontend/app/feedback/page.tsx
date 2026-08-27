@@ -9,7 +9,7 @@ import EmployeeMultiSelect, { EmployeeOption } from "@/components/Common/Employe
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession, isAdmin, isSuperAdmin } from "@/lib/auth";
 
-type Feedback = { id: number; employee_name: string | null; description: string; feedback_type: "positive" | "negative"; is_anonymous: boolean; created_at: string };
+type Feedback = { id: number; employee_name: string | null; description: string; feedback_type: "positive" | "negative"; is_anonymous: boolean; viewed_at?: string | null; created_at: string };
 type FeedbackResponse = { items: Feedback[]; total: number; stats: { total: number; positive: number; negative: number; anonymous: number } };
 type FeedbackType = "positive" | "negative";
 
@@ -52,6 +52,7 @@ export default function FeedbackPage() {
       setPositive(positiveResponse.data.items); setPositiveTotal(positiveResponse.data.total);
       setNegative(negativeResponse.data.items); setNegativeTotal(negativeResponse.data.total);
       setStats(positiveResponse.data.stats);
+      await Promise.all([...positiveResponse.data.items, ...negativeResponse.data.items].filter((item) => !item.viewed_at).map((item) => api.post(`/feedback/${item.id}/view`)));
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
   useEffect(() => { load(); }, [admin, visibility, startDate, endDate, selectedEmployeeIds, sort, positivePage, negativePage]);

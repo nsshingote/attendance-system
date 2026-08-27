@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { Users, UserCheck, Clock, UserX, Plane, ClipboardEdit, Smartphone, Sunrise, CalendarDays } from "lucide-react";
+import { Users, UserCheck, Clock, UserX, Plane, ClipboardEdit, Smartphone, Sunrise, CalendarDays, House, MessageSquare } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import StatCard from "./StatCard";
@@ -30,6 +30,10 @@ interface DashboardSummary {
   extra_working_day_today?: number;
   pending_corrections: number;
   pending_leave_requests: number;
+  pending_half_day_requests: number;
+  pending_wfh_requests: number;
+  feedback_count: number;
+  new_feedback_count: number;
   pending_device_requests: number;
   holiday_today: number;
   monthly_leave_used?: number;
@@ -123,25 +127,19 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Row 1: 4 cards */}
-        <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           <StatCard label="Total Employees" value={summary.total_employees} icon={Users} tone="brand" />
           <StatCard label="Present Today" value={summary.present_today} icon={UserCheck} tone="green" />
           <StatCard label="Late Today" value={summary.late_today} icon={Clock} tone="lime" />
           <StatCard label="Half Day Today" value={summary.half_day_today} icon={Sunrise} tone="violet" />
-        </div>
-
-        {/* Row 2: 4 cards */}
-        <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-4">
           <StatCard label="Absent Today" value={summary.absent_today} icon={UserX} tone="red" />
           <StatCard label="Pending Leaves" value={summary.pending_leave_requests} icon={Plane} tone="amber" />
+          <StatCard label="Pending Half Day" value={summary.pending_half_day_requests} icon={Sunrise} tone="violet" />
+          <StatCard label="Pending WFH" value={summary.pending_wfh_requests} icon={House} tone="violet" />
+          <StatCard label="WFH Today" value={summary.wfh_today || 0} icon={House} tone="violet" />
           <StatCard label="Pending Requests" value={summary.pending_corrections} icon={ClipboardEdit} tone="amber" />
-          <StatCard 
-            label="Holidays This Month"
-            value={summary.holiday_today || 0} 
-            icon={CalendarDays} 
-            tone="violet" 
-          />
+          <StatCard label="New Feedback" value={summary.new_feedback_count} icon={MessageSquare} tone="green" />
+          <StatCard label="Holidays This Month" value={summary.holiday_today || 0} icon={CalendarDays} tone="violet" />
         </div>
 
         {/* Today's Attendance Table */}
