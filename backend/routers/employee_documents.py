@@ -316,6 +316,8 @@ def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
     values = _placeholder_values(employee, db)
+    if payload.placeholder_values:
+        values.update({key: value for key, value in payload.placeholder_values.items() if isinstance(value, str)})
     resolved_content = _resolve_template(template.content, values)
     snapshot = {"format": "dynamic_letter_v1", "template_id": template.id, "template_name": template.name,
                 "template_content": template.content, "resolved_content": resolved_content, "placeholder_values": values}

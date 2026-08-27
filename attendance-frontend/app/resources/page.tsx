@@ -36,6 +36,8 @@ interface Employee {
   role: string;
 }
 
+const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
 export default function ResourcesPage() {
   const session = getSession();
   const isAdmin = session?.role === "admin" || session?.role === "superadmin";
@@ -126,6 +128,7 @@ export default function ResourcesPage() {
   };
 
   const handleViewClick = async (resource: Resource) => {
+    const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
@@ -141,7 +144,12 @@ export default function ResourcesPage() {
       const blob = new Blob([response.data], { type: mediaType });
       const blobUrl = window.URL.createObjectURL(blob);
       setPreviewUrl(blobUrl);
+      if (previewWindow) {
+        previewWindow.location.href = blobUrl;
+        window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+      }
     } catch (error) {
+      previewWindow?.close();
       toast.error("Unable to load preview: " + getErrorMessage(error));
     }
     setShowViewModal(true);
@@ -247,18 +255,28 @@ export default function ResourcesPage() {
   };
 
   const handleDownload = async (resourceId: number, fileName: string) => {
+    const downloadWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     try {
       const response = await api.get(`/resources/${resourceId}/download`, {
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", fileName);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
+      if (downloadWindow) {
+        downloadWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      } else if (isIOSBrowser()) {
+        window.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", fileName);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
+      }
     } catch (error) {
+      downloadWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };

@@ -61,7 +61,7 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
 
   return (
     <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-[720px] text-left text-sm">
+      <table className="w-full min-w-720px text-left text-sm">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[11px] uppercase tracking-wide text-ink-500">
             {canDecide && <th className="px-3 py-2.5 font-medium">Employee</th>}

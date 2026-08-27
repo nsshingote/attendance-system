@@ -2,7 +2,7 @@
 
 /**
  * components/Attendance/WFHForm.tsx
- * Request Work From Home for a specific date.
+ * Request Work From Home for one or more dates.
  *
  * Used two ways:
  * - Employee requesting their own WFH -> POST /attendance/wfh
@@ -37,12 +37,24 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(propTargetUserId || session?.userId);
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [attendanceDate, setAttendanceDate] = useState(todayIso);
+  const [fromDate, setFromDate] = useState(todayIso);
+  const [toDate, setToDate] = useState(todayIso);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const isPastDate = (dateValue: string) => {
-    return new Date(dateValue) < new Date(todayIso);
+    return new Date(`${dateValue}T00:00:00`) < new Date(`${todayIso}T00:00:00`);
+  };
+
+  const getRequestedDates = () => {
+    const dates: string[] = [];
+    const current = new Date(`${fromDate}T00:00:00`);
+    const end = new Date(`${toDate}T00:00:00`);
+    while (current <= end) {
+      dates.push(current.toISOString().slice(0, 10));
+      current.setDate(current.getDate() + 1);
+    }
+    return dates;
   };
 
   useEffect(() => {
@@ -60,12 +72,17 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
   }, [isAdminUser, propTargetUserId]);
 
   const handleSubmit = async () => {
-    if (!attendanceDate) {
-      toast.error("Please select a date");
+    if (!fromDate || !toDate) {
+      toast.error("Please select a From Date and To Date");
       return;
     }
 
-    if (isPastDate(attendanceDate)) {
+    if (fromDate > toDate) {
+      toast.error("From Date cannot be after To Date");
+      return;
+    }
+
+    if (isPastDate(fromDate)) {
       toast.error("Please select today or a future date for WFH.");
       return;
     }
@@ -80,16 +97,15 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
       const targetId = isAdminUser ? selectedUserId : session?.userId;
       const url = isAdminUser ? `/attendance/wfh/${targetId}` : "/attendance/wfh";
       const payload = {
-        attendance_date: attendanceDate,
         reason: reason || undefined,
       };
 
-      await api.post(url, payload);
+      await Promise.all(getRequestedDates().map((attendanceDate) => api.post(url, { ...payload, attendance_date: attendanceDate })));
 
       toast.success(
         isAdminUser
           ? `WFH marked for ${users.find(u => u.id === targetId)?.name || "employee"}`
-          : "WFH request submitted — awaiting admin approval"
+          : "WFH requests submitted — awaiting admin approval"
       );
       onSuccess();
     } catch (error) {
@@ -120,14 +136,28 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
       )}
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink-700">Date</label>
-        <input
-          type="date"
-          min={todayIso}
-          value={attendanceDate}
-          onChange={(e) => setAttendanceDate(e.target.value)}
-          className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm font-medium text-ink-700">
+            From Date
+            <input
+              type="date"
+              min={todayIso}
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-sm font-medium text-ink-700">
+            To Date
+            <input
+              type="date"
+              min={fromDate || todayIso}
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
       </div>
 
       <div>

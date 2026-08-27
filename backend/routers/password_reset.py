@@ -39,7 +39,8 @@ def forgot_password(payload: PasswordResetRequest, db: Session = Depends(get_db)
     db.add(reset_token)
     db.commit()
 
-    reset_link = f"{settings.FRONTEND_ORIGIN}/reset-password?token={token}"
+    frontend_origin = settings.FRONTEND_ORIGINS[0] if settings.FRONTEND_ORIGINS else "http://localhost:3000"
+    reset_link = f"{frontend_origin}/reset-password?token={token}"
     send_password_reset_email(user.email, reset_link)
 
     return generic_response

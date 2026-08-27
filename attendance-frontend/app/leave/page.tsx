@@ -443,7 +443,7 @@ export default function LeavePage() {
                 }}
               />
             )}
-            {isEmployee && (
+            {(isEmployee || admin) && (
               <button
                 onClick={() => {
                   setNewRequestType("leave");
@@ -552,7 +552,7 @@ export default function LeavePage() {
                   <>
                     {/* Leave, Half Day, and WFH Requests table */}
                     {unifiedMyRequests.length > 0 && (
-                      <table className="w-full text-left text-sm">
+                      <table className="w-full table-fixed text-left text-sm">
                         <thead>
                           <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                             <th className="px-4 py-3 font-medium">Type</th>
@@ -584,7 +584,7 @@ export default function LeavePage() {
                                   : `${format(parseISO(r.from_date), "dd MMM")} – ${format(parseISO(r.to_date), "dd MMM yyyy")}`}
                               </td>
                               <td className="px-4 py-3 text-ink-700">{r.detail}</td>
-                              <td className="max-w-220px min-w-0 wrap-break-word whitespace-normal px-4 py-3 leading-5 text-ink-600">
+                              <td className="w-[16rem] max-w-[16rem] min-w-0 wrap-break-word whitespace-normal px-4 py-3 align-top leading-5 text-ink-600">
                                 <ExpandableText text={r.reason} limit={42} />
                               </td>
                               <td className="px-4 py-3">
@@ -647,7 +647,7 @@ export default function LeavePage() {
                     <p className="text-sm text-ink-500">No half day requests found.</p>
                   </div>
                 ) : (
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full table-fixed text-left text-sm">
                     <thead>
                       <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                         <th className="px-4 py-3 font-medium">Employee</th>
@@ -664,7 +664,7 @@ export default function LeavePage() {
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
                           <td className="px-4 py-3 text-ink-700">{SLOT_LABELS[r.slot] ?? r.slot}</td>
-                          <td className="max-w-200px min-w-0 wrap-break-word whitespace-normal px-4 py-3 leading-5 text-ink-600">
+                          <td className="w-[16rem] max-w-[16rem] min-w-0 wrap-break-word whitespace-normal px-4 py-3 align-top leading-5 text-ink-600">
                             <ExpandableText text={r.reason} limit={42} />
                           </td>
                           <td className="px-4 py-3">
@@ -708,7 +708,7 @@ export default function LeavePage() {
                     <p className="text-sm text-ink-500">No WFH requests found.</p>
                   </div>
                 ) : (
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full table-fixed text-left text-sm">
                     <thead>
                       <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                         <th className="px-4 py-3 font-medium">Employee</th>
@@ -723,7 +723,7 @@ export default function LeavePage() {
                         <tr key={r.id} className="hover:bg-ink-50/60">
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
-                          <td className="max-w-200px min-w-0 wrap-break-word whitespace-normal px-4 py-3 leading-5 text-ink-600">
+                          <td className="w-[16rem] max-w-[16rem] min-w-0 wrap-break-word whitespace-normal px-4 py-3 align-top leading-5 text-ink-600">
                             <ExpandableText text={r.reason} limit={42} />
                           </td>
                           <td className="px-4 py-3">

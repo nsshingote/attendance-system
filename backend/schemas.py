@@ -277,6 +277,7 @@ class DynamicLetterCreate(BaseModel):
     template_id: int
     employee_id: int
     send: bool = False
+    placeholder_values: Optional[dict[str, str]] = None
 
 
 # =========================================================

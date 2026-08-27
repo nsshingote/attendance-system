@@ -84,6 +84,8 @@ const personalDocLabels: Record<string, string> = {
   other: "Other",
 };
 
+const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
 export default function MyProfilePage() {
   const today = new Date();
   const [tab, setTab] = useState("Profile");
@@ -93,6 +95,7 @@ export default function MyProfilePage() {
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [personalDocuments, setPersonalDocuments] = useState<PersonalDocument[]>([]);
   const [personalDocumentRequests, setPersonalDocumentRequests] = useState<PersonalDocumentRequest[]>([]);
+  const [deleteRequestDocumentId, setDeleteRequestDocumentId] = useState<number | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<GeneratedDocument | null>(null);
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
@@ -364,21 +367,35 @@ export default function MyProfilePage() {
   };
 
   const handleDownloadPersonalDoc = async (documentId: number) => {
+    const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     const token = getToken();
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || "Unable to download file");
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Unable to download file");
+      }
+      const url = window.URL.createObjectURL(await response.blob());
+      if (previewWindow) {
+        previewWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      } else if (isIOSBrowser()) {
+        window.location.href = url;
+      } else {
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `document_${documentId}`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
+      }
+    } catch (error) {
+      previewWindow?.close();
+      throw error;
     }
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `document_${documentId}`;
-    anchor.click();
-    window.URL.revokeObjectURL(url);
   };
 
   const handleViewPersonalDoc = async (documentId: number) => {
@@ -419,12 +436,12 @@ export default function MyProfilePage() {
   };
 
   const requestDeletePersonalDoc = async (documentId: number) => {
-    if (!window.confirm("Request deletion of this document?")) return;
     try {
       await api.post(`/employee-documents/personal-documents/${documentId}/delete-request`);
       toast.success("Delete request sent for approval");
       const { data } = await api.get<PersonalDocumentRequest[]>("/employee-documents/personal-document-requests/mine");
       setPersonalDocumentRequests(data);
+      setDeleteRequestDocumentId(null);
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -727,7 +744,15 @@ export default function MyProfilePage() {
                           <button type="button" onClick={() => void handleViewPersonalDoc(doc.id)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
                           <button type="button" onClick={() => void handleDownloadPersonalDoc(doc.id)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
                           <button type="button" onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
-                          <button type="button" onClick={() => void requestDeletePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 disabled:opacity-50"><Trash2 size={14} /> Delete</button>
+                          {deleteRequestDocumentId === doc.id ? (
+                            <span className="inline-flex items-center gap-2 text-sm">
+                              <span className="text-ink-600">Request deletion?</span>
+                              <button type="button" onClick={() => void requestDeletePersonalDoc(doc.id)} className="font-medium text-red-600">Confirm</button>
+                              <button type="button" onClick={() => setDeleteRequestDocumentId(null)} className="font-medium text-ink-600">Cancel</button>
+                            </span>
+                          ) : (
+                            <button type="button" onClick={() => setDeleteRequestDocumentId(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 disabled:opacity-50"><Trash2 size={14} /> Delete</button>
+                          )}
                           {pendingDocumentRequest(doc.id) && <span className="self-center text-xs text-amber-700">{pendingDocumentRequest(doc.id)?.request_type} pending</span>}
                         </div>
                       </div>

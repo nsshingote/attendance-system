@@ -55,7 +55,7 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
 
   return (
     <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-900px text-left text-xs sm:text-sm">
+      <table className="w-full min-w-900px table-fixed text-left text-xs sm:text-sm">
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
             {canDecide && <th className="px-3 py-3 font-medium sm:px-4">Employee</th>}
@@ -92,7 +92,7 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                   {r.allocation_summary || r.leave_category}
                 </span>
               </td>
-              <td className="wrap-break-word whitespace-normal px-3 py-3 text-ink-600 sm:px-4">
+              <td className="w-[16rem] max-w-[16rem] wrap-break-word whitespace-normal px-3 py-3 align-top text-ink-600 sm:px-4">
                 <ExpandableText text={r.reason} limit={42} />
                 <span className="hidden">{r.reason ?? "—"}</span>
               </td>

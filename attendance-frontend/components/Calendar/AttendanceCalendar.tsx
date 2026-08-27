@@ -53,7 +53,11 @@ export default function AttendanceCalendar({ year, month, days }: AttendanceCale
           const day = dayMap.get(iso);
           if (!day) return null;
 
-          const dotClass = day.day_type === "weekly_off" ? STATUS_DOT.weekly_off : STATUS_DOT[day.status];
+          const dotClass = day.day_type === "weekly_off"
+            ? STATUS_DOT.weekly_off
+            : day.status === "Extra Working Day"
+            ? STATUS_DOT["Extra Working Day"]
+            : STATUS_DOT[day.status];
 
           return (
             <div className="mt-1 flex justify-center">

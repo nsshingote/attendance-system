@@ -170,6 +170,9 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
   const getDayClassName = (day: CalendarDay) => {
     if (!day.date) return "bg-transparent";
 
+    if (day.status === "Extra Working Day" || day.working_day_label === "Extra Working Day") {
+      return STATUS_COLORS["Extra Working Day"];
+    }
     if (day.status === "WFH") {
       return STATUS_COLORS.WFH;
     }

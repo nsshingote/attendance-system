@@ -596,7 +596,6 @@ def check_out(
         )
 
     # =============================================
-
     # REPORT VALIDATION BEFORE CHECKOUT
     # =============================================
     # SuperAdmin is exempt from writing reports

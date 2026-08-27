@@ -138,8 +138,8 @@ export default function AttendanceTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-ink-200 bg-white">
-      <table className="w-full min-w-1050px table-fixed text-left text-xs">
+    <div className="w-full max-w-full overflow-x-auto rounded-lg border border-ink-200 bg-white touch-pan-x">
+      <table className="w-full max-w-none table-fixed text-left text-xs" style={{ minWidth: "1050px" }}>
         <colgroup>
           {showEmployeeName && <col className="w-[13%]" />}
           <col className="w-[10%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[9%]" />

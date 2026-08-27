@@ -160,7 +160,7 @@ export default function TodayAttendanceTable() {
       ) : (
         <div>
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-900px text-left text-sm">
+            <table className="w-full min-w-900px table-fixed text-left text-sm">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <th className="px-4 py-3 font-medium">Employee</th>
