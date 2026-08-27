@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download, Eye, Pencil, Trash2, Upload } from "lucide-react";
 import { jsPDF } from "jspdf";
 import toast from "react-hot-toast";
@@ -97,6 +97,8 @@ export default function MyProfilePage() {
   const [personalDocumentRequests, setPersonalDocumentRequests] = useState<PersonalDocumentRequest[]>([]);
   const [deleteRequestDocumentId, setDeleteRequestDocumentId] = useState<number | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<GeneratedDocument | null>(null);
+  const [pendingDynamicPdf, setPendingDynamicPdf] = useState<{ document: GeneratedDocument; targetWindow: Window | null } | null>(null);
+  const dynamicPreviewRef = useRef<HTMLDivElement>(null);
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
   const [editingAddress, setEditingAddress] = useState(false);
@@ -445,26 +447,37 @@ export default function MyProfilePage() {
   const pendingDocumentRequest = (documentId: number) => personalDocumentRequests.find((request) => request.document_id === documentId && request.status === "Pending");
 
   const appointmentValues =
-    selectedDocument?.document_type === "appointment_letter"
+    selectedDocument?.document_type === "appointment_letter" && !JSON.parse(selectedDocument.content).resolved_content
       ? (JSON.parse(selectedDocument.content) as AppointmentLetterValues)
       : null;
   const offerValues =
-    selectedDocument?.document_type === "offer_letter"
+    selectedDocument?.document_type === "offer_letter" && !JSON.parse(selectedDocument.content).resolved_content
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
   const dynamicValues = selectedDocument && !appointmentValues && !offerValues
     ? (JSON.parse(selectedDocument.content) as { resolved_content?: string })
     : null;
 
+  useEffect(() => {
+    if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
+    void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow)
+      .finally(() => setPendingDynamicPdf(null));
+  }, [dynamicValues?.resolved_content, pendingDynamicPdf, profile?.name, selectedDocument]);
+
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
-      if (document.document_type === "appointment_letter") {
+      if (values.resolved_content) {
+        const targetWindow = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+          ? window.open("about:blank", "_blank")
+          : null;
+        setSelectedDocument(document);
+        setPendingDynamicPdf({ document, targetWindow });
+        return;
+      } else if (document.document_type === "appointment_letter") {
         downloadAppointmentLetterPdf(values);
       } else if (document.document_type === "offer_letter") {
         downloadOfferLetterPdf(values);
-      } else if (values.resolved_content) {
-        await downloadDynamicLetterPdf(document.title, values.resolved_content, profile?.name);
       } else {
         throw new Error("This document has no renderable content");
       }
@@ -876,7 +889,7 @@ export default function MyProfilePage() {
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview title={selectedDocument.title} content={dynamicValues.resolved_content} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} />}
             </div>
           </div>
         )}

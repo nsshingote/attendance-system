@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { deliverPdf } from "@/lib/pdfDownload";
 
 export type AppointmentLetterValues = {
   employee_name: string; designation: string; department: string; office_location: string;
@@ -22,5 +23,5 @@ export function downloadAppointmentLetterPdf(values: AppointmentLetterValues) {
   paragraph(`• Your working hours will be ${values.working_hours}, ${values.working_days}.`);
   paragraph("You are expected to comply with company policies, rules, and regulations at all times. Any breach may result in disciplinary action. Kindly sign and return a copy of this letter as a token of your acceptance.");
   paragraph("We look forward to having you on our team and wish you a successful career with us."); paragraph("Sincerely,"); y += 8; paragraph(values.authorized_signatory, true); paragraph("PropCheckup", true); y += 6; paragraph("• Employee Acceptance", true); paragraph(`I, ${values.employee_name}, accept the terms and conditions mentioned above.`); paragraph("Signature: ____________________                 Date: ______________");
-  pdf.save(`appointment-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`);
+  deliverPdf(pdf, `appointment-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`);
 }

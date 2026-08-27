@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { deliverPdf } from "@/lib/pdfDownload";
 
 export type OfferLetterValues = {
   employee_name: string;
@@ -88,5 +89,5 @@ export function downloadOfferLetterPdf(values: OfferLetterValues) {
   paragraph(`I, ${values.employee_name}, accept the terms and conditions mentioned in this offer letter.`);
   paragraph("Signature: ____________________                 Date: ______________");
 
-  pdf.save(`offer-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`);
+  deliverPdf(pdf, `offer-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`);
 }

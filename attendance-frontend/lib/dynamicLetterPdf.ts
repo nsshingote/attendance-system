@@ -1,6 +1,8 @@
 import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
+import { deliverPdf } from "@/lib/pdfDownload";
 
 const loadImage = async (url: string) => {
   const response = await fetch(url);
@@ -14,7 +16,37 @@ const loadImage = async (url: string) => {
   });
 };
 
-export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: string) {
+export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: string, previewElement?: HTMLElement | null, targetWindow?: Window | null) {
+  const employeeFileName = employeeName?.replace(/\s+/g, "-").toLowerCase() || "employee";
+  const filename = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "letter"}-${employeeFileName}.pdf`;
+  const deliver = (pdf: jsPDF) => deliverPdf(pdf, filename, targetWindow);
+
+  if (previewElement) {
+    const pages = Array.from(previewElement.querySelectorAll<HTMLElement>("article"));
+    if (pages.length) {
+      const pdf = new jsPDF({ unit: "mm", format: "a4" });
+      for (const [index, page] of pages.entries()) {
+        const canvas = await html2canvas(page, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+        if (index > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
+        const pageRect = page.getBoundingClientRect();
+        page.querySelectorAll<HTMLAnchorElement>("a[href]").forEach(anchor => {
+          const rect = anchor.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          pdf.link(
+            ((rect.left - pageRect.left) / pageRect.width) * 210,
+            ((rect.top - pageRect.top) / pageRect.height) * 297,
+            (rect.width / pageRect.width) * 210,
+            (rect.height / pageRect.height) * 297,
+            { url: anchor.href },
+          );
+        });
+      }
+      deliver(pdf);
+      return;
+    }
+  }
+
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
   const height = pdf.internal.pageSize.getHeight();
@@ -80,7 +112,5 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(75, 85, 99);
   pdf.text(pdf.splitTextToSize(companyAddress, width - margin * 2), width / 2, height - 21, { align: "center" });
 
-  const employeeFileName = employeeName?.replace(/\s+/g, "-").toLowerCase() || "employee";
-  const filename = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "letter"}-${employeeFileName}.pdf`;
-  pdf.save(filename);
+  deliver(pdf);
 }

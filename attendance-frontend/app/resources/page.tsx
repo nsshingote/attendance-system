@@ -141,12 +141,12 @@ export default function ResourcesPage() {
       const mediaType = extension === "pdf"
         ? "application/pdf"
         : typeof responseContentType === "string" ? responseContentType : "application/octet-stream";
-      const blob = new Blob([response.data], { type: mediaType });
+      const blob = response.data.type === mediaType ? response.data : new Blob([response.data], { type: mediaType });
       const blobUrl = window.URL.createObjectURL(blob);
       setPreviewUrl(blobUrl);
+      window.addEventListener("pagehide", () => window.URL.revokeObjectURL(blobUrl), { once: true });
       if (previewWindow) {
         previewWindow.location.href = blobUrl;
-        window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
       } else if (isIOSBrowser()) {
         window.location.href = blobUrl;
       }
@@ -259,10 +259,19 @@ export default function ResourcesPage() {
   const handleDownload = async (resourceId: number, fileName: string) => {
     const downloadWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     try {
+      if (isIOSBrowser()) {
+        const { data } = await api.post<{ url: string }>(`/resources/${resourceId}/download-url`);
+        if (downloadWindow) {
+          downloadWindow.location.href = data.url;
+        } else {
+          window.location.href = data.url;
+        }
+        return;
+      }
       const response = await api.get(`/resources/${resourceId}/download`, {
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(response.data);
       if (downloadWindow) {
         downloadWindow.location.href = url;
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);

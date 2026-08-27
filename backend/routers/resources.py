@@ -9,8 +9,9 @@ from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request
 from fastapi.responses import FileResponse
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -34,6 +35,7 @@ ALLOWED_EXTENSIONS = {
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+DOWNLOAD_URL_EXPIRE_SECONDS = 60
 
 
 def is_file_allowed(filename: str) -> bool:
@@ -469,6 +471,64 @@ def download_resource(
         filename=resource.file_name,
         media_type="application/octet-stream"
     )
+
+
+@router.post("/{resource_id}/download-url")
+def create_download_url(
+    resource_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a short-lived, resource-scoped URL for browser downloads."""
+    resource = db.query(Resource).filter(Resource.id == resource_id).first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    if not user_has_resource_access(current_user, resource, db):
+        raise HTTPException(status_code=403, detail="Access denied to this resource")
+
+    token = jwt.encode(
+        {
+            "sub": str(current_user.id),
+            "resource_id": resource_id,
+            "purpose": "resource_download",
+            "exp": datetime.utcnow().timestamp() + DOWNLOAD_URL_EXPIRE_SECONDS,
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    url = f"{str(request.base_url).rstrip('/')}/resources/{resource_id}/browser-download?download_token={token}"
+    return {"url": url}
+
+
+@router.get("/{resource_id}/browser-download", include_in_schema=False)
+def browser_download_resource(
+    resource_id: int,
+    download_token: str,
+    db: Session = Depends(get_db),
+):
+    """Serve a short-lived authenticated browser download URL."""
+    try:
+        payload = jwt.decode(download_token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired download link")
+    if payload.get("purpose") != "resource_download" or payload.get("resource_id") != resource_id:
+        raise HTTPException(status_code=401, detail="Invalid download link")
+
+    resource = db.query(Resource).filter(Resource.id == resource_id).first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid download link")
+    user = db.query(User).filter(User.id == user_id, User.status == "active").first()
+    if not user or not user_has_resource_access(user, resource, db):
+        raise HTTPException(status_code=403, detail="Access denied to this resource")
+    file_path = get_resource_file_path(resource)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=file_path, filename=resource.file_name, media_type="application/octet-stream")
 
 
 @router.get("/{resource_id}/view")
