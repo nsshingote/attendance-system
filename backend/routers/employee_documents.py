@@ -5,8 +5,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin
@@ -21,6 +22,7 @@ PERSONAL_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "personal_documents"
 PERSONAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_PERSONAL_DOC_TYPES = {"aadhaar", "pan", "bank_passbook", "highest_degree", "other"}
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+(?:\s+[a-zA-Z0-9_]+)*)\s*}}")
+PERSONAL_DOCUMENT_DOWNLOAD_URL_EXPIRE_SECONDS = 60
 
 
 DEFAULT_COMPANY_NAME = "PropCheckup"
@@ -455,6 +457,55 @@ def download_personal_document(document_id: int, db: Session = Depends(get_db), 
     if not item:
         raise HTTPException(status_code=404, detail="Document not found")
     if current_user.role == "user" and current_user.id != item.employee_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    file_path = _personal_document_path(item)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    return FileResponse(path=str(file_path), filename=item.original_filename, media_type=item.mime_type or "application/octet-stream")
+
+
+@router.post("/personal-documents/{document_id}/download-url")
+def create_personal_document_download_url(
+    document_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a short-lived URL the browser can download without an Authorization header."""
+    item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if current_user.role == "user" and current_user.id != item.employee_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    token = jwt.encode(
+        {
+            "sub": str(current_user.id),
+            "document_id": document_id,
+            "purpose": "personal_document_download",
+            "exp": datetime.utcnow().timestamp() + PERSONAL_DOCUMENT_DOWNLOAD_URL_EXPIRE_SECONDS,
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    url = f"{str(request.base_url).rstrip('/')}/employee-documents/personal-documents/{document_id}/browser-download?download_token={token}"
+    return {"url": url}
+
+
+@router.get("/personal-documents/{document_id}/browser-download", include_in_schema=False)
+def browser_download_personal_document(document_id: int, download_token: str, db: Session = Depends(get_db)):
+    """Serve the short-lived browser download URL created above."""
+    try:
+        payload = jwt.decode(download_token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        user_id = int(payload["sub"])
+    except (JWTError, KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid or expired download link")
+    if payload.get("purpose") != "personal_document_download" or payload.get("document_id") != document_id:
+        raise HTTPException(status_code=401, detail="Invalid download link")
+    item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Document not found")
+    user = db.query(User).filter(User.id == user_id, User.status == "active").first()
+    if not user or (user.role == "user" and user.id != item.employee_id):
         raise HTTPException(status_code=403, detail="Not authorized")
     file_path = _personal_document_path(item)
     if not file_path.is_file():

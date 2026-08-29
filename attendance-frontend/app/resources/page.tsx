@@ -38,12 +38,6 @@ interface Employee {
 
 const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
-const shareFileOnMobile = async (blob: Blob, filename: string) => {
-  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
-  if (!navigator.canShare?.({ files: [file] })) return false;
-  await navigator.share({ files: [file], title: filename });
-  return true;
-};
 
 export default function ResourcesPage() {
   const session = getSession();
@@ -266,29 +260,22 @@ export default function ResourcesPage() {
   };
 
   const handleDownload = async (resourceId: number, fileName: string) => {
+    const downloadWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     try {
-      const response = await api.get(`/resources/${resourceId}/download`, {
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(response.data);
-      if (isMobileBrowser()) {
-        const shared = await shareFileOnMobile(response.data, fileName);
-        window.URL.revokeObjectURL(url);
-        if (shared) return;
-        const fallbackUrl = window.URL.createObjectURL(response.data);
-        window.open(fallbackUrl, "_blank", "noopener,noreferrer");
-        window.setTimeout(() => window.URL.revokeObjectURL(fallbackUrl), 60_000);
+      const { data } = await api.post<{ url: string }>(`/resources/${resourceId}/download-url`);
+      if (downloadWindow) {
+        downloadWindow.location.href = data.url;
         return;
       }
       const link = document.createElement("a");
-      link.href = url;
+      link.href = data.url;
       link.setAttribute("download", fileName);
       link.style.display = "none";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
     } catch (error) {
+      downloadWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };

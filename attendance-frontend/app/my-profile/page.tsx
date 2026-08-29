@@ -86,12 +86,6 @@ const personalDocLabels: Record<string, string> = {
 
 const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
-const shareFileOnMobile = async (blob: Blob, filename: string) => {
-  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
-  if (!navigator.canShare?.({ files: [file] })) return false;
-  await navigator.share({ files: [file], title: filename });
-  return true;
-};
 
 export default function MyProfilePage() {
   const today = new Date();
@@ -376,29 +370,21 @@ export default function MyProfilePage() {
   };
 
   const handleDownloadPersonalDoc = async (documentId: number, filename?: string) => {
+    const downloadWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     try {
-      const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, {
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(data);
-      if (isMobileBrowser()) {
-        const shared = await shareFileOnMobile(data, filename || `document_${documentId}`);
-        window.URL.revokeObjectURL(url);
-        if (!shared) {
-          const fallbackUrl = URL.createObjectURL(data);
-          window.open(fallbackUrl, "_blank", "noopener,noreferrer");
-          window.setTimeout(() => window.URL.revokeObjectURL(fallbackUrl), 60_000);
-        }
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename || `document_${documentId}`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
+      const { data } = await api.post<{ url: string }>(`/employee-documents/personal-documents/${documentId}/download-url`);
+      if (downloadWindow) {
+        downloadWindow.location.href = data.url;
+        return;
       }
+      const link = document.createElement("a");
+      link.href = data.url;
+      link.download = filename || `document_${documentId}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (error) {
+      downloadWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };
