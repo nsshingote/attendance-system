@@ -886,7 +886,7 @@ export default function MyProfilePage() {
                 {dynamicValues?.resolved_content && (
                   <button
                     onClick={() => {
-                      if (dynamicPreviewRef.current && selectedDocument) {
+                      if (selectedDocument && dynamicValues?.resolved_content) {
                         void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, null);
                       }
                     }}

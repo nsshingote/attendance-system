@@ -4,6 +4,8 @@ import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 import { deliverPdf } from "@/lib/pdfDownload";
 
+type EmployeeNameParam = string | undefined;
+
 const loadImage = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) throw new Error("Company logo could not be loaded");
@@ -16,7 +18,7 @@ const loadImage = async (url: string) => {
   });
 };
 
-export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: string, previewElement?: HTMLElement | null, targetWindow?: Window | null) {
+export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: EmployeeNameParam, previewElement?: HTMLElement | null, targetWindow?: Window | null) {
   const employeeFileName = employeeName?.replace(/\s+/g, "-").toLowerCase() || "employee";
   const filename = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "letter"}-${employeeFileName}.pdf`;
   const deliver = (pdf: jsPDF) => deliverPdf(pdf, filename, targetWindow);
