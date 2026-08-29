@@ -38,7 +38,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
             </header>}
             {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
             <div className={`${pageIndex === 0 ? "h-[780px]" : "h-[920px]"} shrink-0 overflow-hidden`}>
-              {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+              {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
             </div>
             <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
               <p>{LETTER_BRANDING.address}</p>

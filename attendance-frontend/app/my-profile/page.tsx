@@ -85,7 +85,8 @@ const personalDocLabels: Record<string, string> = {
 };
 
 const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const shareFileOnIOS = async (blob: Blob, filename: string) => {
+const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
+const shareFileOnMobile = async (blob: Blob, filename: string) => {
   const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
   if (!navigator.canShare?.({ files: [file] })) return false;
   await navigator.share({ files: [file], title: filename });
@@ -380,8 +381,8 @@ export default function MyProfilePage() {
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(data);
-      if (isIOSBrowser()) {
-        const shared = await shareFileOnIOS(data, filename || `document_${documentId}`);
+      if (isMobileBrowser()) {
+        const shared = await shareFileOnMobile(data, filename || `document_${documentId}`);
         window.URL.revokeObjectURL(url);
         if (!shared) {
           const fallbackUrl = URL.createObjectURL(data);
@@ -471,7 +472,10 @@ export default function MyProfilePage() {
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
     void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow)
-      .finally(() => setPendingDynamicPdf(null));
+      .finally(() => {
+        setPendingDynamicPdf(null);
+        setSelectedDocument(current => current?.id === pendingDynamicPdf.document.id ? null : current);
+      });
   }, [dynamicValues?.resolved_content, pendingDynamicPdf, profile?.name, selectedDocument]);
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {

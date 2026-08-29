@@ -37,7 +37,8 @@ interface Employee {
 }
 
 const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const shareFileOnIOS = async (blob: Blob, filename: string) => {
+const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
+const shareFileOnMobile = async (blob: Blob, filename: string) => {
   const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
   if (!navigator.canShare?.({ files: [file] })) return false;
   await navigator.share({ files: [file], title: filename });
@@ -136,7 +137,7 @@ export default function ResourcesPage() {
   const handleViewClick = async (resource: Resource) => {
     // Open during the user gesture. iOS otherwise blocks a new tab after the
     // authenticated file request completes.
-    const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
+    const previewWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
@@ -270,8 +271,8 @@ export default function ResourcesPage() {
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(response.data);
-      if (isIOSBrowser()) {
-        const shared = await shareFileOnIOS(response.data, fileName);
+      if (isMobileBrowser()) {
+        const shared = await shareFileOnMobile(response.data, fileName);
         window.URL.revokeObjectURL(url);
         if (shared) return;
         const fallbackUrl = window.URL.createObjectURL(response.data);
