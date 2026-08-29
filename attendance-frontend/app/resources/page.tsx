@@ -37,6 +37,12 @@ interface Employee {
 }
 
 const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const shareFileOnIOS = async (blob: Blob, filename: string) => {
+  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+  if (!navigator.canShare?.({ files: [file] })) return false;
+  await navigator.share({ files: [file], title: filename });
+  return true;
+};
 
 export default function ResourcesPage() {
   const session = getSession();
@@ -128,6 +134,9 @@ export default function ResourcesPage() {
   };
 
   const handleViewClick = async (resource: Resource) => {
+    // Open during the user gesture. iOS otherwise blocks a new tab after the
+    // authenticated file request completes.
+    const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
@@ -142,9 +151,15 @@ export default function ResourcesPage() {
         : typeof responseContentType === "string" ? responseContentType : "application/octet-stream";
       const blob = response.data.type === mediaType ? response.data : new Blob([response.data], { type: mediaType });
       const blobUrl = window.URL.createObjectURL(blob);
+      if (previewWindow) {
+        previewWindow.location.href = blobUrl;
+        window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+        return;
+      }
       setPreviewUrl(blobUrl);
       window.addEventListener("pagehide", () => window.URL.revokeObjectURL(blobUrl), { once: true });
     } catch (error) {
+      previewWindow?.close();
       toast.error("Unable to load preview: " + getErrorMessage(error));
     }
     setShowViewModal(true);
@@ -255,6 +270,15 @@ export default function ResourcesPage() {
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(response.data);
+      if (isIOSBrowser()) {
+        const shared = await shareFileOnIOS(response.data, fileName);
+        window.URL.revokeObjectURL(url);
+        if (shared) return;
+        const fallbackUrl = window.URL.createObjectURL(response.data);
+        window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => window.URL.revokeObjectURL(fallbackUrl), 60_000);
+        return;
+      }
       const link = document.createElement("a");
       link.href = url;
       link.setAttribute("download", fileName);

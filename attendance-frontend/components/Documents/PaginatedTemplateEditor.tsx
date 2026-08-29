@@ -114,10 +114,36 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [hoveredCols, setHoveredCols] = useState(2);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
+  const pendingTableCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const editor = useRef<HTMLDivElement | null>(null);
   useEffect(() => { const next = splitDynamicTemplateBlocks(value); setBlocks(current => JSON.stringify(current) === JSON.stringify(next) ? current : next); }, [value]);
   useLayoutEffect(() => { if (typeof document !== "undefined") setPages(paginateDynamicTemplateBlocks(blocks)); }, [blocks]);
   useLayoutEffect(() => {
+    const tableCaret = pendingTableCaret.current;
+    if (tableCaret && editor.current) {
+      const table = Array.from(editor.current.querySelectorAll<HTMLTableElement>(`[data-block-index="${tableCaret.blockIndex}"] table`)).find(element => {
+        const fragment = element.closest<HTMLElement>("[data-template-fragment]");
+        if (!fragment) return false;
+        const before = document.createRange();
+        before.selectNodeContents(fragment);
+        before.setEndBefore(element);
+        const tableStart = Number(fragment.dataset.fragmentStart) + before.toString().length;
+        return tableCaret.position >= tableStart && tableCaret.position <= tableStart + element.innerText.length;
+      });
+      const paragraph = table?.nextElementSibling;
+      if (paragraph) {
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        pendingTableCaret.current = null;
+        pendingCaret.current = null;
+        updateActiveSelection();
+        return;
+      }
+    }
     const caret = pendingCaret.current;
     if (!caret || !editor.current) return;
     const fragment = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`)).find(element => {
@@ -159,6 +185,44 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const offsetIn = (node: Node, offset: number) => { const before = document.createRange(); before.selectNodeContents(startElement); before.setEnd(node, offset); return before.toString().length; };
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
     activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset), fragmentStart, fragmentEnd: Number(startElement.dataset.fragmentEnd) };
+  };
+  const restoreActiveSelection = () => {
+    const active = activeSelection.current;
+    if (!editor.current) return false;
+    const pointAt = (position: number) => {
+      const fragment = Array.from(editor.current!.querySelectorAll<HTMLElement>(`[data-block-index="${active.blockIndex}"]`)).find(element => {
+        const start = Number(element.dataset.fragmentStart);
+        return position >= start && position <= start + element.innerText.length;
+      });
+      if (!fragment) return null;
+      const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      if (!node) {
+        node = document.createTextNode("");
+        fragment.appendChild(node);
+      }
+      let remaining = position - Number(fragment.dataset.fragmentStart);
+      let lastNode = node;
+      while (node) {
+        const length = node.textContent?.length ?? 0;
+        if (remaining <= length) return { node, offset: remaining };
+        remaining -= length;
+        lastNode = node;
+        node = walker.nextNode();
+      }
+      return { node: lastNode, offset: lastNode.textContent?.length ?? 0 };
+    };
+    const start = pointAt(active.start);
+    const end = pointAt(active.end);
+    if (!start || !end) return false;
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    editor.current.focus();
+    return true;
   };
   const applyBlocks = (next: string[]) => { setBlocks(next); onChange(joinDynamicTemplateBlocks(next)); };
   const replaceActiveSelection = (replacement: string) => {
@@ -220,8 +284,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (url) format("createLink", url);
   };
   const handleInsertTable = () => {
-    const rows = hoveredRows;
-    const cols = hoveredCols;
+    const rows = tableRows;
+    const cols = tableCols;
+    const active = activeSelection.current;
     
     // Generate table HTML
     const cells = Array(cols)
@@ -235,13 +300,19 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .join("");
     const table = `<table style="width:100%;border-collapse:collapse"><tbody>${tbody}</tbody></table><p><br></p>`;
     
+    // The table picker takes focus away from the editor. Restore the saved range so
+    // insertHTML replaces the intended selection instead of the dialog's selection.
+    if (!restoreActiveSelection()) return;
     runEditorCommand("insertHTML", table);
+    updateDocument();
+    // Place the caret in the blank paragraph after the table, rather than in its
+    // final cell. This is resolved after the content has been re-paginated.
+    pendingTableCaret.current = { blockIndex: active.blockIndex, position: active.start + rows * cols * "Cell".length };
     setShowTableDialog(false);
     setTableRows(2);
     setTableCols(2);
     setHoveredRows(2);
     setHoveredCols(2);
-    updateDocument();
   };
   const toolbarButton = (label: string, icon: React.ReactNode, onClick: () => void) => (
     <button type="button" title={label} aria-label={label} onMouseDown={event => event.preventDefault()} onClick={onClick} className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-700 hover:bg-ink-100">
@@ -289,6 +360,18 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="rounded-lg bg-white p-6 shadow-lg max-w-sm w-full">
           <h3 className="mb-4 text-lg font-semibold">Insert Table</h3>
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <label className="text-sm font-medium text-ink-700">Rows
+              <select value={tableRows} onChange={event => { const rows = Number(event.target.value); setTableRows(rows); setHoveredRows(rows); }} className="mt-1 block w-full rounded border border-ink-300 bg-white px-2 py-2">
+                {Array.from({ length: 10 }, (_, index) => index + 1).map(rows => <option key={rows} value={rows}>{rows}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-ink-700">Columns
+              <select value={tableCols} onChange={event => { const cols = Number(event.target.value); setTableCols(cols); setHoveredCols(cols); }} className="mt-1 block w-full rounded border border-ink-300 bg-white px-2 py-2">
+                {Array.from({ length: 10 }, (_, index) => index + 1).map(cols => <option key={cols} value={cols}>{cols}</option>)}
+              </select>
+            </label>
+          </div>
           <p className="mb-4 text-sm text-ink-600">Click to select table size: {hoveredRows} × {hoveredCols}</p>
           <div className="mb-6 inline-block border border-ink-300 rounded">
             {Array.from({ length: 10 }).map((_, rowIndex) => (

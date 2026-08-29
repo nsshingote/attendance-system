@@ -85,6 +85,12 @@ const personalDocLabels: Record<string, string> = {
 };
 
 const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const shareFileOnIOS = async (blob: Blob, filename: string) => {
+  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+  if (!navigator.canShare?.({ files: [file] })) return false;
+  await navigator.share({ files: [file], title: filename });
+  return true;
+};
 
 export default function MyProfilePage() {
   const today = new Date();
@@ -375,15 +381,13 @@ export default function MyProfilePage() {
       });
       const url = window.URL.createObjectURL(data);
       if (isIOSBrowser()) {
-        // On iOS, try to trigger a proper download using a hidden link
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename || `document_${documentId}`;
-        link.style.display = "none";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
+        const shared = await shareFileOnIOS(data, filename || `document_${documentId}`);
+        window.URL.revokeObjectURL(url);
+        if (!shared) {
+          const fallbackUrl = URL.createObjectURL(data);
+          window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+          window.setTimeout(() => window.URL.revokeObjectURL(fallbackUrl), 60_000);
+        }
       } else {
         const link = document.createElement("a");
         link.href = url;
@@ -399,10 +403,12 @@ export default function MyProfilePage() {
   };
 
   const handleViewPersonalDoc = async (documentId: number) => {
+    // This must run synchronously with the tap; iOS blocks popups opened after
+    // an awaited network request.
+    const previewWindow = window.open("about:blank", "_blank");
     try {
       const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, { responseType: "blob" });
       const url = window.URL.createObjectURL(data);
-      const previewWindow = window.open("about:blank", "_blank");
       if (previewWindow) {
         previewWindow.location.href = url;
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
@@ -411,6 +417,7 @@ export default function MyProfilePage() {
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
       }
     } catch (error) {
+      previewWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };
@@ -471,8 +478,9 @@ export default function MyProfilePage() {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
       if (values.resolved_content) {
-        // For dynamic letters, just open the modal and let the user click Download PDF
+        const targetWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
         setSelectedDocument(document);
+        setPendingDynamicPdf({ document, targetWindow });
         return;
       } else if (document.document_type === "appointment_letter") {
         downloadAppointmentLetterPdf(values);
