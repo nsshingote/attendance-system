@@ -19,7 +19,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
     <div ref={ref} className="mx-auto flex w-fit max-w-full flex-col gap-6">
       {pages.map((page, pageIndex) => {
         return (
-          <article key={pageIndex} className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-8 py-7 font-serif text-[14px] leading-relaxed text-slate-900 shadow-sm sm:px-12">
+          <article key={pageIndex} className="mx-auto flex h-[1120px] w-[min(794px,calc(100vw-48px))] flex-col bg-white px-8 py-7 font-serif text-[14px] leading-relaxed text-slate-900 shadow-sm sm:px-12">
             {pageIndex === 0 && <header className="border-b-2 border-brand-600 pb-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -37,8 +37,8 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
               </div>
             </header>}
             {pageIndex === 0 && <h1 className="mb-4 mt-6 text-center text-lg font-bold uppercase tracking-[0.12em]">{title}</h1>}
-            <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 whitespace-pre-wrap py-8`}>
-              {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+            <div className={`${pageIndex === 0 ? "h-[780px]" : "h-[920px]"} shrink-0 whitespace-pre-wrap py-8 overflow-hidden`}>
+              {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
             </div>
             <footer className="mt-auto border-t-2 border-brand-600 pt-4 text-center font-sans text-[10px] text-slate-600">
               <p>{LETTER_BRANDING.address}</p>

@@ -368,46 +368,49 @@ export default function MyProfilePage() {
     pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
 
-  const handleDownloadPersonalDoc = async (documentId: number) => {
-    const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
+  const handleDownloadPersonalDoc = async (documentId: number, filename?: string) => {
     try {
       const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, {
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(data);
-      if (previewWindow) {
-        previewWindow.location.href = url;
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      } else if (isIOSBrowser()) {
-        window.location.href = url;
+      if (isIOSBrowser()) {
+        // On iOS, try to trigger a proper download using a hidden link
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename || `document_${documentId}`;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
       } else {
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `document_${documentId}`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename || `document_${documentId}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
         window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
       }
     } catch (error) {
-      previewWindow?.close();
-      throw error;
+      toast.error(getErrorMessage(error));
     }
   };
 
   const handleViewPersonalDoc = async (documentId: number) => {
-    const previewWindow = window.open("about:blank", "_blank");
     try {
       const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, { responseType: "blob" });
       const url = window.URL.createObjectURL(data);
+      const previewWindow = window.open("about:blank", "_blank");
       if (previewWindow) {
         previewWindow.location.href = url;
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
       } else {
         window.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
       }
     } catch (error) {
-      previewWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };
@@ -468,11 +471,8 @@ export default function MyProfilePage() {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
       if (values.resolved_content) {
-        const targetWindow = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-          ? window.open("about:blank", "_blank")
-          : null;
+        // For dynamic letters, just open the modal and let the user click Download PDF
         setSelectedDocument(document);
-        setPendingDynamicPdf({ document, targetWindow });
         return;
       } else if (document.document_type === "appointment_letter") {
         downloadAppointmentLetterPdf(values);
@@ -750,7 +750,7 @@ export default function MyProfilePage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={() => void handleViewPersonalDoc(doc.id)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
-                          <button type="button" onClick={() => void handleDownloadPersonalDoc(doc.id)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
+                          <button type="button" onClick={() => void handleDownloadPersonalDoc(doc.id, doc.original_filename)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
                           <button type="button" onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
                           {deleteRequestDocumentId === doc.id ? (
                             <span className="inline-flex items-center gap-2 text-sm">
@@ -878,6 +878,18 @@ export default function MyProfilePage() {
                 {offerValues && (
                   <button
                     onClick={() => downloadOfferLetterPdf(offerValues)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
+                  >
+                    <Download size={15} /> Download PDF
+                  </button>
+                )}
+                {dynamicValues?.resolved_content && (
+                  <button
+                    onClick={() => {
+                      if (dynamicPreviewRef.current && selectedDocument) {
+                        void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, null);
+                      }
+                    }}
                     className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
                   >
                     <Download size={15} /> Download PDF

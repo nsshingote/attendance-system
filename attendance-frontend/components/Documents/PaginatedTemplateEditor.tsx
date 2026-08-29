@@ -75,11 +75,6 @@ const fragmentForHeight = (html: string, maxHeight: number) => {
 const runEditorCommand = (command: string, value?: string) => {
   document.execCommand(command, false, value);
 };
-
-const insertTable = () => {
-  const table = `<table style="width:100%;border-collapse:collapse"><tbody><tr><td style="border:1px solid #cbd5e1;padding:6px">Cell</td><td style="border:1px solid #cbd5e1;padding:6px">Cell</td></tr><tr><td style="border:1px solid #cbd5e1;padding:6px">Cell</td><td style="border:1px solid #cbd5e1;padding:6px">Cell</td></tr></tbody></table><p><br></p>`;
-  runEditorCommand("insertHTML", table);
-};
 export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplatePage[] => {
   const pages: DynamicTemplatePage[] = [{ fragments: [] }]; let used = 0;
   blocks.forEach((block, blockIndex) => {
@@ -112,6 +107,11 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
 const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, PaginatedTemplateEditorProps>(function PaginatedTemplateEditor({ value, onChange, title }, ref) {
   const [blocks, setBlocks] = useState(() => splitDynamicTemplateBlocks(value));
   const [pages, setPages] = useState<DynamicTemplatePage[]>([{ fragments: [] }]);
+  const [showTableDialog, setShowTableDialog] = useState(false);
+  const [tableRows, setTableRows] = useState(2);
+  const [tableCols, setTableCols] = useState(2);
+  const [hoveredRows, setHoveredRows] = useState(2);
+  const [hoveredCols, setHoveredCols] = useState(2);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const editor = useRef<HTMLDivElement | null>(null);
@@ -219,6 +219,30 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const url = window.prompt("Enter URL");
     if (url) format("createLink", url);
   };
+  const handleInsertTable = () => {
+    const rows = hoveredRows;
+    const cols = hoveredCols;
+    
+    // Generate table HTML
+    const cells = Array(cols)
+      .fill(null)
+      .map(() => '<td style="border:1px solid #cbd5e1;padding:6px">Cell</td>')
+      .join("");
+    const tr = `<tr>${cells}</tr>`;
+    const tbody = Array(rows)
+      .fill(null)
+      .map(() => tr)
+      .join("");
+    const table = `<table style="width:100%;border-collapse:collapse"><tbody>${tbody}</tbody></table><p><br></p>`;
+    
+    runEditorCommand("insertHTML", table);
+    setShowTableDialog(false);
+    setTableRows(2);
+    setTableCols(2);
+    setHoveredRows(2);
+    setHoveredCols(2);
+    updateDocument();
+  };
   const toolbarButton = (label: string, icon: React.ReactNode, onClick: () => void) => (
     <button type="button" title={label} aria-label={label} onMouseDown={event => event.preventDefault()} onClick={onClick} className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-700 hover:bg-ink-100">
       {icon}
@@ -242,7 +266,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Bulleted list", <List size={16} />, () => format("insertUnorderedList"))}
       {toolbarButton("Numbered list", <ListOrdered size={16} />, () => format("insertOrderedList"))}
       {toolbarButton("Insert link", <Link size={16} />, addLink)}
-      {toolbarButton("Insert table", <Table2 size={16} />, insertTable)}
+      {toolbarButton("Insert table", <Table2 size={16} />, () => setShowTableDialog(true))}
       <span className="mx-1 h-6 w-px bg-ink-200" />
       {toolbarButton("Undo", <Undo2 size={16} />, () => format("undo"))}
       {toolbarButton("Redo", <Redo2 size={16} />, () => format("redo"))}
@@ -251,16 +275,71 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseUp={updateActiveSelection} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
-        <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
+        <section className="mx-auto flex h-[1120px] w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
-          <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0`}>
-            {page.fragments.map(fragment => <div key={`${fragment.blockIndex}:${fragment.start}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words outline-none ${fragment.end === textLength(blocks[fragment.blockIndex]) ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+          <div className={`${pageIndex === 0 ? "h-[780px]" : "h-[920px]"} shrink-0 overflow-hidden`}>
+            {page.fragments.map(fragment => <div key={`${fragment.blockIndex}:${fragment.start}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none ${fragment.end === textLength(blocks[fragment.blockIndex]) ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
         </section>
       </div>)}
     </div>
+    {showTableDialog && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="rounded-lg bg-white p-6 shadow-lg max-w-sm w-full">
+          <h3 className="mb-4 text-lg font-semibold">Insert Table</h3>
+          <p className="mb-4 text-sm text-ink-600">Click to select table size: {hoveredRows} × {hoveredCols}</p>
+          <div className="mb-6 inline-block border border-ink-300 rounded">
+            {Array.from({ length: 10 }).map((_, rowIndex) => (
+              <div key={rowIndex} className="flex">
+                {Array.from({ length: 10 }).map((_, colIndex) => (
+                  <button
+                    key={`${rowIndex}-${colIndex}`}
+                    type="button"
+                    onMouseEnter={() => {
+                      setHoveredRows(rowIndex + 1);
+                      setHoveredCols(colIndex + 1);
+                    }}
+                    onClick={() => {
+                      setTableRows(rowIndex + 1);
+                      setTableCols(colIndex + 1);
+                      setHoveredRows(rowIndex + 1);
+                      setHoveredCols(colIndex + 1);
+                    }}
+                    className={`h-6 w-6 border border-ink-200 transition-colors ${
+                      rowIndex < hoveredRows && colIndex < hoveredCols
+                        ? "bg-brand-500"
+                        : "bg-white hover:bg-ink-50"
+                    }`}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => {
+                setShowTableDialog(false);
+                setTableRows(2);
+                setTableCols(2);
+                setHoveredRows(2);
+                setHoveredCols(2);
+              }}
+              className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium hover:bg-ink-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleInsertTable}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              Insert
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   </div>;
 });
 

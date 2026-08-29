@@ -26,3 +26,5 @@ out/
 tmp_*
 *.tmp
 .git_status_diff.txt
+
+attendance-images.tar

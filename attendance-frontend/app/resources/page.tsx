@@ -128,7 +128,6 @@ export default function ResourcesPage() {
   };
 
   const handleViewClick = async (resource: Resource) => {
-    const previewWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
@@ -145,13 +144,7 @@ export default function ResourcesPage() {
       const blobUrl = window.URL.createObjectURL(blob);
       setPreviewUrl(blobUrl);
       window.addEventListener("pagehide", () => window.URL.revokeObjectURL(blobUrl), { once: true });
-      if (previewWindow) {
-        previewWindow.location.href = blobUrl;
-      } else if (isIOSBrowser()) {
-        window.location.href = blobUrl;
-      }
     } catch (error) {
-      previewWindow?.close();
       toast.error("Unable to load preview: " + getErrorMessage(error));
     }
     setShowViewModal(true);
@@ -257,37 +250,20 @@ export default function ResourcesPage() {
   };
 
   const handleDownload = async (resourceId: number, fileName: string) => {
-    const downloadWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
     try {
-      if (isIOSBrowser()) {
-        const { data } = await api.post<{ url: string }>(`/resources/${resourceId}/download-url`);
-        if (downloadWindow) {
-          downloadWindow.location.href = data.url;
-        } else {
-          window.location.href = data.url;
-        }
-        return;
-      }
       const response = await api.get(`/resources/${resourceId}/download`, {
         responseType: "blob",
       });
       const url = window.URL.createObjectURL(response.data);
-      if (downloadWindow) {
-        downloadWindow.location.href = url;
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      } else if (isIOSBrowser()) {
-        window.location.href = url;
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", fileName);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
-      }
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", fileName);
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
     } catch (error) {
-      downloadWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };
