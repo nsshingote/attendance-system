@@ -262,15 +262,10 @@ export default function ResourcesPage() {
   };
 
   const handleDownload = async (resourceId: number, fileName: string) => {
-    const downloadWindow = !isIOSBrowser() && isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     try {
       const { data } = await api.post<{ url: string }>(`/resources/${resourceId}/download-url`);
       if (isIOSBrowser()) {
         setIOSDownloadFile(await prepareIOSFileDownload(data.url, fileName));
-        return;
-      }
-      if (downloadWindow) {
-        downloadWindow.location.href = data.url;
         return;
       }
       const link = document.createElement("a");
@@ -281,7 +276,6 @@ export default function ResourcesPage() {
       link.click();
       document.body.removeChild(link);
     } catch (error) {
-      downloadWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };

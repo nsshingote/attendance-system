@@ -372,15 +372,10 @@ export default function MyProfilePage() {
   };
 
   const handleDownloadPersonalDoc = async (documentId: number, filename?: string) => {
-    const downloadWindow = !isIOSBrowser() && isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     try {
       const { data } = await api.post<{ url: string }>(`/employee-documents/personal-documents/${documentId}/download-url`);
       if (isIOSBrowser()) {
         setIOSDownloadFile(await prepareIOSFileDownload(data.url, filename || `document_${documentId}`));
-        return;
-      }
-      if (downloadWindow) {
-        downloadWindow.location.href = data.url;
         return;
       }
       const link = document.createElement("a");
@@ -390,7 +385,6 @@ export default function MyProfilePage() {
       link.click();
       link.remove();
     } catch (error) {
-      downloadWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };
@@ -1001,5 +995,5 @@ export default function MyProfilePage() {
         )}
       </div>
     </AppShell>
-  );
+  ); 
 }
