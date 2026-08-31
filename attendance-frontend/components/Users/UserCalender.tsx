@@ -170,9 +170,28 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
   const getDayClassName = (day: CalendarDay) => {
     if (!day.date) return "bg-transparent";
 
+    const dateValue = new Date(`${day.date}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     if (day.status === "Extra Working Day" || day.working_day_label === "Extra Working Day") {
       return STATUS_COLORS["Extra Working Day"];
     }
+
+    // Future priority: Holiday -> Approved Leave -> Approved WFH -> No color
+    if (dateValue > today) {
+      if (day.day_type === "holiday") {
+        return "bg-pink-400 text-white";
+      }
+      if (day.status === "On Leave") {
+        return STATUS_COLORS["On Leave"];
+      }
+      if (day.status === "WFH") {
+        return STATUS_COLORS.WFH;
+      }
+      return "bg-transparent text-ink-500";
+    }
+
     if (day.status === "WFH") {
       return STATUS_COLORS.WFH;
     }
