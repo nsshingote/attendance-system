@@ -7,7 +7,7 @@
  * show up together in "My Requests" with a Type column. View balance,
  * request encashment.
  * Admin/SuperAdmin: also decide on all pending leave requests, half day
- * requests, override a leave's category to "Privilege", and
+ * requests and edit leave-category allocations.
  * approve/reject encashment requests.
  */
 
@@ -141,7 +141,6 @@ export default function LeavePage() {
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("mine");
-  const [categoryModalLeaveId, setCategoryModalLeaveId] = useState<number | null>(null);
   const [allocationModalLeaveId, setAllocationModalLeaveId] = useState<number | null>(null);
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
   const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string }[]>([]);
@@ -306,18 +305,6 @@ export default function LeavePage() {
       rows.push({ allocation_date: d.toISOString().split("T")[0], leave_category: leave.leave_category || "Unpaid" });
     }
     setAllocationRows(rows);
-  };
-
-  const handleGrantPrivilege = async () => {
-    if (!categoryModalLeaveId) return;
-    try {
-      await api.put(`/leave/${categoryModalLeaveId}/category`, { leave_category: "Privilege" });
-      toast.success("Leave request changed to Privilege leave");
-      setCategoryModalLeaveId(null);
-      fetchAll();
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
   };
 
   const handleDecideEncashment = async (id: number, status: "Approved" | "Rejected") => {
@@ -634,7 +621,6 @@ export default function LeavePage() {
                 requests={allRequests}
                 canDecide={admin}
                 onDecide={handleDecide}
-                onChangeCategory={(id) => setCategoryModalLeaveId(id)}
                 onEditAllocations={(id) => openAllocationModal(id)}
               />
             )}
@@ -886,33 +872,6 @@ export default function LeavePage() {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={categoryModalLeaveId !== null}
-        onClose={() => setCategoryModalLeaveId(null)}
-        title="Grant Privilege Leave"
-        footer={
-          <>
-            <button
-              onClick={() => setCategoryModalLeaveId(null)}
-              className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleGrantPrivilege}
-              className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700"
-            >
-              Confirm
-            </button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-600">
-          This will change the leave request's category to <span className="font-medium text-violet-700">Privilege</span>,
-          overriding whatever it was submitted or approved as. Privilege leave doesn&apos;t consume the employee&apos;s
-          Paid or Carried balance. Use this for goodwill exceptions.
-        </p>
-      </Modal>
     </AppShell>
   );
 }

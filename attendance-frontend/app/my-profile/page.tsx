@@ -13,6 +13,8 @@ import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
+import { prepareIOSFileDownload, shareIOSFile } from "@/lib/iosFileDownload";
+import { isIOSBrowser } from "@/lib/pdfDownload";
 import api, { getErrorMessage, getProfilePhotoUrl } from "@/lib/api";
 import { getToken, updateSessionName } from "@/lib/auth";
 
@@ -84,7 +86,6 @@ const personalDocLabels: Record<string, string> = {
   other: "Other",
 };
 
-const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
 
 export default function MyProfilePage() {
@@ -99,6 +100,7 @@ export default function MyProfilePage() {
   const [deleteRequestDocumentId, setDeleteRequestDocumentId] = useState<number | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<GeneratedDocument | null>(null);
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<{ document: GeneratedDocument; targetWindow: Window | null } | null>(null);
+  const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
@@ -370,9 +372,13 @@ export default function MyProfilePage() {
   };
 
   const handleDownloadPersonalDoc = async (documentId: number, filename?: string) => {
-    const downloadWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
+    const downloadWindow = !isIOSBrowser() && isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     try {
       const { data } = await api.post<{ url: string }>(`/employee-documents/personal-documents/${documentId}/download-url`);
+      if (isIOSBrowser()) {
+        setIOSDownloadFile(await prepareIOSFileDownload(data.url, filename || `document_${documentId}`));
+        return;
+      }
       if (downloadWindow) {
         downloadWindow.location.href = data.url;
         return;
@@ -457,7 +463,7 @@ export default function MyProfilePage() {
 
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
-    void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow)
+    void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow, file => setIOSDownloadFile(file))
       .finally(() => {
         setPendingDynamicPdf(null);
         setSelectedDocument(current => current?.id === pendingDynamicPdf.document.id ? null : current);
@@ -468,19 +474,29 @@ export default function MyProfilePage() {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
       if (values.resolved_content) {
-        const targetWindow = isIOSBrowser() ? window.open("about:blank", "_blank") : null;
+        const targetWindow = null;
         setSelectedDocument(document);
         setPendingDynamicPdf({ document, targetWindow });
         return;
       } else if (document.document_type === "appointment_letter") {
-        downloadAppointmentLetterPdf(values);
+        downloadAppointmentLetterPdf(values, file => setIOSDownloadFile(file));
       } else if (document.document_type === "offer_letter") {
-        downloadOfferLetterPdf(values);
+        downloadOfferLetterPdf(values, file => setIOSDownloadFile(file));
       } else {
         throw new Error("This document has no renderable content");
       }
     } catch (error) {
       toast.error(getErrorMessage(error));
+    }
+  };
+
+  const saveIOSDownload = async () => {
+    if (!iosDownloadFile) return;
+    try {
+      await shareIOSFile(iosDownloadFile);
+      setIOSDownloadFile(null);
+    } catch (error) {
+      if ((error as DOMException).name !== "AbortError") toast.error(getErrorMessage(error));
     }
   };
 
@@ -867,7 +883,7 @@ export default function MyProfilePage() {
               <div className="mb-3 flex justify-end gap-2">
                 {appointmentValues && (
                   <button
-                    onClick={() => downloadAppointmentLetterPdf(appointmentValues)}
+                    onClick={() => downloadAppointmentLetterPdf(appointmentValues, file => setIOSDownloadFile(file))}
                     className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
                   >
                     <Download size={15} /> Download PDF
@@ -875,7 +891,7 @@ export default function MyProfilePage() {
                 )}
                 {offerValues && (
                   <button
-                    onClick={() => downloadOfferLetterPdf(offerValues)}
+                    onClick={() => downloadOfferLetterPdf(offerValues, file => setIOSDownloadFile(file))}
                     className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
                   >
                     <Download size={15} /> Download PDF
@@ -885,7 +901,7 @@ export default function MyProfilePage() {
                   <button
                     onClick={() => {
                       if (selectedDocument && dynamicValues?.resolved_content) {
-                        void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, null);
+                        void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, null, file => setIOSDownloadFile(file));
                       }
                     }}
                     className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
@@ -968,6 +984,18 @@ export default function MyProfilePage() {
                 </footer>
               </article>
               <button onClick={() => void downloadSalarySlip(selectedSlip)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download PDF</button>
+            </div>
+          </div>
+        )}
+        {iosDownloadFile && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+              <h2 className="text-lg font-semibold text-ink-900">File ready to save</h2>
+              <p className="mt-2 text-sm text-ink-600">Tap Save to Files to choose where to save <span className="font-medium">{iosDownloadFile.name}</span>.</p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setIOSDownloadFile(null)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700">Cancel</button>
+                <button type="button" onClick={() => void saveIOSDownload()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Save to Files</button>
+              </div>
             </div>
           </div>
         )}

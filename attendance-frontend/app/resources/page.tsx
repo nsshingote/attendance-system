@@ -8,6 +8,8 @@ import { getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Common/Modal";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import { prepareIOSFileDownload, shareIOSFile } from "@/lib/iosFileDownload";
+import { isIOSBrowser } from "@/lib/pdfDownload";
 
 interface Resource {
   id: number;
@@ -36,7 +38,6 @@ interface Employee {
   role: string;
 }
 
-const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
 
 export default function ResourcesPage() {
@@ -51,6 +52,7 @@ export default function ResourcesPage() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [viewingResource, setViewingResource] = useState<Resource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
@@ -260,9 +262,13 @@ export default function ResourcesPage() {
   };
 
   const handleDownload = async (resourceId: number, fileName: string) => {
-    const downloadWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
+    const downloadWindow = !isIOSBrowser() && isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     try {
       const { data } = await api.post<{ url: string }>(`/resources/${resourceId}/download-url`);
+      if (isIOSBrowser()) {
+        setIOSDownloadFile(await prepareIOSFileDownload(data.url, fileName));
+        return;
+      }
       if (downloadWindow) {
         downloadWindow.location.href = data.url;
         return;
@@ -277,6 +283,16 @@ export default function ResourcesPage() {
     } catch (error) {
       downloadWindow?.close();
       toast.error(getErrorMessage(error));
+    }
+  };
+
+  const saveIOSDownload = async () => {
+    if (!iosDownloadFile) return;
+    try {
+      await shareIOSFile(iosDownloadFile);
+      setIOSDownloadFile(null);
+    } catch (error) {
+      if ((error as DOMException).name !== "AbortError") toast.error(getErrorMessage(error));
     }
   };
 
@@ -786,6 +802,13 @@ export default function ResourcesPage() {
           </div>
         </Modal>
       )}
+      <Modal isOpen={Boolean(iosDownloadFile)} onClose={() => setIOSDownloadFile(null)} title="File ready to save">
+        <p className="text-sm text-ink-600">Tap Save to Files to choose where to save <span className="font-medium">{iosDownloadFile?.name}</span>.</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={() => setIOSDownloadFile(null)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700">Cancel</button>
+          <button type="button" onClick={() => void saveIOSDownload()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Save to Files</button>
+        </div>
+      </Modal>
     </div>
     </AppShell>
   );

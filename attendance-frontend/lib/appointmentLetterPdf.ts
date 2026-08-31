@@ -7,7 +7,7 @@ export type AppointmentLetterValues = {
   working_hours: string; working_days: string; authorized_signatory: string;
 };
 
-export function downloadAppointmentLetterPdf(values: AppointmentLetterValues) {
+export function downloadAppointmentLetterPdf(values: AppointmentLetterValues, onIOSFileReady?: (file: File) => void) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
   let y = 18;
@@ -23,5 +23,5 @@ export function downloadAppointmentLetterPdf(values: AppointmentLetterValues) {
   paragraph(`• Your working hours will be ${values.working_hours}, ${values.working_days}.`);
   paragraph("You are expected to comply with company policies, rules, and regulations at all times. Any breach may result in disciplinary action. Kindly sign and return a copy of this letter as a token of your acceptance.");
   paragraph("We look forward to having you on our team and wish you a successful career with us."); paragraph("Sincerely,"); y += 8; paragraph(values.authorized_signatory, true); paragraph("PropCheckup", true); y += 6; paragraph("• Employee Acceptance", true); paragraph(`I, ${values.employee_name}, accept the terms and conditions mentioned above.`); paragraph("Signature: ____________________                 Date: ______________");
-  deliverPdf(pdf, `appointment-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`);
+  deliverPdf(pdf, `appointment-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`, null, onIOSFileReady);
 }

@@ -18,10 +18,10 @@ const loadImage = async (url: string) => {
   });
 };
 
-export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: EmployeeNameParam, previewElement?: HTMLElement | null, targetWindow?: Window | null) {
+export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: EmployeeNameParam, previewElement?: HTMLElement | null, targetWindow?: Window | null, onIOSFileReady?: (file: File) => void) {
   const employeeFileName = employeeName?.replace(/\s+/g, "-").toLowerCase() || "employee";
   const filename = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "letter"}-${employeeFileName}.pdf`;
-  const deliver = (pdf: jsPDF) => deliverPdf(pdf, filename, targetWindow);
+  const deliver = (pdf: jsPDF) => deliverPdf(pdf, filename, targetWindow, onIOSFileReady);
 
   if (previewElement) {
     const pages = Array.from(previewElement.querySelectorAll<HTMLElement>("article"));

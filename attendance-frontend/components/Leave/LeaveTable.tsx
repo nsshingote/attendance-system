@@ -4,7 +4,7 @@
  * components/Leave/LeaveTable.tsx
  * Leave requests table. Shows Approve/Reject actions when `canDecide` is
  * true (Admin/SuperAdmin viewing the "All Leave Requests" list). Admins
- * can also override the category to "Privilege" via onChangeCategory.
+ * can update categories through the Edit action.
  * The table stays compact and horizontally scrollable on mobile.
  */
 
@@ -32,7 +32,6 @@ interface LeaveTableProps {
   requests: LeaveRow[];
   canDecide?: boolean;
   onDecide?: (id: number, status: "Approved" | "Rejected") => void;
-  onChangeCategory?: (id: number) => void;
   onEditAllocations?: (id: number) => void;
 }
 
@@ -44,7 +43,7 @@ const CATEGORY_CLASS: Record<string, string> = {
   Mixed: "bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200",
 };
 
-export default function LeaveTable({ requests, canDecide, onDecide, onChangeCategory, onEditAllocations }: LeaveTableProps) {
+export default function LeaveTable({ requests, canDecide, onDecide, onEditAllocations }: LeaveTableProps) {
   if (requests.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center">
@@ -119,15 +118,6 @@ export default function LeaveTable({ requests, canDecide, onDecide, onChangeCate
                           <X size={15} />
                         </button>
                       </>
-                    )}
-                    {canDecide && r.leave_category !== "Privilege" && (
-                      <button
-                        onClick={() => onChangeCategory?.(r.id)}
-                        className="rounded-md bg-violet-50 px-2 py-1.5 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
-                        aria-label="Grant privilege leave"
-                      >
-                        Privilege
-                      </button>
                     )}
                     {canDecide && (
                       <button

@@ -12,7 +12,7 @@ export type OfferLetterValues = {
   acceptance_date?: string;
 };
 
-export function downloadOfferLetterPdf(values: OfferLetterValues) {
+export function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFileReady?: (file: File) => void) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
   let y = 18;
@@ -89,5 +89,5 @@ export function downloadOfferLetterPdf(values: OfferLetterValues) {
   paragraph(`I, ${values.employee_name}, accept the terms and conditions mentioned in this offer letter.`);
   paragraph("Signature: ____________________                 Date: ______________");
 
-  deliverPdf(pdf, `offer-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`);
+  deliverPdf(pdf, `offer-letter-${values.employee_name.replace(/\s+/g, "-").toLowerCase() || "employee"}.pdf`, null, onIOSFileReady);
 }
