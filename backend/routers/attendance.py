@@ -520,6 +520,36 @@ def check_in(
         )
         db.add(record)
 
+    # Handle leave cancellation if employee checks in after having approved leave
+    leave_requests = (
+        db.query(LeaveRequest)
+        .filter(
+            LeaveRequest.user_id == current_user.id,
+            LeaveRequest.status.in_(["Pending", "Approved"]),
+            LeaveRequest.from_date <= today,
+            LeaveRequest.to_date >= today,
+        )
+        .all()
+    )
+    
+    for leave_request in leave_requests:
+        # Get or update user for balance restoration
+        user = db.query(User).filter(User.id == current_user.id).with_for_update().first()
+        if not user:
+            continue
+        
+        # Restore carried leave balance if it was a carried leave
+        if leave_request.leave_category == "Carried":
+            user.carried_leave = (user.carried_leave or 0) + 1
+        
+        # Reject the leave request instead of deleting it, to maintain audit trail
+        leave_request.status = "Rejected"
+        
+        db.add(ActivityLog(
+            user_id=current_user.id,
+            activity=f"Leave request #{leave_request.id} ({leave_request.leave_category}) for {today} automatically rejected due to check-in"
+        ))
+
     # Log activity
     db.add(ActivityLog(user_id=current_user.id, activity=f"Checked in from {ip_address}"))
     db.commit()

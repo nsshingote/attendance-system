@@ -116,6 +116,27 @@ export default function CorrectionForm({
 
   const [submitting, setSubmitting] = useState(false);
 
+  const now = new Date();
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+
+  const MONTHS = [
+    { value: 1, label: "January" },
+    { value: 2, label: "February" },
+    { value: 3, label: "March" },
+    { value: 4, label: "April" },
+    { value: 5, label: "May" },
+    { value: 6, label: "June" },
+    { value: 7, label: "July" },
+    { value: 8, label: "August" },
+    { value: 9, label: "September" },
+    { value: 10, label: "October" },
+    { value: 11, label: "November" },
+    { value: 12, label: "December" },
+  ];
+
+  const YEARS = Array.from({ length: 3 }, (_, i) => now.getFullYear() - 1 + i);
+
   useEffect(() => {
     if (fixedAttendanceId && fixedAttendanceDate) {
       setOptions([
@@ -129,18 +150,16 @@ export default function CorrectionForm({
       return;
     }
 
-    const now = new Date();
-
     api
       .get<AttendanceOption[]>("/attendance/me", {
         params: {
-          year: now.getFullYear(),
-          month: now.getMonth() + 1,
+          year: selectedYear,
+          month: selectedMonth,
         },
       })
       .then(({ data }) => setOptions(data.filter((r) => r.check_in)))
       .catch(() => {});
-  }, [fixedAttendanceId, fixedAttendanceDate]);
+  }, [fixedAttendanceId, fixedAttendanceDate, selectedYear, selectedMonth]);
 
   const selectedOption = options.find((o) => o.id === attendanceId);
   const wantsCheckIn = correctionType === "checkin" || correctionType === "both";
@@ -206,23 +225,66 @@ export default function CorrectionForm({
   return (
     <div className="space-y-4">
       {!fixedAttendanceId && (
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-ink-700">
-            Attendance Record
-          </label>
-          <select
-            value={attendanceId}
-            onChange={(e) => setAttendanceId(Number(e.target.value))}
-            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-          >
-            <option value="">Select a date</option>
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {formatDateLabel(o.attendance_date)}
-              </option>
-            ))}
-          </select>
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink-700">
+                Year
+              </label>
+              <select
+                value={selectedYear}
+                onChange={(e) => {
+                  setSelectedYear(Number(e.target.value));
+                  setAttendanceId("");
+                }}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              >
+                {YEARS.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink-700">
+                Month
+              </label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => {
+                  setSelectedMonth(Number(e.target.value));
+                  setAttendanceId("");
+                }}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              >
+                {MONTHS.map((month) => (
+                  <option key={month.value} value={month.value}>
+                    {month.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink-700">
+              Attendance Record
+            </label>
+            <select
+              value={attendanceId}
+              onChange={(e) => setAttendanceId(Number(e.target.value))}
+              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            >
+              <option value="">Select a date</option>
+              {options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {formatDateLabel(o.attendance_date)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
       )}
 
       <div>

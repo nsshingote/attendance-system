@@ -234,19 +234,18 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const rows = tableRows;
     const cols = tableCols;
     const active = activeSelection.current;
-    
-    // Generate table HTML
-    const cells = Array(cols)
+
+    const cellMarkup = Array(cols)
       .fill(null)
-      .map(() => '<td style="border:1px solid #cbd5e1;padding:6px">Cell</td>')
+      .map(() => '<td contenteditable="true" spellcheck="true" style="border:1px solid #cbd5e1;padding:8px;min-width:120px;vertical-align:top;white-space:normal;overflow-wrap:anywhere;word-break:break-word;outline:none;">Cell</td>')
       .join("");
-    const tr = `<tr>${cells}</tr>`;
+    const tr = `<tr>${cellMarkup}</tr>`;
     const tbody = Array(rows)
       .fill(null)
       .map(() => tr)
       .join("");
-    const table = `<table style="width:100%;border-collapse:collapse"><tbody>${tbody}</tbody></table>`;
-    
+    const table = `<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${tbody}</table>`;
+
     const block = blocks[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
     const before = sliceHtml(block, 0, active.start);
