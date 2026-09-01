@@ -138,7 +138,7 @@ export default function AttendanceTable({
   }
 
   return (
-    <div className="w-full max-w-full overflow-x-auto rounded-lg border border-ink-200 bg-white touch-pan-x">
+    <div className="w-full max-w-full max-h-600px overflow-x-auto overflow-y-auto rounded-lg border border-ink-200 bg-white touch-pan-x">
       <table className="w-full max-w-none table-fixed text-left text-xs" style={{ minWidth: "1050px" }}>
         <colgroup>
           {showEmployeeName && <col className="w-[13%]" />}
