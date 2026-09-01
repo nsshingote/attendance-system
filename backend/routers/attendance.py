@@ -544,6 +544,7 @@ def check_in(
         
         # Reject the leave request instead of deleting it, to maintain audit trail
         leave_request.status = "Rejected"
+        db.add(leave_request)
         
         db.add(ActivityLog(
             user_id=current_user.id,
