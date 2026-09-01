@@ -411,6 +411,20 @@ type PageAttendanceRecord = AttendanceRecord & {
   leave_category?: string | null;
 };
 
+function getMonthsInRange(fromDate: string, toDate: string): { year: number; month: number }[] {
+  const start = new Date(`${fromDate}T00:00:00Z`);
+  const end = new Date(`${toDate}T00:00:00Z`);
+  const months: { year: number; month: number }[] = [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+
+  while (cursor <= end) {
+    months.push({ year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1 });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+
+  return months;
+}
+
 export default function AttendancePage() {
   const session = getSession();
   const today = new Date();
@@ -574,8 +588,20 @@ export default function AttendancePage() {
       if (admin && selectedDepartmentId) params.department_id = selectedDepartmentId;
       const summaryUserId = selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId;
 
-      const [recordsRes, summaryRes] = await Promise.all([
-        api.get<PageAttendanceRecord[]>(attendanceUrl, { params, paramsSerializer: { indexes: null } }),
+      const recordsRequest = !admin && fromDate && toDate
+        ? Promise.all(
+            getMonthsInRange(fromDate, toDate).map(({ year: rangeYear, month: rangeMonth }) =>
+              api.get<PageAttendanceRecord[]>(attendanceUrl, {
+                params: { year: rangeYear, month: rangeMonth },
+              })
+            )
+          ).then((responses) => responses.flatMap((response) => response.data || []))
+        : api
+            .get<PageAttendanceRecord[]>(attendanceUrl, { params, paramsSerializer: { indexes: null } })
+            .then((response) => response.data || []);
+
+      const [recordsData, summaryRes] = await Promise.all([
+        recordsRequest,
         api.get(
           `/attendance/summary/${
             summaryUserId
@@ -584,7 +610,7 @@ export default function AttendancePage() {
         ).catch(() => ({ data: {} })),
       ]);
 
-const recordsWithReport = (recordsRes.data || []).map((record: any) => ({
+const recordsWithReport = recordsData.map((record: any) => ({
   ...record,
   report:
     typeof record.has_report === "boolean"
@@ -618,6 +644,12 @@ setSummary(
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const filteredRecords = records.filter((record) => {
+    if (fromDate && record.attendance_date < fromDate) return false;
+    if (toDate && record.attendance_date > toDate) return false;
+    return true;
+  });
 
   const clearRangeFilter = () => {
     setFromDate("");
@@ -732,7 +764,7 @@ setSummary(
             <Loading />
           ) : view === "table" ? (
             <AttendanceTable
-              records={records}
+              records={filteredRecords}
               showRequestCorrection={!admin || (selectedUserIds.length === 1 && selectedUserIds[0] === session?.userId)}
               onRequestCorrection={setCorrectionModal}
               showEmployeeName={admin}
