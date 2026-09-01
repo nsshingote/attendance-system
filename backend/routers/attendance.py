@@ -525,7 +525,7 @@ def check_in(
         db.query(LeaveRequest)
         .filter(
             LeaveRequest.user_id == current_user.id,
-            LeaveRequest.status.in_(["Pending", "Approved"]),
+            LeaveRequest.status == "Approved",
             LeaveRequest.from_date <= today,
             LeaveRequest.to_date >= today,
         )

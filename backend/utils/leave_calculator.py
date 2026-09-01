@@ -105,6 +105,9 @@ def _has_paid_leave_in_month(
     on_date: date,
     exclude_leave_id: int | None = None,
 ) -> bool:
+    # Rejected/Cancelled leave requests and their allocations are kept for
+    # audit history, but they must never count against the current month's
+    # paid-leave availability.
     query = db.query(LeaveRequest).filter(
         LeaveRequest.user_id == user_id,
         LeaveRequest.status.in_(["Pending", "Approved"]),
@@ -120,11 +123,18 @@ def _has_paid_leave_in_month(
     if legacy_paid_exists:
         return True
 
-    allocated_paid_exists = query.join(LeaveRequest.allocations).filter(
-        LeaveRequestAllocation.leave_category == "Paid",
-        extract("year", LeaveRequestAllocation.allocation_date) == on_date.year,
-        extract("month", LeaveRequestAllocation.allocation_date) == on_date.month,
-    ).first()
+    allocated_paid_exists = (
+        db.query(LeaveRequestAllocation.id)
+        .join(LeaveRequest, LeaveRequest.id == LeaveRequestAllocation.leave_request_id)
+        .filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status.in_(["Pending", "Approved"]),
+            LeaveRequestAllocation.leave_category == "Paid",
+            extract("year", LeaveRequestAllocation.allocation_date) == on_date.year,
+            extract("month", LeaveRequestAllocation.allocation_date) == on_date.month,
+        )
+        .first()
+    )
     return allocated_paid_exists is not None
 
 
