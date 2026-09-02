@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardEvent, forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
@@ -125,6 +125,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [hoveredCols, setHoveredCols] = useState(2);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
+  const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
   useEffect(() => { const next = splitDynamicTemplateBlocks(value); setBlocks(current => JSON.stringify(current) === JSON.stringify(next) ? current : next); }, [value]);
   useLayoutEffect(() => { if (typeof document !== "undefined") setPages(paginateDynamicTemplateBlocks(blocks)); }, [blocks]);
@@ -186,7 +187,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   };
   const removePageBreak = (blockIndex: number) => applyBlocks(blocks.filter((_, index) => index !== blockIndex));
   useImperativeHandle(ref, () => ({ insertPlaceholder: replaceActiveSelection, insertPageBreak }));
-  const updateDocument = () => {
+  const commitDocument = (restoreCaret = true) => {
     if (!editor.current) return;
     const active = activeSelection.current;
     const fragment = editor.current.querySelector<HTMLElement>(`[data-block-index="${active.blockIndex}"][data-fragment-start="${active.fragmentStart}"]`);
@@ -197,10 +198,26 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const selectedLength = active.end - active.start;
     const insertedLength = textLength(nextFragmentText) - (previousFragmentLength - selectedLength);
     const nextValue = `${sliceHtml(block, 0, active.fragmentStart)}${nextFragmentText}${sliceHtml(block, active.fragmentEnd, textLength(block))}`;
-    pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
+    if (restoreCaret) pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
     applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
   };
+  const isTableEdit = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest("table"));
+  const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
+    if (isTableEdit(event?.target ?? null)) {
+      tableEditPending.current = true;
+      return;
+    }
+    commitDocument();
+  };
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const table = isTableEdit(event.target) ? (event.target as HTMLElement).closest("table") : null;
+    if (table && event.relatedTarget instanceof Node && table.contains(event.relatedTarget)) return;
+    if (!tableEditPending.current) return;
+    tableEditPending.current = false;
+    commitDocument(false);
+  };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (isTableEdit(event.target)) return;
     if (!["Enter", "Backspace", "Delete"].includes(event.key)) return;
     updateActiveSelection();
     const active = activeSelection.current;
@@ -219,7 +236,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       replaceActiveSelection("");
     }
   };
-  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => { event.preventDefault(); updateActiveSelection(); replaceActiveSelection(event.clipboardData.getData("text/plain")); };
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (isTableEdit(event.target)) return;
+    event.preventDefault(); updateActiveSelection(); replaceActiveSelection(event.clipboardData.getData("text/plain"));
+  };
 
   const format = (command: string, value?: string) => {
     editor.current?.focus();
@@ -290,7 +310,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, () => format("redo"))}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseUp={updateActiveSelection} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
+    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseUp={updateActiveSelection} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
