@@ -201,23 +201,31 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (restoreCaret) pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
     applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
   };
-  const isTableEdit = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest("table"));
+  const editingTable = (event?: { target: EventTarget | null; nativeEvent?: Event }) => {
+    const elementFor = (node: EventTarget | Node | null) => node instanceof HTMLElement ? node : node instanceof Node ? node.parentElement : null;
+    const selectionNode = window.getSelection()?.anchorNode ?? null;
+    const eventPath = event?.nativeEvent?.composedPath?.() ?? [];
+    return elementFor(event?.target ?? null)?.closest("table") ||
+      elementFor(selectionNode)?.closest("table") ||
+      eventPath.map(elementFor).find(element => element?.closest("table"))?.closest("table") || null;
+  };
+  const isTableEdit = (event?: { target: EventTarget | null; nativeEvent?: Event }) => Boolean(editingTable(event));
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
-    if (isTableEdit(event?.target ?? null)) {
+    if (isTableEdit(event)) {
       tableEditPending.current = true;
       return;
     }
     commitDocument();
   };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
-    const table = isTableEdit(event.target) ? (event.target as HTMLElement).closest("table") : null;
+    const table = editingTable(event);
     if (table && event.relatedTarget instanceof Node && table.contains(event.relatedTarget)) return;
     if (!tableEditPending.current) return;
     tableEditPending.current = false;
     commitDocument(false);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (isTableEdit(event.target)) return;
+    if (isTableEdit(event)) return;
     if (!["Enter", "Backspace", "Delete"].includes(event.key)) return;
     updateActiveSelection();
     const active = activeSelection.current;
@@ -237,7 +245,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     }
   };
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    if (isTableEdit(event.target)) return;
+    if (isTableEdit(event)) return;
     event.preventDefault(); updateActiveSelection(); replaceActiveSelection(event.clipboardData.getData("text/plain"));
   };
 
@@ -264,7 +272,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .fill(null)
       .map(() => tr)
       .join("");
-    const table = `<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${tbody}</table>`;
+    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;">${tbody}</table>`;
 
     const block = blocks[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
