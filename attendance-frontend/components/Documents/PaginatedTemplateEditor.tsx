@@ -125,6 +125,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [hoveredCols, setHoveredCols] = useState(2);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const tableSelection = useRef<Range | null>(null);
+  const resizingTable = useRef<HTMLTableElement | null>(null);
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
@@ -162,6 +163,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       node = walker.nextNode();
     }
   }, [pages]);
+  useLayoutEffect(() => {
+    editor.current?.querySelectorAll<HTMLTableElement>("table").forEach(table => {
+      table.style.resize = "both";
+      table.style.overflow = "auto";
+      table.style.minWidth = "240px";
+    });
+  }, [pages]);
 
   const updateActiveSelection = () => {
     const selection = window.getSelection(); if (!selection?.rangeCount) return;
@@ -180,7 +188,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const replaceActiveSelection = (replacement: string) => {
     const range = tableSelection.current;
     const tableCell = range && (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement)?.closest<HTMLElement>("td, th");
-    if (range && tableCell && editor.current?.contains(tableCell)) {
+    const tableFragment = tableCell?.closest<HTMLElement>("[data-template-fragment]");
+    const table = tableCell?.closest<HTMLTableElement>("table");
+    if (range && tableCell && table && tableFragment && editor.current?.contains(tableCell)) {
       range.deleteContents();
       const inserted = document.createTextNode(replacement);
       range.insertNode(inserted);
@@ -190,7 +200,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       selection?.removeAllRanges();
       selection?.addRange(range);
       tableSelection.current = range.cloneRange();
-      commitDocument(false);
+      const blockIndex = Number(tableFragment.dataset.blockIndex);
+      if (Number.isInteger(blockIndex) && blocks[blockIndex] !== undefined) {
+        // A table is an atomic pagination block. Persisting its own outerHTML
+        // avoids the generic text/HTML slicing path, which can split rows.
+        applyBlocks([...blocks.slice(0, blockIndex), table.outerHTML, ...blocks.slice(blockIndex + 1)]);
+      }
       return;
     }
     const active = activeSelection.current; const block = blocks[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
@@ -229,6 +244,31 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       eventPath.map(elementFor).find(element => element?.closest("table"))?.closest("table") || null;
   };
   const isTableEdit = (event?: { target: EventTarget | null; nativeEvent?: Event }) => Boolean(editingTable(event));
+  const persistTable = (table: HTMLTableElement) => {
+    const fragment = table.closest<HTMLElement>("[data-template-fragment]");
+    const blockIndex = Number(fragment?.dataset.blockIndex);
+    if (!Number.isInteger(blockIndex) || blocks[blockIndex] === undefined) return;
+    applyBlocks([...blocks.slice(0, blockIndex), table.outerHTML, ...blocks.slice(blockIndex + 1)]);
+  };
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    const table = (event.target as HTMLElement).closest<HTMLTableElement>("table");
+    if (!table) return;
+    const bounds = table.getBoundingClientRect();
+    const nearResizeHandle = event.clientX >= bounds.right - 18 && event.clientY >= bounds.bottom - 18;
+    resizingTable.current = nearResizeHandle ? table : null;
+  };
+  const handleMouseUp = (event: React.MouseEvent<HTMLDivElement>) => {
+    const table = resizingTable.current;
+    resizingTable.current = null;
+    if (table) {
+      const bounds = table.getBoundingClientRect();
+      table.style.width = `${Math.round(bounds.width)}px`;
+      table.style.height = `${Math.round(bounds.height)}px`;
+      persistTable(table);
+      return;
+    }
+    updateActiveSelection();
+  };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
     if (isTableEdit(event)) {
       tableEditPending.current = true;
@@ -239,6 +279,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     const table = editingTable(event);
     if (table && event.relatedTarget instanceof Node && table.contains(event.relatedTarget)) return;
+    if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.closest("[data-template-placeholder]")) return;
     if (!tableEditPending.current) return;
     tableEditPending.current = false;
     commitDocument(false);
@@ -291,7 +332,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .fill(null)
       .map(() => tr)
       .join("");
-    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;">${tbody}</table>`;
+    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;resize:both;overflow:auto;min-width:240px;">${tbody}</table>`;
 
     const block = blocks[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
@@ -337,7 +378,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, () => format("redo"))}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseUp={updateActiveSelection} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
+    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseDown={handleMouseDown} onMouseUp={handleMouseUp} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
