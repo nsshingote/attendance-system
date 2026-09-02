@@ -124,6 +124,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [hoveredRows, setHoveredRows] = useState(2);
   const [hoveredCols, setHoveredCols] = useState(2);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
+  const tableSelection = useRef<Range | null>(null);
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
@@ -168,12 +169,30 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
     const startElement = findFragment(range.startContainer); const endElement = findFragment(range.endContainer);
     if (!startElement || startElement !== endElement) return;
+    const findTableCell = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("td, th");
+    const startCell = findTableCell(range.startContainer); const endCell = findTableCell(range.endContainer);
+    tableSelection.current = startCell && startCell === endCell ? range.cloneRange() : null;
     const offsetIn = (node: Node, offset: number) => { const before = document.createRange(); before.selectNodeContents(startElement); before.setEnd(node, offset); return before.toString().length; };
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
     activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset), fragmentStart, fragmentEnd: Number(startElement.dataset.fragmentEnd) };
   };
   const applyBlocks = (next: string[]) => { setBlocks(next); onChange(joinDynamicTemplateBlocks(next)); };
   const replaceActiveSelection = (replacement: string) => {
+    const range = tableSelection.current;
+    const tableCell = range && (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement)?.closest<HTMLElement>("td, th");
+    if (range && tableCell && editor.current?.contains(tableCell)) {
+      range.deleteContents();
+      const inserted = document.createTextNode(replacement);
+      range.insertNode(inserted);
+      range.setStartAfter(inserted);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      tableSelection.current = range.cloneRange();
+      commitDocument(false);
+      return;
+    }
     const active = activeSelection.current; const block = blocks[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
     const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, active.end, textLength(block))}`;
     pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + replacement.length };
