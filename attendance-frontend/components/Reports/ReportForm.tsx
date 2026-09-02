@@ -794,7 +794,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
           {/* Horizontal Scroll */}
           <div className="overflow-x-auto">
-            <table className="min-w-[700px] w-full text-left text-sm">
+            <table className="min-w-175 w-full text-left text-sm">
               <thead className="bg-white">
                 <tr>
                   {hasDynamicStructureForHistory && (

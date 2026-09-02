@@ -200,12 +200,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       selection?.removeAllRanges();
       selection?.addRange(range);
       tableSelection.current = range.cloneRange();
-      const blockIndex = Number(tableFragment.dataset.blockIndex);
-      if (Number.isInteger(blockIndex) && blocks[blockIndex] !== undefined) {
-        // A table is an atomic pagination block. Persisting its own outerHTML
-        // avoids the generic text/HTML slicing path, which can split rows.
-        applyBlocks([...blocks.slice(0, blockIndex), table.outerHTML, ...blocks.slice(blockIndex + 1)]);
-      }
+      persistTable(table);
       return;
     }
     const active = activeSelection.current; const block = blocks[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
@@ -248,7 +243,14 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const fragment = table.closest<HTMLElement>("[data-template-fragment]");
     const blockIndex = Number(fragment?.dataset.blockIndex);
     if (!Number.isInteger(blockIndex) || blocks[blockIndex] === undefined) return;
-    applyBlocks([...blocks.slice(0, blockIndex), table.outerHTML, ...blocks.slice(blockIndex + 1)]);
+    const source = document.createElement("div");
+    source.innerHTML = blocks[blockIndex];
+    const renderedTables = Array.from(fragment?.querySelectorAll("table") ?? []);
+    const tableIndex = renderedTables.indexOf(table);
+    const sourceTable = source.querySelectorAll("table")[tableIndex];
+    if (!sourceTable) return;
+    sourceTable.outerHTML = table.outerHTML;
+    applyBlocks([...blocks.slice(0, blockIndex), source.innerHTML, ...blocks.slice(blockIndex + 1)]);
   };
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const table = (event.target as HTMLElement).closest<HTMLTableElement>("table");
