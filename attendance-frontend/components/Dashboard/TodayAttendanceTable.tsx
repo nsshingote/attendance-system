@@ -27,6 +27,18 @@ interface AttendanceReportRow {
   reason: string | null;
   report: string | null;
   has_report?: boolean;
+  attendance_mode?: string;
+  check_in_latitude?: number | null;
+  check_in_longitude?: number | null;
+  check_in_accuracy?: number | null;
+  check_out_latitude?: number | null;
+  check_out_longitude?: number | null;
+  check_out_accuracy?: number | null;
+}
+
+function getMapUrl(latitude?: number | null, longitude?: number | null): string | null {
+  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) return null;
+  return `https://www.google.com/maps?q=${latitude},${longitude}`;
 }
 
 function formatLocalTime(utcTime: string | null): string {
@@ -183,6 +195,7 @@ export default function TodayAttendanceTable() {
                   <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Late Entry Reason</th>
                   <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Early Logout Reason</th>
                   <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Report</th>
+                  <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Location</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
@@ -190,6 +203,8 @@ export default function TodayAttendanceTable() {
                   const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
                   const reportStatus = getReportStatus(r.report, r.has_report);
                   const isSubmitted = reportStatus === "✅ Submitted";
+                  const checkInMapUrl = getMapUrl(r.check_in_latitude, r.check_in_longitude);
+                  const checkOutMapUrl = getMapUrl(r.check_out_latitude, r.check_out_longitude);
                   
                   return (
                     <tr key={r.user_id} className="hover:bg-ink-50/60">
@@ -218,6 +233,14 @@ export default function TodayAttendanceTable() {
                           {reportStatus}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-xs">
+                        {checkInMapUrl || checkOutMapUrl ? (
+                          <div className="flex flex-col gap-1">
+                            {checkInMapUrl && <a href={checkInMapUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Check-in</a>}
+                            {checkOutMapUrl && <a href={checkOutMapUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Check-out</a>}
+                          </div>
+                        ) : "—"}
+                      </td>
                     </tr>
                   );
                 })}
@@ -230,6 +253,8 @@ export default function TodayAttendanceTable() {
               const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
               const reportStatus = getReportStatus(r.report, r.has_report);
               const isSubmitted = reportStatus === "✅ Submitted";
+              const checkInMapUrl = getMapUrl(r.check_in_latitude, r.check_in_longitude);
+              const checkOutMapUrl = getMapUrl(r.check_out_latitude, r.check_out_longitude);
               return (
                 <div key={r.user_id} className="rounded-lg border border-ink-200 bg-white p-2.5 shadow-sm">
                   <div className="flex items-start justify-between gap-2">
@@ -245,6 +270,15 @@ export default function TodayAttendanceTable() {
                     <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Hours</p><p className="mt-1 font-mono">{formatHoursWorked(r.check_in, r.check_out)}</p></div>
                     <div className="rounded-md bg-ink-50 px-2 py-2"><p className="text-[10px] uppercase tracking-wide text-ink-500">Report</p><p className={`mt-1 font-medium ${isSubmitted ? "text-green-600" : "text-red-500"}`}>{reportStatus}</p></div>
                   </div>
+                  {(checkInMapUrl || checkOutMapUrl) && (
+                    <div className="mt-2 rounded-md bg-ink-50 px-2 py-2 text-xs">
+                      <p className="text-[10px] uppercase tracking-wide text-ink-500">Location</p>
+                      <div className="mt-1 flex gap-3">
+                        {checkInMapUrl && <a href={checkInMapUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Check-in</a>}
+                        {checkOutMapUrl && <a href={checkOutMapUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Check-out</a>}
+                      </div>
+                    </div>
+                  )}
                   {(lateReason || earlyReason || remark) && (
                     <div className="mt-2 rounded-md bg-ink-50 px-2 py-2 text-[11px] text-ink-600">
                       {lateReason && <p><span className="font-semibold text-ink-700">Late:</span> <ExpandableText text={lateReason} limit={42} /></p>}

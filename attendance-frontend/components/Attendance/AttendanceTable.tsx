@@ -25,6 +25,12 @@ export interface AttendanceRecord {
   user_name?: string;
   department?: string;
   is_working_sunday?: boolean;
+  check_in_latitude?: number | null;
+  check_in_longitude?: number | null;
+  check_in_accuracy?: number | null;
+  check_out_latitude?: number | null;
+  check_out_longitude?: number | null;
+  check_out_accuracy?: number | null;
 }
 
 interface AttendanceTableProps {
@@ -121,6 +127,11 @@ function getReportStatus(report: string | null | undefined, has_report?: boolean
   return "✅";
 }
 
+function getMapUrl(latitude?: number | null, longitude?: number | null): string | null {
+  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) return null;
+  return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
+
 export default function AttendanceTable({
   records,
   showRequestCorrection,
@@ -144,7 +155,7 @@ export default function AttendanceTable({
           {showEmployeeName && <col className="w-[13%]" />}
           <col className="w-[10%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[9%]" />
           <col className="w-[16%]" /><col className="w-[16%]" /><col className="w-[6%]" />
-          {(showRequestCorrection || showAdminActions) && <col className="w-[8%]" />}
+          <col className="w-[8%]" />{(showRequestCorrection || showAdminActions) && <col className="w-[8%]" />}
         </colgroup>
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
@@ -159,6 +170,7 @@ export default function AttendanceTable({
             <th className="px-2 py-2 font-medium">Late</th>
             <th className="px-2 py-2 font-medium">Early</th>
             <th className="px-2 py-2 font-medium">Report</th>
+            <th className="px-2 py-2 font-medium">Location</th>
             {(showRequestCorrection || showAdminActions) && <th className="px-2 py-2 font-medium">Action</th>}
           </tr>
         </thead>
@@ -166,6 +178,8 @@ export default function AttendanceTable({
           {records.map((r) => {
             const { lateReason, earlyReason, remark } = parseReason(r.reason, r.status);
             const reportStatus = getReportStatus(r.report, r.has_report);
+            const checkInMapUrl = getMapUrl(r.check_in_latitude, r.check_in_longitude);
+            const checkOutMapUrl = getMapUrl(r.check_out_latitude, r.check_out_longitude);
             
             return (
               <tr key={r.id} className="hover:bg-ink-50/60">
@@ -199,6 +213,14 @@ export default function AttendanceTable({
                   <span className={reportStatus === "✅" ? "text-green-600" : "text-red-500"}>
                     {reportStatus}
                   </span>
+                </td>
+                <td className="px-2 py-2 text-[10px] whitespace-nowrap">
+                  {checkInMapUrl || checkOutMapUrl ? (
+                    <div className="flex flex-col gap-1">
+                      {checkInMapUrl && <a href={checkInMapUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Check-in</a>}
+                      {checkOutMapUrl && <a href={checkOutMapUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">Check-out</a>}
+                    </div>
+                  ) : "—"}
                 </td>
                 {(showRequestCorrection || showAdminActions) && (
                   <td className="px-2 py-2 whitespace-nowrap">

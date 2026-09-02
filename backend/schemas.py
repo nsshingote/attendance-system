@@ -5,7 +5,7 @@ Pydantic models used for request validation and response serialization.
 
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 
@@ -87,6 +87,7 @@ class UserBase(BaseModel):
     emergency_contact_phone: Optional[str] = None
     role: str = "user"
     status: str = "active"
+    attendance_mode: Literal["office", "onsite"] = "office"
     annual_leave: int = 6
 
 
@@ -112,7 +113,15 @@ class UserUpdate(BaseModel):
     emergency_contact_phone: Optional[str] = None
     role: Optional[str] = None
     status: Optional[str] = None
+    attendance_mode: Optional[Literal["office", "onsite"]] = None
     annual_leave: Optional[int] = None
+
+    @field_validator("attendance_mode", mode="before")
+    @classmethod
+    def reject_null_attendance_mode(cls, value):
+        if value is None:
+            raise ValueError("attendance_mode cannot be null")
+        return value
 
 
 class UserOut(ORMBase):
@@ -121,6 +130,7 @@ class UserOut(ORMBase):
     mobile: str
     email: Optional[EmailStr] = None
     role: str
+    attendance_mode: Literal["office", "onsite"]
     department: str
     designation: str
     place_of_posting: Optional[str] = None
@@ -286,11 +296,17 @@ class DynamicLetterCreate(BaseModel):
 class CheckInRequest(BaseModel):
     ip_address: Optional[str] = None
     reason: Optional[str] = None  # required by the API if check-in is after the late cutoff
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
 
 
 class CheckOutRequest(BaseModel):
     ip_address: Optional[str] = None
     reason: Optional[str] = None  # required by the API if check-out is before the early cutoff
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
 
 
 class AttendanceOut(ORMBase):
@@ -308,6 +324,12 @@ class AttendanceOut(ORMBase):
     created_at: datetime
     has_report: Optional[bool] = None
     is_working_sunday: Optional[bool] = None
+    check_in_latitude: Optional[float] = None
+    check_in_longitude: Optional[float] = None
+    check_in_accuracy: Optional[float] = None
+    check_out_latitude: Optional[float] = None
+    check_out_longitude: Optional[float] = None
+    check_out_accuracy: Optional[float] = None
 
 
 class AttendanceManualUpdate(BaseModel):
@@ -645,6 +667,13 @@ class TodayAttendanceOut(BaseModel):
     reason: Optional[str] = None
     report: Optional[str] = None
     has_report: Optional[bool] = None
+    attendance_mode: str = "office"
+    check_in_latitude: Optional[float] = None
+    check_in_longitude: Optional[float] = None
+    check_in_accuracy: Optional[float] = None
+    check_out_latitude: Optional[float] = None
+    check_out_longitude: Optional[float] = None
+    check_out_accuracy: Optional[float] = None
 
 
 class AdminDashboardStats(BaseModel):

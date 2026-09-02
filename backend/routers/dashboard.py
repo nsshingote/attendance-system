@@ -200,7 +200,14 @@ def get_admin_dashboard(
                 check_out=iso_with_offset(att.check_out) if att and att.check_out else None,
                 status=status,
                 reason=att.reason if att else None,
-                report=report_display
+                report=report_display,
+                attendance_mode=emp.attendance_mode or "office",
+                check_in_latitude=att.check_in_latitude if att else None,
+                check_in_longitude=att.check_in_longitude if att else None,
+                check_in_accuracy=att.check_in_accuracy if att else None,
+                check_out_latitude=att.check_out_latitude if att else None,
+                check_out_longitude=att.check_out_longitude if att else None,
+                check_out_accuracy=att.check_out_accuracy if att else None
             )
         )
     

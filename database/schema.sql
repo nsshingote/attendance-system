@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('superadmin', 'admin', 'user') NOT NULL DEFAULT 'user',
+    attendance_mode ENUM('office', 'onsite') NOT NULL DEFAULT 'office',
     department VARCHAR(100) NOT NULL,
     designation VARCHAR(100) NOT NULL,
     place_of_posting VARCHAR(150) NULL,
@@ -70,6 +71,12 @@ CREATE TABLE IF NOT EXISTS attendance (
     manual_override BOOLEAN NOT NULL DEFAULT FALSE,
     manual_override_by INT,
     manual_override_at DATETIME,
+    check_in_latitude DECIMAL(10, 7),
+    check_in_longitude DECIMAL(10, 7),
+    check_in_accuracy DECIMAL(10, 2),
+    check_out_latitude DECIMAL(10, 7),
+    check_out_longitude DECIMAL(10, 7),
+    check_out_accuracy DECIMAL(10, 2),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE KEY uq_attendance_user_date (user_id, attendance_date)
 );

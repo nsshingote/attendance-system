@@ -30,6 +30,7 @@ interface UserFormValues {
   place_of_posting: string;
   date_of_joining: string;
   role: string;
+  attendance_mode: "office" | "onsite";
   password: string;
 }
 
@@ -81,7 +82,7 @@ export default function UsersPage() {
 
   const openCreateModal = () => {
     setEditingUser(null);
-    reset({ name: "", mobile: "", email: "", department: "", designation: "", place_of_posting: "", date_of_joining: "", role: "user", password: "" });
+    reset({ name: "", mobile: "", email: "", department: "", designation: "", place_of_posting: "", date_of_joining: "", role: "user", attendance_mode: "office", password: "" });
     setModalOpen(true);
   };
 
@@ -107,6 +108,7 @@ export default function UsersPage() {
       place_of_posting: user.place_of_posting ?? "",
       date_of_joining: user.date_of_joining ?? "",
       role: user.role,
+      attendance_mode: user.attendance_mode || "office",
       password: "",
     });
     setModalOpen(true);
@@ -124,6 +126,7 @@ export default function UsersPage() {
           place_of_posting: values.place_of_posting || undefined,
           date_of_joining: values.date_of_joining || undefined,
           role: values.role,
+          attendance_mode: values.attendance_mode,
         });
         toast.success("User updated");
       } else {
@@ -136,6 +139,7 @@ export default function UsersPage() {
           place_of_posting: values.place_of_posting || undefined,
           date_of_joining: values.date_of_joining || undefined,
           role: values.role,
+          attendance_mode: values.attendance_mode,
           password: values.password,
         });
         toast.success("User created");
@@ -281,6 +285,13 @@ export default function UsersPage() {
             <select {...register("role")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
               <option value="user">Employee</option>
               {session?.role === "superadmin" && <option value="admin">Admin</option>}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-ink-700">Attendance Mode</label>
+            <select {...register("attendance_mode")} defaultValue="office" className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
+              <option value="office">Office</option>
+              <option value="onsite">Onsite</option>
             </select>
           </div>
           {!editingUser && (

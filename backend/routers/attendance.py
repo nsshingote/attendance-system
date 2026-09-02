@@ -7,6 +7,7 @@ require a reason.
 """
 
 from datetime import date, datetime, time, timedelta
+import math
 from typing import List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
@@ -96,6 +97,17 @@ def _validate_office_ip(ip_address: str, db: Session) -> bool:
         OfficeIP.status == "active"
     ).first()
     return approved is not None
+
+
+def _is_onsite_user(user: User) -> bool:
+    return (getattr(user, "attendance_mode", None) or "office").lower() == "onsite"
+
+
+def _require_onsite_location(user: User, latitude: Optional[float], longitude: Optional[float], accuracy: Optional[float], skip: bool = False) -> None:
+    if skip or not _is_onsite_user(user):
+        return
+    if latitude is None or longitude is None or not math.isfinite(latitude) or not math.isfinite(longitude) or not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180) or (accuracy is not None and (not math.isfinite(accuracy) or accuracy < 0)):
+        raise HTTPException(status_code=400, detail="LOCATION_REQUIRED: Enable location services and allow GPS access to mark onsite attendance.")
 
 
 def _has_approved_wfh(db: Session, user_id: int, target_date: date) -> bool:
@@ -451,9 +463,18 @@ def check_in(
         )
 
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
+    onsite = _is_onsite_user(current_user)
+    approved_wfh = _has_approved_wfh(db, current_user.id, today)
+    _require_onsite_location(
+        current_user,
+        payload.latitude if payload else None,
+        payload.longitude if payload else None,
+        payload.accuracy if payload else None,
+        skip=approved_wfh,
+    )
 
     # Skip office IP check only for approved WFH or this employee's assigned working day.
-    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_day(db, current_user.id, today)):
+    if not (onsite or approved_wfh or _is_working_day(db, current_user.id, today)):
         if not _validate_office_ip(ip_address, db):
             raise HTTPException(
                 status_code=403,
@@ -484,7 +505,7 @@ def check_in(
     )
 
     # Require reason for late check-in (after grace cutoff)
-    if ist_now.time() > grace_cutoff_with_buffer and not reason:
+    if not onsite and ist_now.time() > grace_cutoff_with_buffer and not reason:
         raise HTTPException(
             status_code=400,
             detail=f"REASON_REQUIRED: Please provide a reason for checking in after {grace_cutoff_with_buffer.strftime('%H:%M')}.",
@@ -492,17 +513,20 @@ def check_in(
 
     # An assigned working day takes precedence over a holiday or weekly off.
     if _is_working_day(db, current_user.id, today):
-        status_value = calculate_status(ist_now, db)
+        status_value = "Present" if onsite else calculate_status(ist_now, db)
     elif is_weekly_off(today, db):
         status_value = "Present"
     elif db.query(Holiday).filter(Holiday.holiday_date == today).first():
         status_value = "Holiday"
     else:
-        status_value = calculate_status(ist_now, db)
+        status_value = "Present" if onsite else calculate_status(ist_now, db)
 
     if existing:
         existing.check_in = ist_now
         existing.ip_address = ip_address
+        existing.check_in_latitude = payload.latitude if onsite and not approved_wfh and payload else None
+        existing.check_in_longitude = payload.longitude if onsite and not approved_wfh and payload else None
+        existing.check_in_accuracy = payload.accuracy if onsite and not approved_wfh and payload else None
         if not getattr(existing, "manual_override", False):
             existing.status = status_value
         # Tag the reason with [LATE_ENTRY] prefix so frontend can distinguish it from early checkout reasons
@@ -518,6 +542,9 @@ def check_in(
             status=status_value,
             reason=f"[LATE_ENTRY] {reason}" if reason else None,
         )
+        record.check_in_latitude = payload.latitude if onsite and not approved_wfh and payload else None
+        record.check_in_longitude = payload.longitude if onsite and not approved_wfh and payload else None
+        record.check_in_accuracy = payload.accuracy if onsite and not approved_wfh and payload else None
         db.add(record)
 
     # Handle leave cancellation if employee checks in after having approved leave
@@ -568,6 +595,12 @@ def check_in(
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
         "is_working_sunday": _is_working_day(db, record.user_id, record.attendance_date),
+        "check_in_latitude": record.check_in_latitude,
+        "check_in_longitude": record.check_in_longitude,
+        "check_in_accuracy": record.check_in_accuracy,
+        "check_out_latitude": record.check_out_latitude,
+        "check_out_longitude": record.check_out_longitude,
+        "check_out_accuracy": record.check_out_accuracy,
     }
 
 
@@ -588,9 +621,18 @@ def check_out(
         )
 
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
+    onsite = _is_onsite_user(current_user)
+    approved_wfh = _has_approved_wfh(db, current_user.id, today)
+    _require_onsite_location(
+        current_user,
+        payload.latitude if payload else None,
+        payload.longitude if payload else None,
+        payload.accuracy if payload else None,
+        skip=approved_wfh,
+    )
 
     # Skip office IP check only for approved WFH or this employee's assigned working day.
-    if not (_has_approved_wfh(db, current_user.id, today) or _is_working_day(db, current_user.id, today)):
+    if not (onsite or approved_wfh or _is_working_day(db, current_user.id, today)):
         if not _validate_office_ip(ip_address, db):
             raise HTTPException(
                 status_code=403,
@@ -620,7 +662,7 @@ def check_out(
         early_checkout_cutoff = time(18, 30)
 
     # Require reason for early check-out (before office end time)
-    if ist_now.time() < early_checkout_cutoff and not reason:
+    if not onsite and ist_now.time() < early_checkout_cutoff and not reason:
         raise HTTPException(
             status_code=400,
             detail=f"REASON_REQUIRED: Please provide a reason for checking out before {early_checkout_cutoff.strftime('%H:%M')}.",
@@ -642,7 +684,10 @@ def check_out(
     # =============================================
 
     record.check_out = ist_now
-    if reason:
+    record.check_out_latitude = payload.latitude if onsite and not approved_wfh and payload else None
+    record.check_out_longitude = payload.longitude if onsite and not approved_wfh and payload else None
+    record.check_out_accuracy = payload.accuracy if onsite and not approved_wfh and payload else None
+    if reason and not onsite:
         # Append early checkout reason, tagged with [EARLY_CHECKOUT] prefix for frontend clarity
         tagged_reason = f"[EARLY_CHECKOUT] {reason}"
         if record.reason:
@@ -651,7 +696,7 @@ def check_out(
             record.reason = tagged_reason
 
         # ✅ FIXED: Only mark Half Day if worked less than 4 hours
-    if record.check_in and record.check_out and not getattr(record, "manual_override", False):
+    if not onsite and record.check_in and record.check_out and not getattr(record, "manual_override", False):
         check_in_val = record.check_in
         check_out_val = record.check_out
         if check_in_val.tzinfo is None:
@@ -677,6 +722,12 @@ def check_out(
         "reason": record.reason,
         "created_at": iso_with_offset(record.created_at),
         "has_report": _has_report_for_date(db, record.user_id, record.attendance_date),
+        "check_in_latitude": record.check_in_latitude,
+        "check_in_longitude": record.check_in_longitude,
+        "check_in_accuracy": record.check_in_accuracy,
+        "check_out_latitude": record.check_out_latitude,
+        "check_out_longitude": record.check_out_longitude,
+        "check_out_accuracy": record.check_out_accuracy,
     }
 
 
@@ -732,6 +783,12 @@ def my_attendance(
             "created_at": iso_with_offset(attendance.created_at),
             "has_report": (attendance.user_id, attendance.attendance_date) in report_keys,
             "is_working_sunday": (attendance.user_id, attendance.attendance_date) in working_sunday_keys,
+            "check_in_latitude": attendance.check_in_latitude,
+            "check_in_longitude": attendance.check_in_longitude,
+            "check_in_accuracy": attendance.check_in_accuracy,
+            "check_out_latitude": attendance.check_out_latitude,
+            "check_out_longitude": attendance.check_out_longitude,
+            "check_out_accuracy": attendance.check_out_accuracy,
         })
     return results
 
@@ -794,6 +851,12 @@ def user_attendance(
             "created_at": iso_with_offset(attendance.created_at),
             "has_report": (attendance.user_id, attendance.attendance_date) in report_keys,
             "is_working_sunday": (attendance.user_id, attendance.attendance_date) in working_sunday_keys,
+            "check_in_latitude": attendance.check_in_latitude,
+            "check_in_longitude": attendance.check_in_longitude,
+            "check_in_accuracy": attendance.check_in_accuracy,
+            "check_out_latitude": attendance.check_out_latitude,
+            "check_out_longitude": attendance.check_out_longitude,
+            "check_out_accuracy": attendance.check_out_accuracy,
         })
     return results
 
@@ -889,6 +952,12 @@ def get_all_attendance(
             "reason": attendance.reason,
             "has_report": has_report,
             "is_working_sunday": (attendance.user_id, attendance.attendance_date) in working_sunday_keys,
+            "check_in_latitude": attendance.check_in_latitude,
+            "check_in_longitude": attendance.check_in_longitude,
+            "check_in_accuracy": attendance.check_in_accuracy,
+            "check_out_latitude": attendance.check_out_latitude,
+            "check_out_longitude": attendance.check_out_longitude,
+            "check_out_accuracy": attendance.check_out_accuracy,
         })
     
     return formatted_results

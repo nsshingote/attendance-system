@@ -22,6 +22,7 @@ export interface UserRow {
   place_of_posting?: string | null;
   date_of_joining?: string | null;
   status: string;
+  attendance_mode: "office" | "onsite";
 }
 
 interface UserTableProps {

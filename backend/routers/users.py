@@ -244,6 +244,7 @@ def create_user(
         email=payload.email,
         password_hash=hash_password(payload.password),
         role=payload.role,
+        attendance_mode=payload.attendance_mode,
         department=payload.department,
         designation=payload.designation,
         place_of_posting=payload.place_of_posting,

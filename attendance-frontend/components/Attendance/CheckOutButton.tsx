@@ -17,12 +17,33 @@ export default function CheckOutButton({ disabled, onSuccess }: CheckOutButtonPr
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reason, setReason] = useState("");
 
+  const getLocation = () => new Promise<GeolocationPosition>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("LOCATION_REQUIRED: Enable location services to check out."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, () => reject(new Error("LOCATION_REQUIRED: Enable location permission to check out onsite.")), { enableHighAccuracy: true, timeout: 10000 });
+  });
+
   const submitCheckOut = async (reasonText?: string) => {
     if (loading) return;
     
     setLoading(true);
     try {
-      const payload = reasonText ? { reason: reasonText } : {};
+      const { data: user } = await api.get<{ attendance_mode?: string }>("/users/me").catch(() => ({ data: { attendance_mode: "office" } }));
+      const payload: { reason?: string; latitude?: number; longitude?: number; accuracy?: number } = reasonText ? { reason: reasonText } : {};
+      const today = new Date();
+      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const { data: wfhRequests } = user.attendance_mode === "onsite"
+        ? await api.get<{ attendance_date: string; status: string }[]>("/attendance/wfh/me", { params: { month: today.getMonth() + 1, year: today.getFullYear() } })
+        : { data: [] };
+      const approvedWfh = wfhRequests.some((request) => request.attendance_date === todayIso && request.status === "Approved");
+      if (user.attendance_mode === "onsite" && !approvedWfh) {
+        const position = await getLocation();
+        payload.latitude = position.coords.latitude;
+        payload.longitude = position.coords.longitude;
+        payload.accuracy = position.coords.accuracy;
+      }
       const { data } = await api.post("/attendance/check-out", payload);
       toast.success(`Checked out — status: ${data.status}`);
       if (onSuccess) onSuccess();
