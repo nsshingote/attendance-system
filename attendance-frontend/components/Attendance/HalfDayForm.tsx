@@ -15,12 +15,13 @@
  *   applied immediately, no approval needed since an admin is doing it)
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
-import { getSession, isAdmin } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 
 interface HalfDayFormProps {
+  isAdmin: boolean;
   targetUserId?: number; // if provided, this is an admin filling it in for someone else
   onSuccess: () => void;
   onCancel: () => void;
@@ -36,16 +37,24 @@ const SLOTS = [
   { value: "afternoon", label: "Afternoon — 2:30 PM to 6:30 PM" },
 ];
 
-export default function HalfDayForm({ targetUserId: propTargetUserId, onSuccess, onCancel }: HalfDayFormProps) {
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, onSuccess, onCancel }: HalfDayFormProps) {
   const session = getSession();
-  const isAdminUser = isAdmin(session?.role);
+  const isAdminUser = isAdmin;
   
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(propTargetUserId || session?.userId);
-  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [attendanceDate, setAttendanceDate] = useState(formatLocalDate(new Date()));
   const [slot, setSlot] = useState("morning");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   // Fetch users for admin dropdown
   useEffect(() => {
@@ -64,6 +73,8 @@ export default function HalfDayForm({ targetUserId: propTargetUserId, onSuccess,
   }, [isAdminUser, propTargetUserId]);
 
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+
     if (!attendanceDate) {
       toast.error("Please select a date");
       return;
@@ -75,6 +86,7 @@ export default function HalfDayForm({ targetUserId: propTargetUserId, onSuccess,
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       // Determine the target user ID
@@ -82,26 +94,12 @@ export default function HalfDayForm({ targetUserId: propTargetUserId, onSuccess,
       
       // If admin, use the admin endpoint with user_id in URL
       // If employee, use the regular endpoint
-      let url: string;
-      let payload: any;
-      
-      if (isAdminUser) {
-        // Admin: POST to /attendance/half-day/{user_id} (immediate approval)
-        url = `/attendance/half-day/${targetId}`;
-        payload = {
-          attendance_date: attendanceDate,
-          slot,
-          reason: reason || undefined,
-        };
-      } else {
-        // Employee: POST to /attendance/half-day (creates pending request)
-        url = "/attendance/half-day";
-        payload = {
-          attendance_date: attendanceDate,
-          slot,
-          reason: reason || undefined,
-        };
-      }
+      const url = isAdminUser ? `/attendance/half-day/${targetId}` : "/attendance/half-day";
+      const payload = {
+        attendance_date: attendanceDate,
+        slot,
+        reason: reason || undefined,
+      };
       
       await api.post(url, payload);
       
@@ -114,6 +112,7 @@ export default function HalfDayForm({ targetUserId: propTargetUserId, onSuccess,
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

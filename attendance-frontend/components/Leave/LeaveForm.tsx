@@ -22,7 +22,7 @@
  * backend at all.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { Mail } from "lucide-react";
@@ -72,6 +72,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   const [recipientLoadError, setRecipientLoadError] = useState<string | null>(null);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [targetUserId, setTargetUserId] = useState<number | undefined>(undefined); // undefined = applying for self
@@ -137,6 +138,9 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   }, [fetchBalance]);
 
   const onSubmit = async (values: LeaveFormValues) => {
+    if (submittingRef.current) return;
+
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const payload: any = {
@@ -157,8 +161,13 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
+  };
+
+  const handleRequestSubmit = () => {
+    void handleSubmit(onSubmit)();
   };
 
   const handleComposeEmail = async () => {
@@ -291,7 +300,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
           </button>
           <button
             type="button"
-            onClick={handleSubmit(onSubmit)}
+            onClick={handleRequestSubmit}
             disabled={submitting}
             className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-60"
           >

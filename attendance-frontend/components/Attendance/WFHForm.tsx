@@ -14,12 +14,13 @@
  *   since an admin is doing it)
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
-import { getSession, isAdmin } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 
 interface WFHFormProps {
+  isAdmin: boolean;
   targetUserId?: number; // if provided, this is an admin filling it in for someone else
   onSuccess: () => void;
   onCancel: () => void;
@@ -37,9 +38,9 @@ const formatLocalDate = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onCancel }: WFHFormProps) {
+export default function WFHForm({ isAdmin, targetUserId: propTargetUserId, onSuccess, onCancel }: WFHFormProps) {
   const session = getSession();
-  const isAdminUser = isAdmin(session?.role);
+  const isAdminUser = isAdmin;
 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(propTargetUserId || session?.userId);
@@ -48,6 +49,7 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
   const [toDate, setToDate] = useState(todayIso);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const isPastDate = (dateValue: string) => {
     return new Date(`${dateValue}T00:00:00`) < new Date(`${todayIso}T00:00:00`);
@@ -81,6 +83,8 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
   }, [isAdminUser, propTargetUserId]);
 
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+
     if (!fromDate || !toDate) {
       toast.error("Please select a From Date and To Date");
       return;
@@ -101,6 +105,7 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const targetId = isAdminUser ? selectedUserId : session?.userId;
@@ -120,6 +125,7 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

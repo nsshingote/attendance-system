@@ -298,11 +298,11 @@ export default function LeavePage() {
       return;
     }
     // derive dates
-    const from = new Date(leave.from_date);
-    const to = new Date(leave.to_date);
+    const from = new Date(`${leave.from_date}T00:00:00`);
+    const to = new Date(`${leave.to_date}T00:00:00`);
     const rows: { allocation_date: string; leave_category: string }[] = [];
     for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-      rows.push({ allocation_date: d.toISOString().split("T")[0], leave_category: leave.leave_category || "Unpaid" });
+      rows.push({ allocation_date: format(d, "yyyy-MM-dd"), leave_category: leave.leave_category || "Unpaid" });
     }
     setAllocationRows(rows);
   };
@@ -833,6 +833,7 @@ export default function LeavePage() {
           />
         ) : newRequestType === "halfday" ? (
           <HalfDayForm
+            isAdmin={admin}
             onSuccess={() => {
               setNewRequestOpen(false);
               fetchAll();
@@ -841,6 +842,7 @@ export default function LeavePage() {
           />
         ) : (
           <WFHForm
+            isAdmin={admin}
             onSuccess={() => {
               setNewRequestOpen(false);
               fetchAll();
