@@ -49,6 +49,7 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     REFRESH_COOKIE_SECURE: bool = os.getenv("REFRESH_COOKIE_SECURE", "true" if os.getenv("APP_ENV") == "production" else "false").lower() == "true"
+    REFRESH_COOKIE_SAMESITE: str = os.getenv("REFRESH_COOKIE_SAMESITE", "lax").lower()
 
     # ---- CORS ----
     FRONTEND_ORIGINS: list[str] = [
@@ -78,6 +79,10 @@ class Settings:
     def __init__(self) -> None:
         if self.APP_ENV == "production" and self.JWT_SECRET_KEY == "change-this-secret-in-production":
             raise RuntimeError("SECRET_KEY must be set to a strong value when APP_ENV=production")
+        if self.REFRESH_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+            raise RuntimeError("REFRESH_COOKIE_SAMESITE must be lax, strict, or none")
+        if self.REFRESH_COOKIE_SAMESITE == "none" and not self.REFRESH_COOKIE_SECURE:
+            raise RuntimeError("REFRESH_COOKIE_SAMESITE=none requires REFRESH_COOKIE_SECURE=true")
 
 
 settings = Settings()

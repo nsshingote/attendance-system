@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getSession, clearSession, updateAccessToken } from "@/lib/auth";
+import { getSession, clearSession, isTokenExpired, updateAccessToken } from "@/lib/auth";
 import toast from "react-hot-toast";
 
 const api = axios.create({
@@ -23,14 +23,21 @@ const refreshAccessToken = async (): Promise<string> => {
   return refreshPromise;
 };
 
+const isRefreshRequest = (url?: string) => String(url || "").includes("/auth/refresh");
+const isAuthRequest = (url?: string) => String(url || "").includes("/auth/");
+
 // Request interceptor - add token
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
     if (config.headers && typeof FormData !== "undefined" && config.data instanceof FormData) {
       delete config.headers["Content-Type"];
       delete config.headers["content-type"];
     }
-    const session = getSession();
+    let session = getSession();
+    if (session && isTokenExpired() && !isAuthRequest(config.url)) {
+      await refreshAccessToken();
+      session = getSession();
+    }
     if (session?.token) {
       config.headers.Authorization = `Bearer ${session.token}`;
     }
@@ -64,7 +71,7 @@ api.interceptors.response.use(
     
     // Handle 401 - unauthorized
     const originalRequest = error.config as typeof error.config & { _retry?: boolean };
-    if (error.response?.status === 401 && !originalRequest?._retry && !String(originalRequest?.url || "").includes("/auth/refresh")) {
+    if (error.response?.status === 401 && !originalRequest?._retry && !isRefreshRequest(originalRequest?.url)) {
       const session = getSession();
       if (session?.token) {
         originalRequest._retry = true;
@@ -73,12 +80,16 @@ api.interceptors.response.use(
           originalRequest.headers = originalRequest.headers || {};
           originalRequest.headers.Authorization = `Bearer ${token}`;
           return api(originalRequest);
-        } catch {
-          clearSession();
-          toast.error("Your session has ended. Please login again.");
-          if (typeof window !== "undefined") {
-            window.location.href = "/login";
+        } catch (refreshError) {
+          const refreshStatus = axios.isAxiosError(refreshError) ? refreshError.response?.status : undefined;
+          if (refreshStatus === 401 || refreshStatus === 403) {
+            clearSession();
+            toast.error("Your session has ended. Please login again.");
+            if (typeof window !== "undefined") {
+              window.location.href = "/login";
+            }
           }
+          return Promise.reject(refreshError);
         }
       }
     }
