@@ -30,13 +30,20 @@ interface UserOption {
   name: string;
 }
 
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onCancel }: WFHFormProps) {
   const session = getSession();
   const isAdminUser = isAdmin(session?.role);
 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(propTargetUserId || session?.userId);
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = formatLocalDate(new Date());
   const [fromDate, setFromDate] = useState(todayIso);
   const [toDate, setToDate] = useState(todayIso);
   const [reason, setReason] = useState("");
@@ -51,7 +58,9 @@ export default function WFHForm({ targetUserId: propTargetUserId, onSuccess, onC
     const current = new Date(`${fromDate}T00:00:00`);
     const end = new Date(`${toDate}T00:00:00`);
     while (current <= end) {
-      dates.push(current.toISOString().slice(0, 10));
+      // Keep the calendar date selected in the local timezone; converting to
+      // ISO/UTC here can shift it back one day in timezones such as IST.
+      dates.push(formatLocalDate(current));
       current.setDate(current.getDate() + 1);
     }
     return dates;
