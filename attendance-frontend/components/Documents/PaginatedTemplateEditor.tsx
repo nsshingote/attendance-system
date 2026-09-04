@@ -14,16 +14,24 @@ const OTHER_PAGE_CONTENT_HEIGHT = 920;
 export const splitDynamicTemplateBlocks = (value: string) => {
   const blocks: string[] = [];
   let text: string[] = [];
+  const pushContentBlocks = (content: string) => {
+    // A table must never enter the generic text slicing path below. That path
+    // clones ancestor nodes for each page fragment, which creates partial table
+    // DOM that browsers normalise differently on every edit.
+    const parts = content.split(/(<table\b[\s\S]*?<\/table>)/gi);
+    if (parts.length === 1) blocks.push(parts[0]);
+    else parts.forEach(part => { if (part) blocks.push(part); });
+  };
   value.split("\n").forEach((line) => {
     if (isDynamicPageBreak(line)) {
-      if (text.length) blocks.push(text.join("\n"));
+      if (text.length) pushContentBlocks(text.join("\n"));
       blocks.push(DYNAMIC_PAGE_BREAK);
       text = [];
       return;
     }
     text.push(line);
   });
-  if (text.length || !blocks.length || isDynamicPageBreak(blocks[blocks.length - 1])) blocks.push(text.join("\n"));
+  if (text.length || !blocks.length || isDynamicPageBreak(blocks[blocks.length - 1])) pushContentBlocks(text.join("\n"));
   return blocks.length ? blocks : [""];
 };
 export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.join("\n");
@@ -75,19 +83,56 @@ const fragmentForHeight = (html: string, maxHeight: number) => {
 const runEditorCommand = (command: string, value?: string) => {
   document.execCommand(command, false, value);
 };
+const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: number) => {
+  const source = document.createElement("div");
+  source.innerHTML = tableHtml;
+  const table = source.querySelector("table");
+  if (!table) return { html: tableHtml, end: start + 1, rowCount: start + 1 };
+  const rows = Array.from(table.rows);
+  if (!rows.length) return { html: table.outerHTML, end: 0, rowCount: 0 };
+  const visualTable = table.cloneNode(false) as HTMLTableElement;
+  const body = document.createElement("tbody");
+  visualTable.appendChild(body);
+  let end = start;
+  while (end < rows.length) {
+    body.appendChild(rows[end].cloneNode(true));
+    if (end > start && blockHeight(visualTable.outerHTML) > maxHeight) {
+      body.removeChild(body.lastElementChild!);
+      break;
+    }
+    end += 1;
+  }
+  // A single unusually tall row is still rendered as one visual fragment; it
+  // is never duplicated or split into a new source row.
+  if (end === start) {
+    body.appendChild(rows[end].cloneNode(true));
+    end += 1;
+  }
+  visualTable.dataset.tableRowStart = String(start);
+  visualTable.dataset.tableRowEnd = String(end);
+  return { html: visualTable.outerHTML, end, rowCount: rows.length };
+};
 export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplatePage[] => {
   const pages: DynamicTemplatePage[] = [{ fragments: [] }]; let used = 0;
   blocks.forEach((block, blockIndex) => {
     if (isDynamicPageBreak(block)) { pages.push({ fragments: [], manualBreakBefore: blockIndex }); used = 0; return; }
     if (/^<table\b/i.test(block.trim())) {
-      const page = pages[pages.length - 1];
-      const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
-      const gap = page.fragments.length ? 12 : 0;
-      const height = blockHeight(block);
-      if (page.fragments.length && used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
-      const target = pages[pages.length - 1];
-      target.fragments.push({ blockIndex, start: 0, end: textLength(block), text: block });
-      used += (target.fragments.length > 1 ? 12 : 0) + height;
+      let rowStart = 0;
+      let rowCount = 1;
+      while (rowStart < rowCount) {
+        const page = pages[pages.length - 1];
+        const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
+        const gap = page.fragments.length ? 12 : 0;
+        const remaining = limit - used - gap;
+        const tableFragment = tableFragmentForPage(block, rowStart, Math.max(23, remaining));
+        rowCount = tableFragment.rowCount;
+        const height = blockHeight(tableFragment.html);
+        if (page.fragments.length && height > remaining) { pages.push({ fragments: [] }); used = 0; continue; }
+        page.fragments.push({ blockIndex, start: 0, end: textLength(block), text: tableFragment.html });
+        used += gap + height;
+        rowStart = tableFragment.end;
+        if (rowStart < rowCount) { pages.push({ fragments: [] }); used = 0; }
+      }
       return;
     }
     const blockLength = textLength(block);
@@ -164,14 +209,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       node = walker.nextNode();
     }
   }, [pages]);
-  useLayoutEffect(() => {
-    editor.current?.querySelectorAll<HTMLTableElement>("table").forEach(table => {
-      table.style.resize = "both";
-      table.style.overflow = "auto";
-      table.style.minWidth = "240px";
-    });
-  }, [pages]);
-
   const updateActiveSelection = () => {
     const selection = window.getSelection(); if (!selection?.rangeCount) return;
     const range = selection.getRangeAt(0);
@@ -255,7 +292,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const tableIndex = renderedTables.indexOf(table);
     const sourceTable = source.querySelectorAll("table")[tableIndex];
     if (!sourceTable) return;
-    sourceTable.outerHTML = table.outerHTML;
+    const rowStart = Number(table.dataset.tableRowStart ?? 0);
+    const rowEnd = Number(table.dataset.tableRowEnd ?? 0);
+    const renderedRows = Array.from(table.rows);
+    const sourceRows = Array.from(sourceTable.rows);
+    // A paginated table edit is valid only when it maps to the exact source
+    // row range that pagination rendered. Never replace the source table with
+    // a page-local fragment when that mapping is unavailable or inconsistent.
+    if (!Number.isInteger(rowStart) || !Number.isInteger(rowEnd) || rowStart < 0 || rowEnd !== rowStart + renderedRows.length || sourceRows.length < rowEnd) return;
+    renderedRows.forEach((row, index) => { sourceRows[rowStart + index].outerHTML = row.outerHTML; });
+    const style = table.getAttribute("style");
+    if (style !== null) sourceTable.setAttribute("style", style);
     applyBlocks([...currentBlocks.slice(0, blockIndex), source.innerHTML, ...currentBlocks.slice(blockIndex + 1)]);
   };
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -290,7 +337,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.closest("[data-template-placeholder]")) return;
     if (!tableEditPending.current) return;
     tableEditPending.current = false;
-    commitDocument(false);
+    if (table) persistTable(table);
+    else commitDocument(false);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (isTableEdit(event)) return;
@@ -393,7 +441,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
-            {page.fragments.map(fragment => <div key={`${fragment.blockIndex}:${fragment.start}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none ${fragment.end === textLength(blocks[fragment.blockIndex]) ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+            {page.fragments.map(fragment => <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${fragment.end === textLength(blocks[fragment.blockIndex]) ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
         </section>
