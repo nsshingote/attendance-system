@@ -309,11 +309,16 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   };
   const editingTable = (event?: { target: EventTarget | null; nativeEvent?: Event }) => {
     const elementFor = (node: EventTarget | Node | null) => node instanceof HTMLElement ? node : node instanceof Node ? node.parentElement : null;
-    const selectionNode = window.getSelection()?.anchorNode ?? null;
     const eventPath = event?.nativeEvent?.composedPath?.() ?? [];
-    return elementFor(event?.target ?? null)?.closest("table") ||
-      elementFor(selectionNode)?.closest("table") ||
-      eventPath.map(elementFor).find(element => element?.closest("table"))?.closest("table") || null;
+    const eventTable = elementFor(event?.target ?? null)?.closest("table") ||
+      eventPath.map(elementFor).find(element => element?.closest("table"))?.closest("table");
+    if (eventTable) return eventTable;
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    const startTable = (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement)?.closest("table");
+    const endTable = (range.endContainer.nodeType === Node.ELEMENT_NODE ? range.endContainer as Element : range.endContainer.parentElement)?.closest("table");
+    return startTable && startTable === endTable ? startTable : null;
   };
   const isTableEdit = (event?: { target: EventTarget | null; nativeEvent?: Event }) => Boolean(editingTable(event));
   const persistTable = (table: HTMLTableElement) => {
@@ -340,7 +345,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (style !== null) sourceTable.setAttribute("style", style);
     applyBlocks([...currentBlocks.slice(0, blockIndex), source.innerHTML, ...currentBlocks.slice(blockIndex + 1)]);
   };
-  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const table = (event.target as HTMLElement).closest<HTMLTableElement>("table");
     if (!table) return;
     const bounds = table.getBoundingClientRect();
@@ -353,9 +358,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     event.preventDefault();
     resizingTable.current = table;
     resizeStart.current = { table, x: event.clientX, y: event.clientY, width: bounds.width, height: bounds.height };
-    const move = (moveEvent: MouseEvent) => {
+    const move = (moveEvent: PointerEvent) => {
       const start = resizeStart.current;
       if (!start) return;
+      moveEvent.preventDefault();
       start.table.style.width = `${Math.max(240, Math.round(start.width + moveEvent.clientX - start.x))}px`;
       start.table.style.height = `${Math.max(40, Math.round(start.height + moveEvent.clientY - start.y))}px`;
     };
@@ -371,35 +377,16 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       persistTable(resizedTable);
     };
     const cleanup = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       if (resizeCleanup.current === cleanup) resizeCleanup.current = null;
     };
     resizeCleanup.current?.();
     resizeCleanup.current = cleanup;
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
-  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    const start = resizeStart.current;
-    if (!start) return;
-    event.preventDefault();
-    start.table.style.width = `${Math.max(240, Math.round(start.width + event.clientX - start.x))}px`;
-    start.table.style.height = `${Math.max(40, Math.round(start.height + event.clientY - start.y))}px`;
-  };
-  const handleMouseUp = () => {
-    resizeCleanup.current?.();
-    const table = resizingTable.current;
-    resizingTable.current = null;
-    resizeStart.current = null;
-    if (table) {
-      const bounds = table.getBoundingClientRect();
-      table.style.width = `${Math.round(bounds.width)}px`;
-      table.style.height = `${Math.round(bounds.height)}px`;
-      persistTable(table);
-      return;
-    }
-    updateActiveSelection();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
     if (isTableEdit(event)) {
@@ -454,6 +441,30 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       activeSelection.current = { ...active, end: active.end + 1 };
       replaceActiveSelection("");
       return;
+    }
+    if (event.key === "Backspace" && active.start === 0 && active.blockIndex > 0) {
+      const previous = blocksRef.current[active.blockIndex - 1];
+      if (isDynamicPageBreak(previous) || /^<table\b/i.test(previous.trim())) return;
+      event.preventDefault();
+      const previousLength = textLength(previous);
+      pendingCaret.current = { blockIndex: active.blockIndex - 1, position: previousLength };
+      applyBlocks([
+        ...blocksRef.current.slice(0, active.blockIndex - 1),
+        `${previous}${block}`,
+        ...blocksRef.current.slice(active.blockIndex + 1),
+      ]);
+      return;
+    }
+    if (event.key === "Delete" && active.end === textLength(block) && active.blockIndex < blocksRef.current.length - 1) {
+      const next = blocksRef.current[active.blockIndex + 1];
+      if (isDynamicPageBreak(next) || /^<table\b/i.test(next.trim())) return;
+      event.preventDefault();
+      pendingCaret.current = { blockIndex: active.blockIndex, position: textLength(block) };
+      applyBlocks([
+        ...blocksRef.current.slice(0, active.blockIndex),
+        `${block}${next}`,
+        ...blocksRef.current.slice(active.blockIndex + 2),
+      ]);
     }
   };
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -538,7 +549,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, redoBlocks)}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
+    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
@@ -549,7 +560,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const tableCaretBlock = !fragment.text && /^<table\b/i.test(blocks[fragment.blockIndex - 1]?.trim());
               const isTable = /^<table\b/i.test(fragment.text.trim());
               const hasFollowingContent = fragmentIndex < page.fragments.length - 1;
-              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${hasFollowingContent && !isTable && !tableCaretBlock ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
+              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${hasFollowingContent && !isTable && !tableCaretBlock ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>

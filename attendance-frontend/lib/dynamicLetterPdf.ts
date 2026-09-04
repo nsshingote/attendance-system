@@ -18,8 +18,53 @@ const loadImage = async (url: string) => {
   });
 };
 
-const replaceUnsupportedColors = (value: string) =>
-  value.replace(/\b(?:lab|lch|oklab|oklch)\([^)]*\)/gi, "rgb(0 0 0)");
+const unsupportedColorPattern = /\b(?:lab|lch|oklab|oklch)\([^)]*\)/gi;
+const hasUnsupportedColor = (value: string) => /\b(?:lab|lch|oklab|oklch)\([^)]*\)/i.test(value);
+
+const resolveUnsupportedColor = (document: Document, value: string) => {
+  if (!hasUnsupportedColor(value)) return value;
+  unsupportedColorPattern.lastIndex = 0;
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  document.body.appendChild(probe);
+  const resolved = document.defaultView?.getComputedStyle(probe).color;
+  probe.remove();
+  return resolved && !hasUnsupportedColor(resolved) ? resolved : "rgb(0 0 0)";
+};
+
+const replaceUnsupportedColors = (document: Document, value: string) =>
+  value.replace(unsupportedColorPattern, color => resolveUnsupportedColor(document, color));
+
+const sanitizeCloneColors = (clonedDocument: Document) => {
+  clonedDocument.querySelectorAll("style").forEach(style => {
+    style.textContent = replaceUnsupportedColors(clonedDocument, style.textContent || "");
+  });
+  clonedDocument.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach(link => {
+    try {
+      const sheet = link.sheet;
+      const rules = sheet?.cssRules ? Array.from(sheet.cssRules, rule => rule.cssText).join("\n") : "";
+      if (!rules) return;
+      const replacement = clonedDocument.createElement("style");
+      replacement.textContent = replaceUnsupportedColors(clonedDocument, rules);
+      link.replaceWith(replacement);
+    } catch {
+      // Cross-origin stylesheets cannot be read; element-level sanitization below
+      // still protects the cloned page without changing the source document.
+    }
+  });
+  clonedDocument.querySelectorAll<HTMLElement>("*").forEach(element => {
+    const computed = clonedDocument.defaultView?.getComputedStyle(element);
+    if (!computed) return;
+    for (const property of ["color", "background-color", "border-color", "outline-color", "text-decoration-color"]) {
+      const value = computed.getPropertyValue(property);
+      if (/\b(?:lab|lch|oklab|oklch)\(/i.test(value)) {
+        element.style.setProperty(property, resolveUnsupportedColor(clonedDocument, value));
+      }
+    }
+    const inlineStyle = element.getAttribute("style");
+    if (inlineStyle) element.setAttribute("style", replaceUnsupportedColors(clonedDocument, inlineStyle));
+  });
+};
 
 export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: EmployeeNameParam, previewElement?: HTMLElement | null, targetWindow?: Window | null, onIOSFileReady?: (file: File) => void) {
   const employeeFileName = employeeName?.replace(/\s+/g, "-").toLowerCase() || "employee";
@@ -36,12 +81,7 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
           useCORS: true,
           backgroundColor: "#ffffff",
           onclone: clonedDocument => {
-            clonedDocument.querySelectorAll("style").forEach(style => {
-              style.textContent = replaceUnsupportedColors(style.textContent || "");
-            });
-            clonedDocument.querySelectorAll<HTMLElement>("[style]").forEach(element => {
-              element.setAttribute("style", replaceUnsupportedColors(element.getAttribute("style") || ""));
-            });
+            sanitizeCloneColors(clonedDocument);
           },
         });
         if (index > 0) pdf.addPage();

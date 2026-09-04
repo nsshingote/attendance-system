@@ -56,6 +56,7 @@ export default function ResourcesPage() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [viewingResource, setViewingResource] = useState<Resource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isIOSDevice] = useState(() => typeof window !== "undefined" && isIOSBrowser());
   const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -135,14 +136,14 @@ export default function ResourcesPage() {
   };
 
   const handleViewClick = async (resource: Resource) => {
-    // Open during the user gesture. iOS otherwise blocks a new tab after the
-    // authenticated file request completes.
-    // Present the authenticated Blob URL in a user-gesture-created tab on
-    // mobile Safari/Chrome; both browsers may block a tab opened later.
-    const previewWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
+    // iOS Safari must render the authenticated response in this page. Opening
+    // a popup or assigning a later-created Blob URL to a new tab is unreliable.
+    const isIOS = isIOSBrowser();
+    const previewWindow = !isIOS && isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
+    if (isIOS) setShowViewModal(true);
     try {
       const response = await api.get(`/resources/${resource.id}/view`, {
         responseType: "blob",
@@ -153,6 +154,16 @@ export default function ResourcesPage() {
         ? "application/pdf"
         : typeof responseContentType === "string" ? responseContentType : "application/octet-stream";
       const blob = response.data.type === mediaType ? response.data : new Blob([response.data], { type: mediaType });
+      if (isIOS) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Unable to prepare resource preview"));
+          reader.readAsDataURL(blob);
+        });
+        setPreviewUrl(dataUrl);
+        return;
+      }
       const blobUrl = window.URL.createObjectURL(blob);
       if (previewWindow) {
         previewWindow.location.href = blobUrl;
@@ -163,6 +174,7 @@ export default function ResourcesPage() {
       window.addEventListener("pagehide", () => window.URL.revokeObjectURL(blobUrl), { once: true });
     } catch (error) {
       previewWindow?.close();
+      if (isIOS) setShowViewModal(false);
       toast.error("Unable to load preview: " + getErrorMessage(error));
     }
     setShowViewModal(true);
@@ -723,14 +735,14 @@ export default function ResourcesPage() {
                   <>
                     <iframe
                       src={previewUrl}
-                      className="hidden h-96 w-full border-0 sm:block"
+                      className={isIOSDevice ? "h-96 w-full border-0" : "hidden h-96 w-full border-0 sm:block"}
                       title="PDF Preview"
                     />
                     <a
                       href={previewUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex h-24 items-center justify-center text-sm font-medium text-brand-700 sm:hidden"
+                      className={isIOSDevice ? "hidden" : "flex h-24 items-center justify-center text-sm font-medium text-brand-700 sm:hidden"}
                     >
                       Open PDF
                     </a>
