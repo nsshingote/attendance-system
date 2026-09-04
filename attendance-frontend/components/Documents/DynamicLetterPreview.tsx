@@ -1,14 +1,37 @@
 "use client";
 
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks } from "./PaginatedTemplateEditor";
 
-type DynamicLetterPreviewProps = { title: string; content: string; companyName?: string; companyAddress?: string; logoUrl?: string };
+type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; companyName?: string; companyAddress?: string; logoUrl?: string };
 
-const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content }, ref) {
+const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content, templateContent }, ref) {
   const blocks = useMemo(() => splitDynamicTemplateBlocks(content), [content]);
-  const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks), [blocks]);
+  const savedPageCount = useMemo(
+    () => templateContent ? paginateDynamicTemplateBlocks(splitDynamicTemplateBlocks(templateContent)).length : 0,
+    [templateContent],
+  );
+  const paginatedPages = useMemo(() => paginateDynamicTemplateBlocks(blocks), [blocks]);
+  const pages = useMemo(() => {
+    if (savedPageCount !== 1 || paginatedPages.length <= 1) return paginatedPages;
+    return [{
+      fragments: [{
+        blockIndex: 0,
+        start: 0,
+        end: content.length,
+        text: content,
+      }],
+    }];
+  }, [content, paginatedPages, savedPageCount]);
+  const fitContentRef = useRef<HTMLDivElement>(null);
+  const [fitScale, setFitScale] = useState(1);
+  useLayoutEffect(() => {
+    const contentElement = fitContentRef.current;
+    if (!contentElement || savedPageCount !== 1) return;
+    const availableHeight = 900;
+    setFitScale(Math.min(1, availableHeight / Math.max(availableHeight, contentElement.scrollHeight)));
+  }, [content, savedPageCount]);
 
   return (
     <div ref={ref} className="mx-auto flex w-fit max-w-full flex-col gap-6">
@@ -32,8 +55,10 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
               </div>
             </header>}
             {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
-            <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
-              {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+            <div className={`${pageIndex === 0 ? "h-900px" : "h-920px"} shrink-0 overflow-hidden`}>
+              <div ref={pageIndex === 0 ? fitContentRef : undefined} style={pageIndex === 0 && savedPageCount === 1 ? { transform: `scale(${fitScale})`, transformOrigin: "top left", width: `${100 / fitScale}%` } : undefined}>
+                {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+              </div>
             </div>
             <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
               <p>{LETTER_BRANDING.address}</p>

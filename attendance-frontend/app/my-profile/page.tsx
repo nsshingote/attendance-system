@@ -102,6 +102,7 @@ export default function MyProfilePage() {
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<{ document: GeneratedDocument; targetWindow: Window | null } | null>(null);
   const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
+  const dynamicDownloadPreviewRef = useRef<HTMLDivElement>(null);
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
   const [editingAddress, setEditingAddress] = useState(false);
@@ -453,25 +454,27 @@ export default function MyProfilePage() {
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
   const dynamicValues = selectedDocument && !appointmentValues && !offerValues
-    ? (JSON.parse(selectedDocument.content) as { resolved_content?: string })
+    ? (JSON.parse(selectedDocument.content) as { template_content?: string; resolved_content?: string })
+    : null;
+  const pendingDynamicValues = pendingDynamicPdf
+    ? (JSON.parse(pendingDynamicPdf.document.content) as { template_content?: string; resolved_content?: string })
     : null;
 
   useEffect(() => {
-    if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
-    void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow, file => setIOSDownloadFile(file))
+    if (!pendingDynamicPdf || !pendingDynamicValues?.resolved_content || !dynamicDownloadPreviewRef.current) return;
+    void downloadDynamicLetterPdf(pendingDynamicPdf.document.title, pendingDynamicValues.resolved_content, profile?.name, dynamicDownloadPreviewRef.current, pendingDynamicPdf.targetWindow, file => setIOSDownloadFile(file))
     .catch(error => toast.error(getErrorMessage(error)))
     .finally(() => {
       setPendingDynamicPdf(null);
     });
-  }, [dynamicValues?.resolved_content, pendingDynamicPdf, profile?.name, selectedDocument]);
+  }, [pendingDynamicPdf, pendingDynamicValues?.resolved_content, profile?.name]);
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
       if (values.resolved_content) {
-        const targetWindow = null;
-        setSelectedDocument(document);
-        setPendingDynamicPdf({ document, targetWindow });
+        setSelectedDocument(null);
+        setPendingDynamicPdf({ document, targetWindow: null });
         return;
       } else if (document.document_type === "appointment_letter") {
         downloadAppointmentLetterPdf(values, file => setIOSDownloadFile(file));
@@ -911,8 +914,21 @@ export default function MyProfilePage() {
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} templateContent={dynamicValues.template_content} content={dynamicValues.resolved_content} />}
             </div>
+          </div>
+        )}
+        {pendingDynamicValues?.resolved_content && (
+          <div
+            ref={dynamicDownloadPreviewRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute left-[-10000px] top-0 w-[1120px]"
+          >
+            <DynamicLetterPreview
+              title={pendingDynamicPdf?.document.title || "Document"}
+              templateContent={pendingDynamicValues.template_content}
+              content={pendingDynamicValues.resolved_content}
+            />
           </div>
         )}
         {selectedSlip && (

@@ -143,7 +143,6 @@ export default function ResourcesPage() {
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);
-    if (isIOS) setShowViewModal(true);
     try {
       const response = await api.get(`/resources/${resource.id}/view`, {
         responseType: "blob",
@@ -161,7 +160,9 @@ export default function ResourcesPage() {
           reader.onerror = () => reject(new Error("Unable to prepare resource preview"));
           reader.readAsDataURL(blob);
         });
-        setPreviewUrl(dataUrl);
+        // Safari's embedded iframe/modal only exposes one viewport of a PDF.
+        // Navigate the current tab so Safari opens its complete native viewer.
+        window.location.assign(dataUrl);
         return;
       }
       const blobUrl = window.URL.createObjectURL(blob);
@@ -174,7 +175,6 @@ export default function ResourcesPage() {
       window.addEventListener("pagehide", () => window.URL.revokeObjectURL(blobUrl), { once: true });
     } catch (error) {
       previewWindow?.close();
-      if (isIOS) setShowViewModal(false);
       toast.error("Unable to load preview: " + getErrorMessage(error));
     }
     setShowViewModal(true);
