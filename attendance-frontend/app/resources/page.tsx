@@ -133,7 +133,10 @@ export default function ResourcesPage() {
   const handleViewClick = async (resource: Resource) => {
     // Open during the user gesture. iOS otherwise blocks a new tab after the
     // authenticated file request completes.
-    const previewWindow = isMobileBrowser() ? window.open("about:blank", "_blank") : null;
+    // iOS Safari is reliable with the existing in-page preview, but may leave
+    // a blank tab when a Blob URL is assigned after the authenticated request.
+    // Keep Android's established new-tab behavior unchanged.
+    const previewWindow = !isIOSBrowser() && isMobileBrowser() ? window.open("about:blank", "_blank") : null;
     if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setViewingResource(resource);
     setPreviewUrl(null);

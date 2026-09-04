@@ -5,7 +5,17 @@ export const isIOSBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent) |
 export function deliverPdf(pdf: jsPDF, filename: string, targetWindow?: Window | null, onIOSFileReady?: (file: File) => void) {
   const isIOS = isIOSBrowser();
   if (!isIOS) {
-    pdf.save(filename);
+    // jsPDF's save helper is inconsistent in Android WebViews. A DOM download
+    // link keeps this synchronous with the user's tap and works in browsers.
+    const url = URL.createObjectURL(pdf.output("blob"));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     return;
   }
 

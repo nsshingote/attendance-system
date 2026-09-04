@@ -68,6 +68,15 @@ def get_resource_file_path(resource: Resource) -> Path:
     return candidates[0]
 
 
+def _external_base_url(request: Request) -> str:
+    """Use the public HTTPS origin when the API is behind a TLS proxy."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = forwarded_proto or request.url.scheme
+    host = forwarded_host or request.headers.get("host") or request.url.netloc
+    return f"{scheme}://{host}{request.scope.get('root_path', '')}".rstrip("/")
+
+
 def user_has_resource_access(user: User, resource: Resource, db: Session) -> bool:
     """Check if user has access to a resource based on visibility rules"""
     # Admins and superadmins always have access
@@ -497,7 +506,7 @@ def create_download_url(
         settings.JWT_SECRET_KEY,
         algorithm=settings.JWT_ALGORITHM,
     )
-    url = f"{str(request.base_url).rstrip('/')}/resources/{resource_id}/browser-download?download_token={token}"
+    url = f"{_external_base_url(request)}/resources/{resource_id}/browser-download?download_token={token}"
     return {"url": url}
 
 
