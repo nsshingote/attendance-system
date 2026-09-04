@@ -2,8 +2,15 @@ import axios from "axios";
 import { getSession, clearSession, isTokenExpired, updateAccessToken } from "@/lib/auth";
 import toast from "react-hot-toast";
 
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const apiBaseUrl = typeof window !== "undefined"
+  && window.location.protocol === "https:"
+  && configuredApiBaseUrl.startsWith("http://")
+  ? `${window.location.origin}/api`
+  : configuredApiBaseUrl;
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000",
+  baseURL: apiBaseUrl,
   headers: {
     "Content-Type": "application/json",
   },

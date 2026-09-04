@@ -18,6 +18,9 @@ const loadImage = async (url: string) => {
   });
 };
 
+const replaceUnsupportedColors = (value: string) =>
+  value.replace(/\b(?:lab|lch|oklab|oklch)\([^)]*\)/gi, "rgb(0 0 0)");
+
 export async function downloadDynamicLetterPdf(title: string, content: string, employeeName?: EmployeeNameParam, previewElement?: HTMLElement | null, targetWindow?: Window | null, onIOSFileReady?: (file: File) => void) {
   const employeeFileName = employeeName?.replace(/\s+/g, "-").toLowerCase() || "employee";
   const filename = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "letter"}-${employeeFileName}.pdf`;
@@ -28,7 +31,19 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
     if (pages.length) {
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       for (const [index, page] of pages.entries()) {
-        const canvas = await html2canvas(page, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+        const canvas = await html2canvas(page, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          onclone: clonedDocument => {
+            clonedDocument.querySelectorAll("style").forEach(style => {
+              style.textContent = replaceUnsupportedColors(style.textContent || "");
+            });
+            clonedDocument.querySelectorAll<HTMLElement>("[style]").forEach(element => {
+              element.setAttribute("style", replaceUnsupportedColors(element.getAttribute("style") || ""));
+            });
+          },
+        });
         if (index > 0) pdf.addPage();
         pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
         const pageRect = page.getBoundingClientRect();

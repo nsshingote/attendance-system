@@ -178,6 +178,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const tableSelection = useRef<Range | null>(null);
   const resizingTable = useRef<HTMLTableElement | null>(null);
+  const resizeStart = useRef<{ table: HTMLTableElement; x: number; y: number; width: number; height: number } | null>(null);
+  const resizeCleanup = useRef<(() => void) | null>(null);
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
@@ -343,11 +345,53 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (!table) return;
     const bounds = table.getBoundingClientRect();
     const nearResizeHandle = event.clientX >= bounds.right - 18 && event.clientY >= bounds.bottom - 18;
-    resizingTable.current = nearResizeHandle ? table : null;
+    if (!nearResizeHandle) {
+      resizingTable.current = null;
+      resizeStart.current = null;
+      return;
+    }
+    event.preventDefault();
+    resizingTable.current = table;
+    resizeStart.current = { table, x: event.clientX, y: event.clientY, width: bounds.width, height: bounds.height };
+    const move = (moveEvent: MouseEvent) => {
+      const start = resizeStart.current;
+      if (!start) return;
+      start.table.style.width = `${Math.max(240, Math.round(start.width + moveEvent.clientX - start.x))}px`;
+      start.table.style.height = `${Math.max(40, Math.round(start.height + moveEvent.clientY - start.y))}px`;
+    };
+    const up = () => {
+      resizeCleanup.current?.();
+      const resizedTable = resizingTable.current;
+      resizingTable.current = null;
+      resizeStart.current = null;
+      if (!resizedTable) return;
+      const resizedBounds = resizedTable.getBoundingClientRect();
+      resizedTable.style.width = `${Math.round(resizedBounds.width)}px`;
+      resizedTable.style.height = `${Math.round(resizedBounds.height)}px`;
+      persistTable(resizedTable);
+    };
+    const cleanup = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      if (resizeCleanup.current === cleanup) resizeCleanup.current = null;
+    };
+    resizeCleanup.current?.();
+    resizeCleanup.current = cleanup;
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   };
-  const handleMouseUp = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start) return;
+    event.preventDefault();
+    start.table.style.width = `${Math.max(240, Math.round(start.width + event.clientX - start.x))}px`;
+    start.table.style.height = `${Math.max(40, Math.round(start.height + event.clientY - start.y))}px`;
+  };
+  const handleMouseUp = () => {
+    resizeCleanup.current?.();
     const table = resizingTable.current;
     resizingTable.current = null;
+    resizeStart.current = null;
     if (table) {
       const bounds = table.getBoundingClientRect();
       table.style.width = `${Math.round(bounds.width)}px`;
@@ -406,21 +450,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       replaceActiveSelection("");
       return;
     }
-    if (event.key === "Backspace" && active.start === 0 && active.fragmentStart === 0 && /^<table\b/i.test(blocksRef.current[active.blockIndex - 1]?.trim())) {
-      const tableIndex = active.blockIndex - 1;
-      tableSelection.current = null;
-      pendingCaret.current = { blockIndex: tableIndex, position: 0 };
-      applyBlocks(blocksRef.current.filter((_, index) => index !== tableIndex));
-      return;
-    }
     if (event.key === "Delete" && active.end < textLength(block)) {
       activeSelection.current = { ...active, end: active.end + 1 };
       replaceActiveSelection("");
       return;
-    }
-    if (event.key === "Delete" && active.fragmentEnd === textLength(block) && /^<table\b/i.test(blocksRef.current[active.blockIndex + 1]?.trim())) {
-      tableSelection.current = null;
-      applyBlocks(blocksRef.current.filter((_, index) => index !== active.blockIndex + 1));
     }
   };
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -505,7 +538,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, redoBlocks)}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseDown={handleMouseDown} onMouseUp={handleMouseUp} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
+    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onKeyUp={updateActiveSelection} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
