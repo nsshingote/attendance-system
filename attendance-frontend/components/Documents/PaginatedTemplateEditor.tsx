@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
@@ -117,7 +117,7 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
 
 const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, PaginatedTemplateEditorProps>(function PaginatedTemplateEditor({ value, onChange, title }, ref) {
   const [blocks, setBlocks] = useState(() => splitDynamicTemplateBlocks(value));
-  const [pages, setPages] = useState<DynamicTemplatePage[]>([{ fragments: [] }]);
+  const blocksRef = useRef(blocks);
   const [showTableDialog, setShowTableDialog] = useState(false);
   const [tableRows, setTableRows] = useState(2);
   const [tableCols, setTableCols] = useState(2);
@@ -130,7 +130,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
   useEffect(() => { const next = splitDynamicTemplateBlocks(value); setBlocks(current => JSON.stringify(current) === JSON.stringify(next) ? current : next); }, [value]);
-  useLayoutEffect(() => { if (typeof document !== "undefined") setPages(paginateDynamicTemplateBlocks(blocks)); }, [blocks]);
+  useLayoutEffect(() => { blocksRef.current = blocks; }, [blocks]);
+  const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
     if (!caret || !editor.current) return;
@@ -184,7 +185,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
     activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset), fragmentStart, fragmentEnd: Number(startElement.dataset.fragmentEnd) };
   };
-  const applyBlocks = (next: string[]) => { setBlocks(next); onChange(joinDynamicTemplateBlocks(next)); };
+  const applyBlocks = (next: string[]) => {
+    const normalized = next.length ? next : [""];
+    setBlocks(current => JSON.stringify(current) === JSON.stringify(normalized) ? current : normalized);
+    onChange(joinDynamicTemplateBlocks(normalized));
+  };
   const replaceActiveSelection = (replacement: string) => {
     const range = tableSelection.current;
     const tableCell = range && (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement)?.closest<HTMLElement>("td, th");
@@ -203,24 +208,24 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       persistTable(table);
       return;
     }
-    const active = activeSelection.current; const block = blocks[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
+    const active = activeSelection.current; const block = blocksRef.current[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
     const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, active.end, textLength(block))}`;
     pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + replacement.length };
-    applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
+    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)]);
   };
   const insertPageBreak = () => {
-    const active = activeSelection.current; const block = blocks[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
+    const active = activeSelection.current; const block = blocksRef.current[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
     const parts = [block.slice(0, active.start), DYNAMIC_PAGE_BREAK, block.slice(active.end)].filter((part, index) => part || index === 1);
-    applyBlocks([...blocks.slice(0, active.blockIndex), ...parts, ...blocks.slice(active.blockIndex + 1)]);
+    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...parts, ...blocksRef.current.slice(active.blockIndex + 1)]);
     requestAnimationFrame(() => editor.current?.focus());
   };
-  const removePageBreak = (blockIndex: number) => applyBlocks(blocks.filter((_, index) => index !== blockIndex));
+  const removePageBreak = (blockIndex: number) => applyBlocks(blocksRef.current.filter((_, index) => index !== blockIndex));
   useImperativeHandle(ref, () => ({ insertPlaceholder: replaceActiveSelection, insertPageBreak }));
   const commitDocument = (restoreCaret = true) => {
     if (!editor.current) return;
     const active = activeSelection.current;
     const fragment = editor.current.querySelector<HTMLElement>(`[data-block-index="${active.blockIndex}"][data-fragment-start="${active.fragmentStart}"]`);
-    const block = blocks[active.blockIndex];
+    const block = blocksRef.current[active.blockIndex];
     if (!fragment || block === undefined) return;
     const nextFragmentText = fragment.innerHTML;
     const previousFragmentLength = active.fragmentEnd - active.fragmentStart;
@@ -228,7 +233,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const insertedLength = textLength(nextFragmentText) - (previousFragmentLength - selectedLength);
     const nextValue = `${sliceHtml(block, 0, active.fragmentStart)}${nextFragmentText}${sliceHtml(block, active.fragmentEnd, textLength(block))}`;
     if (restoreCaret) pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
-    applyBlocks([...blocks.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocks.slice(active.blockIndex + 1)]);
+    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)]);
   };
   const editingTable = (event?: { target: EventTarget | null; nativeEvent?: Event }) => {
     const elementFor = (node: EventTarget | Node | null) => node instanceof HTMLElement ? node : node instanceof Node ? node.parentElement : null;
@@ -242,15 +247,16 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const persistTable = (table: HTMLTableElement) => {
     const fragment = table.closest<HTMLElement>("[data-template-fragment]");
     const blockIndex = Number(fragment?.dataset.blockIndex);
-    if (!Number.isInteger(blockIndex) || blocks[blockIndex] === undefined) return;
+    const currentBlocks = blocksRef.current;
+    if (!Number.isInteger(blockIndex) || currentBlocks[blockIndex] === undefined) return;
     const source = document.createElement("div");
-    source.innerHTML = blocks[blockIndex];
+    source.innerHTML = currentBlocks[blockIndex];
     const renderedTables = Array.from(fragment?.querySelectorAll("table") ?? []);
     const tableIndex = renderedTables.indexOf(table);
     const sourceTable = source.querySelectorAll("table")[tableIndex];
     if (!sourceTable) return;
     sourceTable.outerHTML = table.outerHTML;
-    applyBlocks([...blocks.slice(0, blockIndex), source.innerHTML, ...blocks.slice(blockIndex + 1)]);
+    applyBlocks([...currentBlocks.slice(0, blockIndex), source.innerHTML, ...currentBlocks.slice(blockIndex + 1)]);
   };
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const table = (event.target as HTMLElement).closest<HTMLTableElement>("table");
@@ -291,7 +297,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (!["Enter", "Backspace", "Delete"].includes(event.key)) return;
     updateActiveSelection();
     const active = activeSelection.current;
-    const block = blocks[active.blockIndex];
+    const block = blocksRef.current[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
     event.preventDefault();
     if (event.key === "Enter") { replaceActiveSelection("\n"); return; }
@@ -336,7 +342,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .join("");
     const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;resize:both;overflow:auto;min-width:240px;">${tbody}</table>`;
 
-    const block = blocks[active.blockIndex];
+    const block = blocksRef.current[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
     const before = sliceHtml(block, 0, active.start);
     const after = sliceHtml(block, active.end, textLength(block));
@@ -344,7 +350,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // Tables remain atomic blocks. The following text block owns the caret, so
     // normal typing, Enter, and Backspace work after a table.
     pendingCaret.current = { blockIndex: tableIndex + 1, position: 0 };
-    applyBlocks([...blocks.slice(0, active.blockIndex), ...(before ? [before] : []), table, after, ...blocks.slice(active.blockIndex + 1)]);
+    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...(before ? [before] : []), table, after, ...blocksRef.current.slice(active.blockIndex + 1)]);
     setShowTableDialog(false);
     setTableRows(2);
     setTableCols(2);
@@ -391,8 +397,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
         </section>
-      </div>)}
-    </div>
+      </div>)} 
+    </div> 
     {showTableDialog && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="rounded-lg bg-white p-6 shadow-lg max-w-sm w-full">
