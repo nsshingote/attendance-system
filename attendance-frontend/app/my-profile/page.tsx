@@ -13,7 +13,7 @@ import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
-import { prepareIOSFileDownload, shareIOSFile } from "@/lib/iosFileDownload";
+import { shareIOSFile } from "@/lib/iosFileDownload";
 import { isIOSBrowser } from "@/lib/pdfDownload";
 import api, { getErrorMessage, getProfilePhotoUrl } from "@/lib/api";
 import { getToken, updateSessionName } from "@/lib/auth";
@@ -144,6 +144,7 @@ export default function MyProfilePage() {
       .then(([me, branding, salary, employeeDocuments, personalDocs, documentRequests, requests]) => {
         const userData = me.data as User;
         setProfile(userData);
+        setPhotoUrl(getProfilePhotoUrl(userData.id, Date.now()));
         setCompanyBranding(branding.data);
         setProfileForm({
           address_line_1: userData.address_line_1 || "",
@@ -165,10 +166,6 @@ export default function MyProfilePage() {
       .catch((error) => toast.error(getErrorMessage(error)));
   }, []);
 
-  useEffect(() => {
-    if (profile) setPhotoUrl(getProfilePhotoUrl(profile.id, Date.now()));
-  }, [profile]);
-
   const handleProfileSave = async (event: FormEvent, section: "address" | "emergency_contact") => {
     event.preventDefault();
     try {
@@ -185,6 +182,7 @@ export default function MyProfilePage() {
       } else {
         const { data } = await api.put<User>("/users/me/profile", requested_data);
         setProfile(data);
+        setPhotoUrl(getProfilePhotoUrl(data.id, Date.now()));
         // Dispatch profile update event to refresh admin pages and user lists
         window.dispatchEvent(new Event("profile-updated"));
         toast.success(`${section === "address" ? "Address" : "Emergency contact"} saved and locked`);
@@ -373,17 +371,20 @@ export default function MyProfilePage() {
 
   const handleDownloadPersonalDoc = async (documentId: number, filename?: string) => {
     try {
-      const { data } = await api.post<{ url: string }>(`/employee-documents/personal-documents/${documentId}/download-url`);
+      const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, { responseType: "blob" });
+      const fileName = filename || `document_${documentId}`;
       if (isIOSBrowser()) {
-        setIOSDownloadFile(await prepareIOSFileDownload(data.url, filename || `document_${documentId}`));
+        setIOSDownloadFile(new File([data], fileName, { type: data.type || "application/octet-stream" }));
         return;
       }
+      const url = window.URL.createObjectURL(data);
       const link = document.createElement("a");
-      link.href = data.url;
-      link.download = filename || `document_${documentId}`;
+      link.href = url;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -400,7 +401,7 @@ export default function MyProfilePage() {
         previewWindow.location.href = url;
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
       } else {
-        window.location.href = url;
+        window.location.assign(url);
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
       }
     } catch (error) {
@@ -458,10 +459,10 @@ export default function MyProfilePage() {
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
     void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow, file => setIOSDownloadFile(file))
-      .finally(() => {
-        setPendingDynamicPdf(null);
-        setSelectedDocument(current => current?.id === pendingDynamicPdf.document.id ? null : current);
-      });
+    .catch(error => toast.error(getErrorMessage(error)))
+    .finally(() => {
+      setPendingDynamicPdf(null);
+    });
   }, [dynamicValues?.resolved_content, pendingDynamicPdf, profile?.name, selectedDocument]);
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
@@ -895,7 +896,8 @@ export default function MyProfilePage() {
                   <button
                     onClick={() => {
                       if (selectedDocument && dynamicValues?.resolved_content) {
-                        void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, null, file => setIOSDownloadFile(file));
+                        void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, null, file => setIOSDownloadFile(file))
+                          .catch(error => toast.error(getErrorMessage(error)));
                       }
                     }}
                     className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
@@ -982,7 +984,7 @@ export default function MyProfilePage() {
           </div>
         )}
         {iosDownloadFile && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
             <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
               <h2 className="text-lg font-semibold text-ink-900">File ready to save</h2>
               <p className="mt-2 text-sm text-ink-600">Tap Save to Files to choose where to save <span className="font-medium">{iosDownloadFile.name}</span>.</p>

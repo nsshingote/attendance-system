@@ -145,7 +145,8 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
       const page = pages[pages.length - 1];
       const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
       const gap = page.fragments.length ? 12 : 0;
-      const height = blockHeight("");
+      const isCaretAfterTable = /^<table\b/i.test(blocks[blockIndex - 1]?.trim());
+      const height = isCaretAfterTable ? 0 : blockHeight("");
       if (used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
       const target = pages[pages.length - 1];
       target.fragments.push({ blockIndex, start: 0, end: 0, text: "" });
@@ -457,10 +458,18 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const before = sliceHtml(block, 0, active.start);
     const after = sliceHtml(block, active.end, textLength(block));
     const tableIndex = active.blockIndex + (before ? 1 : 0);
-    // Tables remain atomic blocks. The following text block owns the caret, so
-    // normal typing, Enter, and Backspace work after a table.
-    pendingCaret.current = { blockIndex: tableIndex + 1, position: 0 };
-    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...(before ? [before] : []), table, after, ...blocksRef.current.slice(active.blockIndex + 1)]);
+    const nextBlocks = [
+      ...blocksRef.current.slice(0, active.blockIndex),
+      ...(before ? [before] : []),
+      table,
+      ...(after ? [after] : []),
+      ...blocksRef.current.slice(active.blockIndex + 1),
+    ];
+    // Only create a caret-owning text block when the original content after
+    // the insertion point actually exists. A trailing empty block creates
+    // avoidable space below the table and is not part of the document.
+    if (after) pendingCaret.current = { blockIndex: tableIndex + 1, position: 0 };
+    applyBlocks(nextBlocks);
     setShowTableDialog(false);
     setTableRows(2);
     setTableCols(2);
@@ -503,9 +512,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
-            {page.fragments.map(fragment => {
+            {page.fragments.map((fragment, fragmentIndex) => {
               const tableCaretBlock = !fragment.text && /^<table\b/i.test(blocks[fragment.blockIndex - 1]?.trim());
-              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${fragment.end === textLength(blocks[fragment.blockIndex]) && !tableCaretBlock ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
+              const isTable = /^<table\b/i.test(fragment.text.trim());
+              const hasFollowingContent = fragmentIndex < page.fragments.length - 1;
+              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${hasFollowingContent && !isTable && !tableCaretBlock ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>

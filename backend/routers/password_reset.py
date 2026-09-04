@@ -8,6 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from auth import hash_password
@@ -16,6 +17,7 @@ from models import User, PasswordResetToken
 from schemas import PasswordResetRequest, PasswordResetConfirm
 from utils.email_service import send_password_reset_email
 from config import settings
+from utils.logger import logger
 
 router = APIRouter()
 
@@ -24,7 +26,8 @@ RESET_TOKEN_EXPIRY_MINUTES = 30
 
 @router.post("/forgot-password")
 def forgot_password(payload: PasswordResetRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
+    normalized_email = payload.email.strip().lower()
+    user = db.query(User).filter(func.lower(func.trim(User.email)) == normalized_email).first()
 
     # Always return a generic message so we don't leak which emails are registered.
     generic_response = {"message": "If that email is registered, a reset link has been sent."}
@@ -41,7 +44,12 @@ def forgot_password(payload: PasswordResetRequest, db: Session = Depends(get_db)
 
     frontend_origin = settings.FRONTEND_ORIGINS[0] if settings.FRONTEND_ORIGINS else "http://localhost:3000"
     reset_link = f"{frontend_origin}/reset-password?token={token}"
-    send_password_reset_email(user.email, reset_link)
+    if not send_password_reset_email(user.email, reset_link):
+        logger.error(
+            "Password reset email could not be sent for user_id=%s email=%s",
+            user.id,
+            user.email,
+        )
 
     return generic_response
 

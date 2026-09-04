@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useLayoutEffect, useMemo, useState } from "react";
+import { forwardRef, useMemo } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks } from "./PaginatedTemplateEditor";
 
@@ -8,12 +8,7 @@ type DynamicLetterPreviewProps = { title: string; content: string; companyName?:
 
 const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content }, ref) {
   const blocks = useMemo(() => splitDynamicTemplateBlocks(content), [content]);
-  const [pages, setPages] = useState<ReturnType<typeof paginateDynamicTemplateBlocks>>([{ fragments: [] }]);
-
-  useLayoutEffect(() => {
-    const frame = requestAnimationFrame(() => setPages(paginateDynamicTemplateBlocks(blocks)));
-    return () => cancelAnimationFrame(frame);
-  }, [blocks]);
+  const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks), [blocks]);
 
   return (
     <div ref={ref} className="mx-auto flex w-fit max-w-full flex-col gap-6">

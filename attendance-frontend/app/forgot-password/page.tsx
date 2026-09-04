@@ -16,15 +16,23 @@ interface FormValues {
   email: string;
 }
 
+const normalizeEmail = (value: string) => value.replace(/[\u200B-\u200D\uFEFF]/g, "").trim().toLowerCase();
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
 export default function ForgotPasswordPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const { register, handleSubmit, formState: { errors } } = useForm<FormValues>();
 
   const onSubmit = async (values: FormValues) => {
+    const email = normalizeEmail(values.email);
+    if (!isValidEmail(email)) {
+      toast.error("Enter a valid email address");
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.post("/auth/forgot-password", values);
+      await api.post("/auth/forgot-password", { email });
       setSubmitted(true);
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -53,7 +61,7 @@ export default function ForgotPasswordPage() {
             If that email is registered, a reset link has been sent. Please check your inbox.
           </div>
         ) : (
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-ink-700">Email</label>
               <div className="relative">
@@ -61,7 +69,10 @@ export default function ForgotPasswordPage() {
                 <input
                   type="email"
                   placeholder="you@company.com"
-                  {...register("email", { required: "Email is required" })}
+                  {...register("email", {
+                    required: "Email is required",
+                    validate: (value) => isValidEmail(normalizeEmail(value)) || "Enter a valid email address",
+                  })}
                   className="w-full rounded-lg border border-ink-200 py-2.5 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
                 />
               </div>

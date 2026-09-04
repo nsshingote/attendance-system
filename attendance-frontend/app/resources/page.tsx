@@ -8,15 +8,17 @@ import { getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Common/Modal";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
-import { prepareIOSFileDownload, shareIOSFile } from "@/lib/iosFileDownload";
+import { shareIOSFile } from "@/lib/iosFileDownload";
 import { isIOSBrowser } from "@/lib/pdfDownload";
+
+type VisibilityType = "all_employees" | "departments" | "specific_employees";
 
 interface Resource {
   id: number;
   name: string;
   description: string | null;
   file_name: string;
-  visibility_type: string;
+  visibility_type: VisibilityType;
   created_by: number;
   created_at: string;
   updated_at: string | null;
@@ -39,6 +41,8 @@ interface Employee {
 }
 
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
+const toVisibilityType = (value: string): VisibilityType =>
+  value === "departments" || value === "specific_employees" ? value : "all_employees";
 
 export default function ResourcesPage() {
   const session = getSession();
@@ -74,7 +78,7 @@ export default function ResourcesPage() {
     }
   }, [isAdmin]);
 
-  const loadResources = async () => {
+  async function loadResources() {
     setLoading(true);
     try {
       const { data } = await api.get("/resources");
@@ -84,18 +88,18 @@ export default function ResourcesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const loadDepartments = async () => {
+  async function loadDepartments() {
     try {
       const { data } = await api.get("/reports/departments");
       setDepartments(data);
     } catch (error) {
       console.error("Error loading departments:", error);
     }
-  };
+  }
 
-  const loadEmployees = async () => {
+  async function loadEmployees() {
     try {
       const { data } = await api.get("/users/");
       const empList = data.filter((u: Employee) => u.role === "user");
@@ -103,7 +107,7 @@ export default function ResourcesPage() {
     } catch (error) {
       console.error("Error loading employees:", error);
     }
-  };
+  }
 
   const handleUploadClick = () => {
     resetForm();
@@ -116,7 +120,7 @@ export default function ResourcesPage() {
     setFormData({
       name: resource.name,
       description: resource.description || "",
-      visibility_type: resource.visibility_type as any,
+      visibility_type: toVisibilityType(resource.visibility_type),
       selected_departments: resource.department_ids || [],
       selected_employees: resource.employee_ids || [],
       file: null,
@@ -266,18 +270,20 @@ export default function ResourcesPage() {
 
   const handleDownload = async (resourceId: number, fileName: string) => {
     try {
-      const { data } = await api.post<{ url: string }>(`/resources/${resourceId}/download-url`);
+      const { data } = await api.get<Blob>(`/resources/${resourceId}/download`, { responseType: "blob" });
       if (isIOSBrowser()) {
-        setIOSDownloadFile(await prepareIOSFileDownload(data.url, fileName));
+        setIOSDownloadFile(new File([data], fileName, { type: data.type || "application/octet-stream" }));
         return;
       }
+      const url = window.URL.createObjectURL(data);
       const link = document.createElement("a");
-      link.href = data.url;
+      link.href = url;
       link.setAttribute("download", fileName);
       link.style.display = "none";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -480,7 +486,7 @@ export default function ResourcesPage() {
               onChange={(e) =>
                 setFormData((prev) => ({
                   ...prev,
-                  visibility_type: e.target.value as any,
+                  visibility_type: toVisibilityType(e.target.value),
                   selected_departments: [],
                   selected_employees: [],
                 }))
@@ -624,7 +630,7 @@ export default function ResourcesPage() {
                 onChange={(e) =>
                   setFormData((prev) => ({
                     ...prev,
-                    visibility_type: e.target.value as any,
+                    visibility_type: toVisibilityType(e.target.value),
                   }))
                 }
                 className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
