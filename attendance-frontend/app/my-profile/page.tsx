@@ -922,7 +922,7 @@ export default function MyProfilePage() {
           <div
             ref={dynamicDownloadPreviewRef}
             aria-hidden="true"
-            className="pointer-events-none absolute left-[-10000px] top-0 w-[1120px]"
+            className="pointer-events-none absolute left-[-10000px] top-0 w-280"
           >
             <DynamicLetterPreview
               title={pendingDynamicPdf?.document.title || "Document"}

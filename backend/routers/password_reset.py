@@ -6,6 +6,7 @@ the token to set a new password.
 
 import secrets
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -22,6 +23,15 @@ from utils.logger import logger
 router = APIRouter()
 
 RESET_TOKEN_EXPIRY_MINUTES = 30
+
+
+def _frontend_origin() -> str:
+    configured_origins = settings.FRONTEND_ORIGINS
+    production_origins = [
+        origin for origin in configured_origins
+        if origin.startswith("https://") and "localhost" not in origin and "127.0.0.1" not in origin
+    ]
+    return (production_origins or configured_origins or ["http://localhost:3000"])[0].rstrip("/")
 
 
 @router.post("/forgot-password")
@@ -42,8 +52,8 @@ def forgot_password(payload: PasswordResetRequest, db: Session = Depends(get_db)
     db.add(reset_token)
     db.commit()
 
-    frontend_origin = settings.FRONTEND_ORIGINS[0] if settings.FRONTEND_ORIGINS else "http://localhost:3000"
-    reset_link = f"{frontend_origin}/reset-password?token={token}"
+    reset_link = f"{_frontend_origin()}/reset-password?token={quote(token, safe='')}"
+    logger.info("Password reset token created for user_id=%s; expires_at=%s", user.id, expires_at.isoformat())
     if not send_password_reset_email(user.email, reset_link):
         logger.error(
             "Password reset email could not be sent for user_id=%s email=%s",
@@ -76,5 +86,6 @@ def reset_password(payload: PasswordResetConfirm, db: Session = Depends(get_db))
     user.password_hash = hash_password(payload.new_password)
     db.delete(reset_token)
     db.commit()
+    logger.info("Password reset token consumed for user_id=%s", user.id)
 
     return {"message": "Password has been reset successfully. You can now log in."}
