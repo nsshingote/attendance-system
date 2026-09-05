@@ -169,7 +169,15 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
             </header>}
             {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
             <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: pageIndex === 0 ? "780px" : "920px" }} className="shrink-0 overflow-hidden">
-              {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
+              {page.fragments.map((fragment, fragmentIndex) => {
+                const isTable = /^<table\b/i.test(fragment.text.trim());
+                const previousFragment = page.fragments[fragmentIndex - 1]?.text.trim() ?? "";
+                const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
+                const adjacentToTable = isTable || /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
+                const hasFollowingContent = page.fragments.slice(fragmentIndex + 1).some(next => next.text.trim().length > 0);
+                const addParagraphSpacing = hasFollowingContent && !adjacentToTable;
+                return <div key={`${fragment.blockIndex}-${fragment.start}`} className={`${addParagraphSpacing ? "mb-3" : ""} whitespace-pre-wrap wrap-break-words`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
+              })}
             </div>
             <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
               <p>{LETTER_BRANDING.address}</p>
