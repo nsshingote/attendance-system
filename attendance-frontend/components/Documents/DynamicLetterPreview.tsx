@@ -2,9 +2,10 @@
 
 import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
-import { paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks } from "./PaginatedTemplateEditor";
+import { paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks, type DynamicPaginationGeometry } from "./PaginatedTemplateEditor";
 
 type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; companyName?: string; companyAddress?: string; logoUrl?: string };
+const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 96 };
 
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
@@ -99,9 +100,9 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   const bodyRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [overflow, setOverflow] = useState(false);
   const { pages, mappingValid } = useMemo(() => {
-    if (!templateContent) return { pages: paginateDynamicTemplateBlocks(blocks), mappingValid: true };
+    if (!templateContent) return { pages: paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), mappingValid: true };
     const templateBlocks = splitDynamicTemplateBlocks(templateContent);
-    const templatePages = paginateDynamicTemplateBlocks(templateBlocks);
+    const templatePages = paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY);
     const resolvedMapping = mapResolvedBlocks(templateBlocks, blocks);
     return {
       pages: templatePages.map(page => ({
@@ -134,17 +135,17 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
       {(!mappingValid || overflow) && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{mappingValid ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted." : "This document could not be mapped to the saved template layout. Download is disabled."}</p>}
       {pages.map((page, pageIndex) => {
         return (
-          <article key={pageIndex} className="mx-auto flex h-280 w-198.5 shrink-0 flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm sm:px-14">
+          <article key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">
             {pageIndex === 0 && <header className="border-b-2 border-brand-600 pb-4">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
                   <img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" />
-                  <div>
+                <div className="min-w-0">
                     <h2 className="text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</h2>
-                    <p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p>
+                  <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p>
                   </div>
                 </div>
-                <div>
+              <div className="shrink-0">
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.website}</p>
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.email}</p>
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.phone}</p>
@@ -152,7 +153,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
               </div>
             </header>}
             {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
-            <div ref={element => { bodyRefs.current[pageIndex] = element; }} className={`${pageIndex === 0 ? "h-195" : "h-230"} shrink-0 overflow-hidden`}>
+            <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: pageIndex === 0 ? "780px" : "920px" }} className="shrink-0 overflow-hidden">
               {page.fragments.map((fragment) => <div key={`${fragment.blockIndex}-${fragment.start}`} className="mb-3 whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />)}
             </div>
             <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">

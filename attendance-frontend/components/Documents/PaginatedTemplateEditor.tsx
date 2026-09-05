@@ -38,10 +38,12 @@ export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.join("\n")
 export type DynamicTemplateFragment = { blockIndex: number; start: number; end: number; text: string };
 export type DynamicTemplatePage = { fragments: DynamicTemplateFragment[]; manualBreakBefore?: number };
 
-const blockHeight = (text: string) => {
+export type DynamicPaginationGeometry = { pageWidth: number; horizontalPadding: number };
+const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   const measure = document.createElement("div");
-  const pageWidth = Math.min(794, Math.max(240, window.innerWidth - 48));
-  const contentWidth = Math.max(176, pageWidth - (window.innerWidth >= 640 ? 96 : 64));
+  const pageWidth = geometry?.pageWidth ?? Math.min(794, Math.max(240, window.innerWidth - 48));
+  const horizontalPadding = geometry?.horizontalPadding ?? (window.innerWidth >= 640 ? 96 : 64);
+  const contentWidth = Math.max(176, pageWidth - horizontalPadding);
   measure.style.cssText = `position:absolute;visibility:hidden;box-sizing:border-box;width:${contentWidth}px;border:0;padding:0;font:14px/1.625 ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;white-space:pre-wrap;overflow-wrap:anywhere;`;
   measure.innerHTML = text || " "; document.body.appendChild(measure);
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
@@ -72,18 +74,18 @@ const sliceHtml = (html: string, start: number, end: number) => {
   source.childNodes.forEach(node => { const copied = copy(node); if (copied) result.appendChild(copied); });
   return result.innerHTML;
 };
-const fragmentForHeight = (html: string, maxHeight: number) => {
+const fragmentForHeight = (html: string, maxHeight: number, geometry?: DynamicPaginationGeometry) => {
   const length = textLength(html);
-  if (blockHeight(html) <= maxHeight) return length;
+  if (blockHeight(html, geometry) <= maxHeight) return length;
   let low = 1; let high = length;
-  while (low < high) { const middle = Math.ceil((low + high) / 2); if (blockHeight(sliceHtml(html, 0, middle)) <= maxHeight) low = middle; else high = middle - 1; }
+  while (low < high) { const middle = Math.ceil((low + high) / 2); if (blockHeight(sliceHtml(html, 0, middle), geometry) <= maxHeight) low = middle; else high = middle - 1; }
   return low;
 };
 
 const runEditorCommand = (command: string, value?: string) => {
   document.execCommand(command, false, value);
 };
-const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: number) => {
+const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: number, geometry?: DynamicPaginationGeometry) => {
   const source = document.createElement("div");
   source.innerHTML = tableHtml;
   const table = source.querySelector("table");
@@ -101,7 +103,7 @@ const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: numbe
   let end = start;
   while (end < rows.length) {
     body.appendChild(rows[end].cloneNode(true));
-    if (end > start && blockHeight(visualTable.outerHTML) > maxHeight) {
+    if (end > start && blockHeight(visualTable.outerHTML, geometry) > maxHeight) {
       body.removeChild(body.lastElementChild!);
       break;
     }
@@ -117,7 +119,7 @@ const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: numbe
   visualTable.dataset.tableRowEnd = String(end);
   return { html: visualTable.outerHTML, end, rowCount: rows.length };
 };
-export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplatePage[] => {
+export const paginateDynamicTemplateBlocks = (blocks: string[], geometry?: DynamicPaginationGeometry): DynamicTemplatePage[] => {
   const pages: DynamicTemplatePage[] = [{ fragments: [] }]; let used = 0;
   blocks.forEach((block, blockIndex) => {
     if (isDynamicPageBreak(block)) { pages.push({ fragments: [], manualBreakBefore: blockIndex }); used = 0; return; }
@@ -129,9 +131,9 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
         const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
         const gap = page.fragments.length ? 12 : 0;
         const remaining = limit - used - gap;
-        const tableFragment = tableFragmentForPage(block, rowStart, Math.max(23, remaining));
+        const tableFragment = tableFragmentForPage(block, rowStart, Math.max(23, remaining), geometry);
         rowCount = tableFragment.rowCount;
-        const height = blockHeight(tableFragment.html);
+        const height = blockHeight(tableFragment.html, geometry);
         if (page.fragments.length && height > remaining) { pages.push({ fragments: [] }); used = 0; continue; }
         page.fragments.push({ blockIndex, start: 0, end: textLength(block), text: tableFragment.html });
         used += gap + height;
@@ -146,7 +148,7 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
       const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
       const gap = page.fragments.length ? 12 : 0;
       const isCaretAfterTable = /^<table\b/i.test(blocks[blockIndex - 1]?.trim());
-      const height = isCaretAfterTable ? 0 : blockHeight("");
+      const height = isCaretAfterTable ? 0 : blockHeight("", geometry);
       if (used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
       const target = pages[pages.length - 1];
       target.fragments.push({ blockIndex, start: 0, end: 0, text: "" });
@@ -158,8 +160,8 @@ export const paginateDynamicTemplateBlocks = (blocks: string[]): DynamicTemplate
       const page = pages[pages.length - 1]; const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
       const gap = page.fragments.length ? 12 : 0; const remaining = limit - used - gap;
       if (remaining < 23) { pages.push({ fragments: [] }); used = 0; continue; }
-      const end = start + fragmentForHeight(sliceHtml(block, start, blockLength), remaining); const text = sliceHtml(block, start, end);
-      page.fragments.push({ blockIndex, start, end, text }); used += gap + blockHeight(text); start = end;
+      const end = start + fragmentForHeight(sliceHtml(block, start, blockLength), remaining, geometry); const text = sliceHtml(block, start, end);
+      page.fragments.push({ blockIndex, start, end, text }); used += gap + blockHeight(text, geometry); start = end;
       if (start < blockLength) { pages.push({ fragments: [] }); used = 0; }
     } while (start < blockLength);
   });

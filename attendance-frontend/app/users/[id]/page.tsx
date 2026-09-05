@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Eye } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
@@ -502,7 +501,6 @@ export default function UserDetailPage() {
                         <p className="text-xs text-ink-500">{doc.original_filename}</p>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={15} /> <span>View</span></button>
                         <button onClick={() => void handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><span>Download</span></button>
                       </div>
                     </div>
@@ -520,7 +518,6 @@ export default function UserDetailPage() {
                         <p className="text-xs text-ink-500">{new Date(document.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setSelectedGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">View</button>
                         <button onClick={() => void downloadGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">Download</button>
                         <button onClick={() => handleDeleteDocument(document.id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600">Delete</button>
                       </div>

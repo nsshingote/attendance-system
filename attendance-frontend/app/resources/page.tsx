@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Upload, Trash2, Edit2, Download, Eye, X, FileText } from "lucide-react";
+import { Upload, Trash2, Edit2, Download, X, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
@@ -362,7 +362,7 @@ export default function ResourcesPage() {
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto bg-white rounded-lg border border-ink-200">
+            <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-ink-50 border-b border-ink-200">
                   <tr>
@@ -415,13 +415,6 @@ export default function ResourcesPage() {
                             title="Download"
                           >
                             <Download size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleViewClick(resource)}
-                            className="p-2 text-ink-600 hover:bg-ink-200 rounded transition-colors"
-                            title="View Details"
-                          >
-                            <Eye size={16} />
                           </button>
                           {isAdmin && (
                             <>

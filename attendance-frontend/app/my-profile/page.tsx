@@ -758,7 +758,6 @@ export default function MyProfilePage() {
                           <p className="text-xs text-ink-500">{doc.original_filename}</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => void handleViewPersonalDoc(doc.id)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
                           <button type="button" onClick={() => void handleDownloadPersonalDoc(doc.id, doc.original_filename)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
                           <button type="button" onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
                           {deleteRequestDocumentId === doc.id ? (
@@ -800,12 +799,6 @@ export default function MyProfilePage() {
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => setSelectedDocument(document)}
-                            className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"
-                          >
-                            View
-                          </button>
                           <button onClick={() => void downloadGeneratedDocument(document)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">
                             <Download size={14} /> Download
                           </button>
