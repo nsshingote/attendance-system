@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download, Eye, Pencil, Trash2, Upload } from "lucide-react";
@@ -102,7 +102,6 @@ export default function MyProfilePage() {
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<{ document: GeneratedDocument; targetWindow: Window | null } | null>(null);
   const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
-  const dynamicDownloadPreviewRef = useRef<HTMLDivElement>(null);
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
   const [editingAddress, setEditingAddress] = useState(false);
@@ -454,27 +453,25 @@ export default function MyProfilePage() {
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
   const dynamicValues = selectedDocument && !appointmentValues && !offerValues
-    ? (JSON.parse(selectedDocument.content) as { template_content?: string; resolved_content?: string })
-    : null;
-  const pendingDynamicValues = pendingDynamicPdf
-    ? (JSON.parse(pendingDynamicPdf.document.content) as { template_content?: string; resolved_content?: string })
+    ? (JSON.parse(selectedDocument.content) as { resolved_content?: string; template_content?: string })
     : null;
 
   useEffect(() => {
-    if (!pendingDynamicPdf || !pendingDynamicValues?.resolved_content || !dynamicDownloadPreviewRef.current) return;
-    void downloadDynamicLetterPdf(pendingDynamicPdf.document.title, pendingDynamicValues.resolved_content, profile?.name, dynamicDownloadPreviewRef.current, pendingDynamicPdf.targetWindow, file => setIOSDownloadFile(file))
+    if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
+    void downloadDynamicLetterPdf(selectedDocument.title, dynamicValues.resolved_content, profile?.name, dynamicPreviewRef.current, pendingDynamicPdf.targetWindow, file => setIOSDownloadFile(file))
     .catch(error => toast.error(getErrorMessage(error)))
     .finally(() => {
       setPendingDynamicPdf(null);
     });
-  }, [pendingDynamicPdf, pendingDynamicValues?.resolved_content, profile?.name]);
+  }, [dynamicValues?.resolved_content, pendingDynamicPdf, profile?.name, selectedDocument]);
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
       if (values.resolved_content) {
-        setSelectedDocument(null);
-        setPendingDynamicPdf({ document, targetWindow: null });
+        const targetWindow = null;
+        setSelectedDocument(document);
+        setPendingDynamicPdf({ document, targetWindow });
         return;
       } else if (document.document_type === "appointment_letter") {
         downloadAppointmentLetterPdf(values, file => setIOSDownloadFile(file));
@@ -914,21 +911,8 @@ export default function MyProfilePage() {
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} templateContent={dynamicValues.template_content} content={dynamicValues.resolved_content} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />}
             </div>
-          </div>
-        )}
-        {pendingDynamicValues?.resolved_content && (
-          <div
-            ref={dynamicDownloadPreviewRef}
-            aria-hidden="true"
-            className="pointer-events-none absolute left-[-10000px] top-0 w-280"
-          >
-            <DynamicLetterPreview
-              title={pendingDynamicPdf?.document.title || "Document"}
-              templateContent={pendingDynamicValues.template_content}
-              content={pendingDynamicValues.resolved_content}
-            />
           </div>
         )}
         {selectedSlip && (

@@ -8,7 +8,7 @@ import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMar
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; }
 interface PaginatedTemplateEditorProps { value: string; onChange: (value: string) => void; title: string; }
 export const PAGE_HEIGHT = 1120;
-const FIRST_PAGE_CONTENT_HEIGHT = 900;
+const FIRST_PAGE_CONTENT_HEIGHT = 780;
 const OTHER_PAGE_CONTENT_HEIGHT = 920;
 
 export const splitDynamicTemplateBlocks = (value: string) => {
@@ -555,7 +555,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
-          <div className={`${pageIndex === 0 ? "h-900px" : "h-920px"} shrink-0 overflow-hidden`}>
+          <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
             {page.fragments.map((fragment, fragmentIndex) => {
               const tableCaretBlock = !fragment.text && /^<table\b/i.test(blocks[fragment.blockIndex - 1]?.trim());
               const isTable = /^<table\b/i.test(fragment.text.trim());

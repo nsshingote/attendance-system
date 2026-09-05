@@ -5,6 +5,8 @@ import { isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 import { deliverPdf } from "@/lib/pdfDownload";
 
 type EmployeeNameParam = string | undefined;
+const PDF_PAGE_WIDTH_PX = 794;
+const PDF_PAGE_HEIGHT_PX = 1120;
 
 const loadImage = async (url: string) => {
   const response = await fetch(url);
@@ -72,20 +74,36 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
   const deliver = (pdf: jsPDF) => deliverPdf(pdf, filename, targetWindow, onIOSFileReady);
 
   if (previewElement) {
+    if (previewElement.dataset.layoutOverflow === "true") {
+      throw new Error("The document content does not fit within the saved template page layout.");
+    }
     const pages = Array.from(previewElement.querySelectorAll<HTMLElement>("article"));
     if (pages.length) {
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       for (const [index, page] of pages.entries()) {
         const canvas = await html2canvas(page, {
           scale: 2,
+          width: PDF_PAGE_WIDTH_PX,
+          height: PDF_PAGE_HEIGHT_PX,
+          windowWidth: PDF_PAGE_WIDTH_PX,
+          windowHeight: PDF_PAGE_HEIGHT_PX,
           useCORS: true,
           backgroundColor: "#ffffff",
           onclone: clonedDocument => {
+            const clonedPages = clonedDocument.querySelectorAll<HTMLElement>("article");
+            clonedPages.forEach(clonedPage => {
+              clonedPage.style.width = `${PDF_PAGE_WIDTH_PX}px`;
+              clonedPage.style.minWidth = `${PDF_PAGE_WIDTH_PX}px`;
+              clonedPage.style.maxWidth = `${PDF_PAGE_WIDTH_PX}px`;
+              clonedPage.style.height = `${PDF_PAGE_HEIGHT_PX}px`;
+              clonedPage.style.minHeight = `${PDF_PAGE_HEIGHT_PX}px`;
+              clonedPage.style.maxHeight = `${PDF_PAGE_HEIGHT_PX}px`;
+            });
             sanitizeCloneColors(clonedDocument);
           },
         });
         if (index > 0) pdf.addPage();
-        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, 210, 297);
         const pageRect = page.getBoundingClientRect();
         page.querySelectorAll<HTMLAnchorElement>("a[href]").forEach(anchor => {
           const rect = anchor.getBoundingClientRect();

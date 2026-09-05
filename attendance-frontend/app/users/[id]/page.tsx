@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Eye } from "lucide-react";
 import toast from "react-hot-toast";
@@ -81,6 +81,7 @@ type GeneratedDocument = {
   document_type: string;
   title: string;
   content: string;
+  template_content?: string;
   status: string;
   created_at: string;
   sent_at?: string | null;
@@ -129,6 +130,7 @@ export default function UserDetailPage() {
   const [personalDocs, setPersonalDocs] = useState<PersonalDocument[]>([]);
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
   const [selectedGeneratedDocument, setSelectedGeneratedDocument] = useState<GeneratedDocument | null>(null);
+  const dynamicPreviewRef = useRef<HTMLDivElement>(null);
 
   const handleSelectDay = (day: SelectedCalendarDay) => {
     setSelectedDate(day.date);
@@ -324,7 +326,7 @@ export default function UserDetailPage() {
 
   const appointmentValues = selectedGeneratedDocument?.document_type === "appointment_letter" ? JSON.parse(selectedGeneratedDocument.content) as AppointmentLetterValues : null;
   const offerValues = selectedGeneratedDocument?.document_type === "offer_letter" ? JSON.parse(selectedGeneratedDocument.content) as OfferLetterValues : null;
-  const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string } : null;
+  const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string; template_content?: string } : null;
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
@@ -334,7 +336,7 @@ export default function UserDetailPage() {
       } else if (document.document_type === "offer_letter") {
         downloadOfferLetterPdf(values);
       } else if (values.resolved_content) {
-        await downloadDynamicLetterPdf(document.title, values.resolved_content, user?.name);
+        setSelectedGeneratedDocument(document);
       } else {
         throw new Error("This document has no renderable content");
       }
@@ -537,11 +539,12 @@ export default function UserDetailPage() {
             <div className="mb-3 flex justify-end gap-2">
               {appointmentValues && <button onClick={() => downloadAppointmentLetterPdf(appointmentValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
               {offerValues && <button onClick={() => downloadOfferLetterPdf(offerValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
+              {dynamicValues?.resolved_content && <button onClick={() => void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content || "", user?.name, dynamicPreviewRef.current).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
               <button onClick={() => setSelectedGeneratedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">Close</button>
             </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />}
           </div>
         </div>
       )}
