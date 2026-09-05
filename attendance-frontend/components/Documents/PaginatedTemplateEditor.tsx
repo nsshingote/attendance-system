@@ -268,6 +268,14 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     setBlocks(next);
     onChange(joinDynamicTemplateBlocks(next));
   };
+  const renderedFragmentTailStart = (active: typeof activeSelection.current, block: string) => {
+    if (!editor.current) return textLength(block);
+    const current = editor.current.querySelector<HTMLElement>(`[data-block-index="${active.blockIndex}"][data-fragment-start="${active.fragmentStart}"]`);
+    if (!current) return textLength(block);
+    const fragments = Array.from(editor.current.querySelectorAll<HTMLElement>("[data-template-fragment]"))
+      .filter(fragment => Number(fragment.dataset.blockIndex) === active.blockIndex);
+    return fragments[fragments.length - 1] === current ? textLength(block) : active.fragmentEnd;
+  };
   const replaceActiveSelection = (replacement: string) => {
     const range = tableSelection.current;
     const tableCell = range && (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement)?.closest<HTMLElement>("td, th");
@@ -287,7 +295,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       return;
     }
     const active = activeSelection.current; const block = blocksRef.current[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
-    const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, active.end, textLength(block))}`;
+    const selectionEnd = Math.min(active.end, renderedFragmentTailStart(active, block));
+    const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, selectionEnd, textLength(block))}`;
     pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + replacement.length };
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)]);
   };
@@ -315,7 +324,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const previousFragmentLength = active.fragmentEnd - active.fragmentStart;
     const selectedLength = active.end - active.start;
     const insertedLength = textLength(nextFragmentText) - (previousFragmentLength - selectedLength);
-    const nextValue = `${sliceHtml(block, 0, active.fragmentStart)}${nextFragmentText}${sliceHtml(block, active.fragmentEnd, textLength(block))}`;
+    const tailStart = renderedFragmentTailStart(active, block);
+    const nextValue = `${sliceHtml(block, 0, active.fragmentStart)}${nextFragmentText}${sliceHtml(block, tailStart, textLength(block))}`;
     if (render && restoreCaret) pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)], render);
   };
