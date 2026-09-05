@@ -5,7 +5,10 @@ import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks, type DynamicPaginationGeometry } from "./PaginatedTemplateEditor";
 
 type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; companyName?: string; companyAddress?: string; logoUrl?: string };
-const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 96 };
+// The preview article uses 56px padding on each side (px-14), so pagination
+// must measure the same 682px content width rather than a wider mobile-dependent
+// approximation.
+const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 112 };
 
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
@@ -63,6 +66,16 @@ const resolvedFragment = (sourceFragment: string, sourceBlock: string, resolvedB
 
 const isTableBlock = (block: string) => /^<table\b/i.test(block.trim());
 const isBreakBlock = (block: string) => /^(\[\[dynamic:page-break\]\])$/i.test(block.trim());
+const sameTableStructure = (sourceBlock: string, resolvedBlock: string) => {
+  const source = document.createElement("div");
+  source.innerHTML = sourceBlock;
+  const resolved = document.createElement("div");
+  resolved.innerHTML = resolvedBlock;
+  const sourceRows = Array.from(source.querySelector("table")?.rows ?? []);
+  const resolvedRows = Array.from(resolved.querySelector("table")?.rows ?? []);
+  return sourceRows.length === resolvedRows.length
+    && sourceRows.every((row, index) => row.cells.length === resolvedRows[index]?.cells.length);
+};
 
 const mapResolvedBlocks = (templateBlocks: string[], resolvedBlocks: string[]) => {
   const mapped: string[] = [];
@@ -79,7 +92,9 @@ const mapResolvedBlocks = (templateBlocks: string[], resolvedBlocks: string[]) =
     if (isTableBlock(templateBlock)) {
       while (resolvedIndex < resolvedBlocks.length && !isTableBlock(resolvedBlocks[resolvedIndex])) resolvedIndex += 1;
       if (resolvedIndex >= resolvedBlocks.length) valid = false;
-      mapped.push(resolvedBlocks[resolvedIndex] || templateBlock);
+      const resolvedBlock = resolvedBlocks[resolvedIndex] || templateBlock;
+      if (!sameTableStructure(templateBlock, resolvedBlock)) valid = false;
+      mapped.push(resolvedBlock);
       resolvedIndex += 1;
       return;
     }
@@ -100,7 +115,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   const bodyRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [overflow, setOverflow] = useState(false);
   const { pages, mappingValid } = useMemo(() => {
-    if (!templateContent) return { pages: paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), mappingValid: true };
+    if (!templateContent) return { pages: [], mappingValid: false };
     const templateBlocks = splitDynamicTemplateBlocks(templateContent);
     const templatePages = paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY);
     const resolvedMapping = mapResolvedBlocks(templateBlocks, blocks);

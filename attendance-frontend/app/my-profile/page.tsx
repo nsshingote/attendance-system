@@ -462,6 +462,7 @@ export default function MyProfilePage() {
     .catch(error => toast.error(getErrorMessage(error)))
     .finally(() => {
       setPendingDynamicPdf(null);
+      setSelectedDocument(null);
     });
   }, [dynamicValues?.resolved_content, pendingDynamicPdf, profile?.name, selectedDocument]);
 
@@ -865,7 +866,7 @@ export default function MyProfilePage() {
           </section>
         )}
 
-        {selectedDocument && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
+        {selectedDocument && !pendingDynamicPdf && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
             <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
               <div className="mb-3 flex justify-end gap-2">
@@ -906,6 +907,11 @@ export default function MyProfilePage() {
               {offerValues && <OfferLetterPreview values={offerValues} />}
               {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />}
             </div>
+          </div>
+        )}
+        {pendingDynamicPdf && selectedDocument && dynamicValues?.resolved_content && (
+          <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0, width: "794px" }}>
+            <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />
           </div>
         )}
         {selectedSlip && (

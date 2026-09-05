@@ -294,7 +294,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     requestAnimationFrame(() => editor.current?.focus());
   };
   const removePageBreak = (blockIndex: number) => applyBlocks(blocksRef.current.filter((_, index) => index !== blockIndex));
-  useImperativeHandle(ref, () => ({ insertPlaceholder: replaceActiveSelection, insertPageBreak }));
+  const insertPlaceholder = (replacement: string) => {
+    // Re-read the browser selection immediately before a toolbar insertion.
+    // This keeps the selected table cell authoritative even if focus changed.
+    updateActiveSelection();
+    replaceActiveSelection(replacement);
+  };
+  useImperativeHandle(ref, () => ({ insertPlaceholder, insertPageBreak }));
   const commitDocument = (restoreCaret = true) => {
     if (!editor.current) return;
     const active = activeSelection.current;

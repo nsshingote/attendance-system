@@ -129,6 +129,7 @@ export default function UserDetailPage() {
   const [personalDocs, setPersonalDocs] = useState<PersonalDocument[]>([]);
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
   const [selectedGeneratedDocument, setSelectedGeneratedDocument] = useState<GeneratedDocument | null>(null);
+  const [pendingDynamicPdf, setPendingDynamicPdf] = useState<GeneratedDocument | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
 
   const handleSelectDay = (day: SelectedCalendarDay) => {
@@ -327,6 +328,16 @@ export default function UserDetailPage() {
   const offerValues = selectedGeneratedDocument?.document_type === "offer_letter" ? JSON.parse(selectedGeneratedDocument.content) as OfferLetterValues : null;
   const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string; template_content?: string } : null;
 
+  useEffect(() => {
+    if (!pendingDynamicPdf || !selectedGeneratedDocument || selectedGeneratedDocument.id !== pendingDynamicPdf.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
+    void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content, user?.name, dynamicPreviewRef.current)
+      .catch(error => toast.error(getErrorMessage(error)))
+      .finally(() => {
+        setPendingDynamicPdf(null);
+        setSelectedGeneratedDocument(null);
+      });
+  }, [dynamicValues?.resolved_content, pendingDynamicPdf, selectedGeneratedDocument, user?.name]);
+
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
@@ -336,6 +347,7 @@ export default function UserDetailPage() {
         downloadOfferLetterPdf(values);
       } else if (values.resolved_content) {
         setSelectedGeneratedDocument(document);
+        setPendingDynamicPdf(document);
       } else {
         throw new Error("This document has no renderable content");
       }
@@ -530,7 +542,7 @@ export default function UserDetailPage() {
         )}
       </div>
 
-      {selectedGeneratedDocument && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
+      {selectedGeneratedDocument && !pendingDynamicPdf && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
           <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
             <div className="mb-3 flex justify-end gap-2">
@@ -543,6 +555,11 @@ export default function UserDetailPage() {
               {offerValues && <OfferLetterPreview values={offerValues} />}
               {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />}
           </div>
+        </div>
+      )}
+      {pendingDynamicPdf && selectedGeneratedDocument && dynamicValues?.resolved_content && (
+        <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0, width: "794px" }}>
+          <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />
         </div>
       )}
     </AppShell>
