@@ -96,9 +96,15 @@ const sliceHtml = (html: string, start: number, end: number) => {
       return from < to ? document.createTextNode(value.slice(from, to)) : null;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    // <br> has no text node, so the old slicer kept every one regardless of
+    // the requested range. Splitting after text near the top of a letter then
+    // left empty paragraph skeletons for all later content in the "before"
+    // fragment, displacing the restored caret near the bottom of the page.
+    // A break belongs only to the interior of the selected text range.
+    if (node.nodeName === "BR") return position > start && position < end ? node.cloneNode(false) : null;
     const element = node.cloneNode(false) as HTMLElement;
     node.childNodes.forEach(child => { const copied = copy(child); if (copied) element.appendChild(copied); });
-    return element.childNodes.length || node.nodeName === "BR" ? element : null;
+    return element.childNodes.length ? element : null;
   };
   const result = document.createElement("div");
   source.childNodes.forEach(node => { const copied = copy(node); if (copied) result.appendChild(copied); });

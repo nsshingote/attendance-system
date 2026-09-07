@@ -39,7 +39,15 @@ def send_email(to_emails: List[str], subject: str, html_body: str, reply_to: str
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
             server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_USER, to_emails, msg.as_string())
+            refused = server.sendmail(settings.SMTP_USER, to_emails, msg.as_string())
+        if refused:
+            logger.error(
+                "SMTP refused recipient(s) for subject=%r: %s",
+                subject,
+                {recipient: str(reason) for recipient, reason in refused.items()},
+            )
+            return False
+        logger.info("SMTP accepted recipient(s) for subject=%r: %s", subject, to_emails)
         return True
     except Exception as exc:
         logger.error(f"Failed to send email: {exc}")
