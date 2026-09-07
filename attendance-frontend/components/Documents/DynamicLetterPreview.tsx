@@ -9,6 +9,16 @@ type DynamicLetterPreviewProps = { title: string; content: string; templateConte
 // must measure the same 682px content width rather than a wider mobile-dependent
 // approximation.
 const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 112 };
+// Browser subpixel rounding and mobile font metrics can create a 1px boundary
+// discrepancy at fixed-height page bodies even when the content still fits.
+const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 2;
+
+const hasPageLayoutOverflow = (body: HTMLDivElement) => {
+  const rect = body.getBoundingClientRect();
+  const measuredOverflow = body.scrollHeight - body.clientHeight;
+  const geometricOverflow = rect.bottom - (rect.top + body.clientHeight);
+  return Math.max(measuredOverflow, geometricOverflow) > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX;
+};
 
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
@@ -140,7 +150,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   useLayoutEffect(() => {
     const hasOverflow = pages.some((_, pageIndex) => {
       const body = bodyRefs.current[pageIndex];
-      return Boolean(body && body.scrollHeight > body.clientHeight + 1);
+      return Boolean(body && hasPageLayoutOverflow(body));
     });
     setOverflow(current => current === hasOverflow ? current : hasOverflow);
   }, [pages]);

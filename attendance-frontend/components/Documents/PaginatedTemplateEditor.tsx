@@ -48,6 +48,8 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   measure.innerHTML = text || " "; document.body.appendChild(measure);
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
 };
+const CARET_PLACEHOLDER_HTML = '<br data-template-caret-placeholder="true" aria-hidden="true">';
+const stripCaretPlaceholder = (html: string) => html.replace(/<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>/gi, "");
 const textLength = (html: string) => {
   const element = document.createElement("div");
   element.innerHTML = html;
@@ -320,7 +322,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const fragment = editor.current.querySelector<HTMLElement>(`[data-block-index="${active.blockIndex}"][data-fragment-start="${active.fragmentStart}"]`);
     const block = blocksRef.current[active.blockIndex];
     if (!fragment || block === undefined) return;
-    const nextFragmentText = fragment.innerHTML;
+    const nextFragmentText = stripCaretPlaceholder(fragment.innerHTML);
     const previousFragmentLength = active.fragmentEnd - active.fragmentStart;
     const selectedLength = active.end - active.start;
     const insertedLength = textLength(nextFragmentText) - (previousFragmentLength - selectedLength);
@@ -596,7 +598,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
               const adjacentToTable = /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
               const addParagraphSpacing = hasFollowingContent && !isTable && !tableCaretBlock && !adjacentToTable;
-              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${addParagraphSpacing ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
+              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${addParagraphSpacing ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || (tableCaretBlock ? CARET_PLACEHOLDER_HTML : "") }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
