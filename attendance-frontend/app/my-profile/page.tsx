@@ -869,11 +869,11 @@ export default function MyProfilePage() {
         {selectedDocument && !pendingDynamicPdf && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
             <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
-              <div className="mb-3 flex justify-end gap-2">
+              <div className="mb-3 flex flex-wrap justify-end gap-2">
                 {appointmentValues && (
                   <button
                     onClick={() => downloadAppointmentLetterPdf(appointmentValues, file => setIOSDownloadFile(file))}
-                    className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
+                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none"
                   >
                     <Download size={15} /> Download PDF
                   </button>
@@ -881,7 +881,7 @@ export default function MyProfilePage() {
                 {offerValues && (
                   <button
                     onClick={() => downloadOfferLetterPdf(offerValues, file => setIOSDownloadFile(file))}
-                    className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
+                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none"
                   >
                     <Download size={15} /> Download PDF
                   </button>
@@ -894,12 +894,12 @@ export default function MyProfilePage() {
                           .catch(error => toast.error(getErrorMessage(error)));
                       }
                     }}
-                    className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium"
+                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none"
                   >
                     <Download size={15} /> Download PDF
                   </button>
                 )}
-                <button onClick={() => setSelectedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">
+                <button onClick={() => setSelectedDocument(null)} className="min-h-10 flex-1 rounded-lg bg-white px-4 py-2 text-sm font-medium sm:flex-none">
                   Close
                 </button>
               </div>

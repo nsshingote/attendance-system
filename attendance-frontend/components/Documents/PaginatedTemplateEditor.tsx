@@ -531,7 +531,30 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const block = blocksRef.current[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
     event.preventDefault();
-    if (event.key === "Enter") { replaceActiveSelection("\n"); return; }
+    if (event.key === "Enter") {
+      const selection = window.getSelection();
+      if (selection?.rangeCount && selection.isCollapsed) {
+        const range = selection.getRangeAt(0);
+        const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
+        const fragment = findFragment(range.startContainer);
+        if (fragment) {
+          const beforeCaret = document.createRange();
+          beforeCaret.selectNodeContents(fragment);
+          beforeCaret.setEnd(range.startContainer, range.startOffset);
+          const position = beforeCaret.toString().length;
+          activeSelection.current = {
+            ...activeSelection.current,
+            start: position,
+            end: position,
+            fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+            fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+            blockIndex: Number(fragment.dataset.blockIndex),
+          };
+        }
+      }
+      replaceActiveSelection("\n");
+      return;
+    }
     if (active.start !== active.end) { replaceActiveSelection(""); return; }
     if (event.key === "Backspace" && active.start > 0) {
       activeSelection.current = { ...active, start: active.start - 1 };

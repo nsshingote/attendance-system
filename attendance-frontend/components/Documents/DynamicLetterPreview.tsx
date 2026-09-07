@@ -15,9 +15,10 @@ const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 2;
 
 const hasPageLayoutOverflow = (body: HTMLDivElement) => {
   const rect = body.getBoundingClientRect();
-  const measuredOverflow = body.scrollHeight - body.clientHeight;
-  const geometricOverflow = rect.bottom - (rect.top + body.clientHeight);
-  return Math.max(measuredOverflow, geometricOverflow) > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX;
+  const boundary = rect.top + body.clientHeight;
+  const elements = Array.from(body.querySelectorAll<HTMLElement>("*"));
+  const contentBottom = elements.reduce((bottom, element) => Math.max(bottom, element.getBoundingClientRect().bottom), rect.top);
+  return contentBottom - boundary > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX;
 };
 
 const sliceHtml = (html: string, start: number, end: number) => {
@@ -148,11 +149,35 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   }, [blocks, templateContent]);
 
   useLayoutEffect(() => {
-    const hasOverflow = pages.some((_, pageIndex) => {
-      const body = bodyRefs.current[pageIndex];
-      return Boolean(body && hasPageLayoutOverflow(body));
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const hasOverflow = pages.some((_, pageIndex) => {
+          const body = bodyRefs.current[pageIndex];
+          return Boolean(body && hasPageLayoutOverflow(body));
+        });
+        setOverflow(current => current === hasOverflow ? current : hasOverflow);
+      });
+    };
+    measure();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    Object.values(bodyRefs.current).forEach(body => body && resizeObserver?.observe(body));
+    window.addEventListener("resize", measure);
+    const imageLoadHandlers = Object.values(bodyRefs.current).flatMap(body =>
+      body ? Array.from(body.querySelectorAll<HTMLImageElement>("img")) : [],
+    );
+    imageLoadHandlers.forEach(image => {
+      image.addEventListener("load", measure);
     });
-    setOverflow(current => current === hasOverflow ? current : hasOverflow);
+    const fontsReady = document.fonts?.ready.then(measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measure);
+      imageLoadHandlers.forEach(image => image.removeEventListener("load", measure));
+      void fontsReady;
+    };
   }, [pages]);
 
   return (
@@ -160,7 +185,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
       {(!mappingValid || overflow) && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{mappingValid ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted." : "This document could not be mapped to the saved template layout. Download is disabled."}</p>}
       {pages.map((page, pageIndex) => {
         return (
-          <article key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">
+          <article data-template-page={pageIndex} key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">
             {pageIndex === 0 && <header className="border-b-2 border-brand-600 pb-4">
               <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 flex-1 items-center gap-3">

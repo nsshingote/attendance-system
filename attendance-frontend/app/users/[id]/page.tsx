@@ -545,10 +545,10 @@ export default function UserDetailPage() {
       {selectedGeneratedDocument && !pendingDynamicPdf && (appointmentValues || offerValues || dynamicValues?.resolved_content) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
           <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
-            <div className="mb-3 flex justify-end gap-2">
+            <div className="mb-3 flex flex-wrap justify-end gap-2">
               {appointmentValues && <button onClick={() => downloadAppointmentLetterPdf(appointmentValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
               {offerValues && <button onClick={() => downloadOfferLetterPdf(offerValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
-              {dynamicValues?.resolved_content && <button onClick={() => void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content || "", user?.name, dynamicPreviewRef.current).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
+              {dynamicValues?.resolved_content && <button onClick={() => void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content || "", user?.name, dynamicPreviewRef.current).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none">Download PDF</button>}
               <button onClick={() => setSelectedGeneratedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">Close</button>
             </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}

@@ -66,7 +66,7 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
   if (previewElement.dataset.layoutOverflow === "true") {
     throw new Error("The document content does not fit within the saved template page layout.");
   }
-  const pages = Array.from(previewElement.querySelectorAll<HTMLElement>("article"));
+  const pages = Array.from(previewElement.querySelectorAll<HTMLElement>("article[data-template-page]"));
   if (pages.length) {
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       for (const [index, page] of pages.entries()) {
