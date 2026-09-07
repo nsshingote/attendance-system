@@ -13,16 +13,19 @@ const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, hori
 // images settle so device-specific fallback metrics do not need a large buffer.
 const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 2;
 
-const hasPageLayoutOverflow = (body: HTMLDivElement) => {
+const measurePageOverflow = (body: HTMLDivElement, pageIndex: number) => {
   const rect = body.getBoundingClientRect();
   const boundary = rect.top + body.clientHeight;
-  const contentBottom = Array.from(body.children).reduce((bottom, element) => {
-    const elementRect = element.getBoundingClientRect();
-    return elementRect.width > 0 && elementRect.height > 0
-      ? Math.max(bottom, elementRect.bottom)
-      : bottom;
-  }, rect.top);
-  return contentBottom - boundary > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX;
+  for (const [fragmentIndex, element] of Array.from(body.children).entries()) {
+    const fragment = element as HTMLElement;
+    if (!hasMeaningfulHtml(fragment.innerHTML)) continue;
+    const fragmentRect = fragment.getBoundingClientRect();
+    const marginBottom = Number.parseFloat(getComputedStyle(fragment).marginBottom) || 0;
+    if (fragmentRect.width > 0 && fragmentRect.height > 0 && fragmentRect.bottom + marginBottom - boundary > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX) {
+      return { pageIndex, fragmentIndex };
+    }
+  }
+  return null;
 };
 
 const sliceHtml = (html: string, start: number, end: number) => {
@@ -175,10 +178,11 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
     const measure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const hasOverflow = pages.some((_, pageIndex) => {
+        const overflowingFragment = pages.map((_, pageIndex) => {
           const body = bodyRefs.current[pageIndex];
-          return Boolean(body && hasPageLayoutOverflow(body));
-        });
+          return body ? measurePageOverflow(body, pageIndex) : null;
+        }).find(Boolean);
+        const hasOverflow = Boolean(overflowingFragment);
         setOverflow(current => current === hasOverflow ? current : hasOverflow);
       });
     };

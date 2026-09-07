@@ -16,6 +16,7 @@ import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
+import { shareIOSFile } from "@/lib/iosFileDownload";
 import { getToken } from "@/lib/auth";
 
 interface UserDetail {
@@ -130,6 +131,7 @@ export default function UserDetailPage() {
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
   const [selectedGeneratedDocument, setSelectedGeneratedDocument] = useState<GeneratedDocument | null>(null);
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<GeneratedDocument | null>(null);
+  const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
 
   const handleSelectDay = (day: SelectedCalendarDay) => {
@@ -330,7 +332,7 @@ export default function UserDetailPage() {
 
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedGeneratedDocument || selectedGeneratedDocument.id !== pendingDynamicPdf.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
-    void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content, user?.name, dynamicPreviewRef.current)
+    void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content, user?.name, dynamicPreviewRef.current, null, file => setIOSDownloadFile(file))
       .catch(error => toast.error(getErrorMessage(error)))
       .finally(() => {
         setPendingDynamicPdf(null);
@@ -548,7 +550,7 @@ export default function UserDetailPage() {
             <div className="mb-3 flex flex-wrap justify-end gap-2">
               {appointmentValues && <button onClick={() => downloadAppointmentLetterPdf(appointmentValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
               {offerValues && <button onClick={() => downloadOfferLetterPdf(offerValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
-              {dynamicValues?.resolved_content && <button onClick={() => void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content || "", user?.name, dynamicPreviewRef.current).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none">Download PDF</button>}
+              {dynamicValues?.resolved_content && <button onClick={() => void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content || "", user?.name, dynamicPreviewRef.current, null, file => setIOSDownloadFile(file)).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none">Download PDF</button>}
               <button onClick={() => setSelectedGeneratedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">Close</button>
             </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
@@ -560,6 +562,18 @@ export default function UserDetailPage() {
       {pendingDynamicPdf && selectedGeneratedDocument && dynamicValues?.resolved_content && (
         <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0, width: "794px" }}>
           <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />
+        </div>
+      )}
+      {iosDownloadFile && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-ink-900">File ready to save</h2>
+            <p className="mt-2 text-sm text-ink-600">Tap Save to Files to choose where to save <span className="font-medium">{iosDownloadFile.name}</span>.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setIOSDownloadFile(null)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700">Cancel</button>
+              <button type="button" onClick={() => void shareIOSFile(iosDownloadFile).then(() => setIOSDownloadFile(null)).catch(error => { if ((error as DOMException).name !== "AbortError") toast.error(getErrorMessage(error)); })} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Save to Files</button>
+            </div>
+          </div>
         </div>
       )}
     </AppShell>

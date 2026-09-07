@@ -241,6 +241,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         const selection = window.getSelection();
         selection?.removeAllRanges();
         selection?.addRange(range);
+        activeSelection.current = {
+          blockIndex: caret.blockIndex,
+          start: caret.position,
+          end: caret.position,
+          fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+          fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+        };
         pendingCaret.current = null;
         return;
       }
