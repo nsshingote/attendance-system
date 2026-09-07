@@ -2,28 +2,16 @@
 
 import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
-import { paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks, type DynamicPaginationGeometry } from "./PaginatedTemplateEditor";
+import { A4_PAGINATION_GEOMETRY, paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks } from "./PaginatedTemplateEditor";
 
 type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; companyName?: string; companyAddress?: string; logoUrl?: string };
-// The preview article uses 56px padding on each side (px-14), so pagination
-// must measure the same 682px content width rather than a wider mobile-dependent
-// approximation.
-const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 112 };
-// Allow only normal CSS subpixel rounding; layout is remeasured after fonts and
-// images settle so device-specific fallback metrics do not need a large buffer.
-const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 2;
+// scrollHeight is more reliable than per-fragment getBoundingClientRect on iOS
+// Safari, where subpixel rounding can falsely flag clipped content as overflow.
+const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 8;
 
 const measurePageOverflow = (body: HTMLDivElement, pageIndex: number) => {
-  const rect = body.getBoundingClientRect();
-  const boundary = rect.top + body.clientHeight;
-  for (const [fragmentIndex, element] of Array.from(body.children).entries()) {
-    const fragment = element as HTMLElement;
-    if (!hasMeaningfulHtml(fragment.innerHTML)) continue;
-    const fragmentRect = fragment.getBoundingClientRect();
-    const marginBottom = Number.parseFloat(getComputedStyle(fragment).marginBottom) || 0;
-    if (fragmentRect.width > 0 && fragmentRect.height > 0 && fragmentRect.bottom + marginBottom - boundary > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX) {
-      return { pageIndex, fragmentIndex };
-    }
+  if (body.scrollHeight > body.clientHeight + PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX) {
+    return { pageIndex, fragmentIndex: -1 };
   }
   return null;
 };
@@ -148,6 +136,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   const blocks = useMemo(() => splitDynamicTemplateBlocks(content), [content]);
   const bodyRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [overflow, setOverflow] = useState(false);
+  const [layoutMeasured, setLayoutMeasured] = useState(false);
   const { pages, mappingValid, paginationValid } = useMemo(() => {
     if (!templateContent) return { pages: [], mappingValid: false, paginationValid: false };
     const templateBlocks = splitDynamicTemplateBlocks(templateContent);
@@ -177,6 +166,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   }, [blocks, templateContent]);
 
   useLayoutEffect(() => {
+    setLayoutMeasured(false);
     let frame = 0;
     const measure = () => {
       cancelAnimationFrame(frame);
@@ -187,6 +177,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
         }).find(Boolean);
         const hasOverflow = Boolean(overflowingFragment);
         setOverflow(current => current === hasOverflow ? current : hasOverflow);
+        setLayoutMeasured(true);
       });
     };
     measure();
@@ -210,7 +201,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   }, [pages]);
 
   return (
-    <div ref={ref} data-template-page-count={pages.length} data-layout-overflow={overflow || !mappingValid || !paginationValid ? "true" : "false"} className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto">
+    <div ref={ref} data-template-page-count={pages.length} data-layout-measured={layoutMeasured ? "true" : "false"} data-layout-overflow={overflow || !mappingValid || !paginationValid ? "true" : "false"} className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto">
     {(!mappingValid || !paginationValid || overflow) && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{mappingValid ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted." : "This document could not be mapped to the saved template layout. Download is disabled."}</p>}
       {pages.map((page, pageIndex) => {
         return (

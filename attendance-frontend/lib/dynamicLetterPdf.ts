@@ -6,6 +6,14 @@ type EmployeeNameParam = string | undefined;
 const PDF_PAGE_WIDTH_PX = 794;
 const PDF_PAGE_HEIGHT_PX = 1120;
 
+const waitForPreviewLayout = async (previewElement: HTMLElement) => {
+  if (document.fonts?.ready) await document.fonts.ready;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    if (previewElement.dataset.layoutMeasured === "true") return;
+  }
+};
+
 const unsupportedColorPattern = /\b(?:lab|lch|oklab|oklch)\([^)]*\)/gi;
 const hasUnsupportedColor = (value: string) => /\b(?:lab|lch|oklab|oklch)\([^)]*\)/i.test(value);
 
@@ -62,7 +70,7 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
   if (!previewElement) {
     throw new Error("The saved template page layout is unavailable. Download is disabled.");
   }
-  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  await waitForPreviewLayout(previewElement);
   if (previewElement.dataset.layoutOverflow === "true") {
     throw new Error("The document content does not fit within the saved template page layout.");
   }

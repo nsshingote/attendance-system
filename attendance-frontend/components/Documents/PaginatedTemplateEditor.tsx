@@ -39,6 +39,10 @@ export type DynamicTemplateFragment = { blockIndex: number; start: number; end: 
 export type DynamicTemplatePage = { fragments: DynamicTemplateFragment[]; manualBreakBefore?: number };
 
 export type DynamicPaginationGeometry = { pageWidth: number; horizontalPadding: number };
+// Preview and PDF always render at 794px with px-14 (112px total horizontal
+// padding). The editor must paginate with the same geometry so saved templates
+// match downloaded page counts on every device.
+export const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 112 };
 const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   const measure = document.createElement("div");
   const pageWidth = geometry?.pageWidth ?? Math.min(794, Math.max(240, window.innerWidth - 48));
@@ -215,7 +219,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     blocksRef.current = next;
   }, [value]);
   useLayoutEffect(() => { blocksRef.current = blocks; }, [blocks]);
-  const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks), [blocks]);
+  const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
     if (!caret || !editor.current) return;
@@ -566,20 +570,29 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
         const fragment = findFragment(range.startContainer);
         if (fragment) {
-          const beforeCaret = document.createRange();
-          beforeCaret.selectNodeContents(fragment);
-          beforeCaret.setEnd(range.startContainer, range.startOffset);
-          const position = beforeCaret.toString().length;
+          const offsetIn = (node: Node, offset: number) => {
+            const before = document.createRange();
+            before.selectNodeContents(fragment);
+            before.setEnd(node, offset);
+            const probe = document.createElement("div");
+            probe.appendChild(before.cloneContents());
+            return probe.innerText.length;
+          };
+          const fragmentStart = Number(fragment.dataset.fragmentStart ?? 0);
+          const absolutePosition = fragmentStart + offsetIn(range.startContainer, range.startOffset);
           const blockIndex = Number(fragment.dataset.blockIndex);
           const block = blocksRef.current[blockIndex];
           if (block !== undefined && !isDynamicPageBreak(block)) {
-            const before = sliceHtml(block, 0, position);
-            const after = sliceHtml(block, position, textLength(block));
-            pendingCaret.current = { blockIndex: blockIndex + 1, position: 0 };
+            const before = sliceHtml(block, 0, absolutePosition);
+            const after = sliceHtml(block, absolutePosition, textLength(block));
+            const emptyBlock = "<p><br></p>";
+            const caretBlockIndex = blockIndex + (before ? 1 : 0);
+            pendingCaret.current = { blockIndex: caretBlockIndex, position: 0 };
             applyBlocks([
               ...blocksRef.current.slice(0, blockIndex),
-              before,
-              after || "<p><br></p>",
+              ...(before ? [before] : []),
+              emptyBlock,
+              ...(after ? [after] : []),
               ...blocksRef.current.slice(blockIndex + 1),
             ]);
             return;
@@ -710,7 +723,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
-        <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-6 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md sm:px-14">
+        <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md">
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
