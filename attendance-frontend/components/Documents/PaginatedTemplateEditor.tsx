@@ -169,7 +169,9 @@ export const paginateDynamicTemplateBlocks = (blocks: string[], geometry?: Dynam
       const height = isCaretAfterTable ? 0 : blockHeight("", geometry);
       if (!isCaretAfterTable && used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
       const target = pages[pages.length - 1];
-      target.fragments.push({ blockIndex, start: 0, end: 0, text: "" });
+      // Keep an actual editable paragraph in the rendered fragment. Stripping
+      // an empty block to "" removes the caret host after React rerenders.
+      target.fragments.push({ blockIndex, start: 0, end: 0, text: block || CARET_PLACEHOLDER_HTML });
       used += gap + height;
       return;
     }
