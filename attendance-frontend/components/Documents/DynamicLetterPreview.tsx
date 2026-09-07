@@ -2,19 +2,15 @@
 
 import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
-import { A4_PAGINATION_GEOMETRY, paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks } from "./PaginatedTemplateEditor";
+import {
+  mergeSpuriousTrailingPages,
+  measurePageBodyOverflow,
+  nextAnimationFrames,
+  waitForElementImages,
+} from "@/lib/dynamicLetterLayout";
+import { A4_PAGINATION_GEOMETRY, paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks, type DynamicTemplatePage } from "./PaginatedTemplateEditor";
 
 type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; companyName?: string; companyAddress?: string; logoUrl?: string };
-// scrollHeight is more reliable than per-fragment getBoundingClientRect on iOS
-// Safari, where subpixel rounding can falsely flag clipped content as overflow.
-const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 8;
-
-const measurePageOverflow = (body: HTMLDivElement, pageIndex: number) => {
-  if (body.scrollHeight > body.clientHeight + PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX) {
-    return { pageIndex, fragmentIndex: -1 };
-  }
-  return null;
-};
 
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
@@ -78,7 +74,7 @@ const hasMeaningfulHtml = (html: string) => {
   if (container.querySelector("table, img, hr, svg, video, iframe")) return true;
   return Boolean(container.textContent?.replace(/\u200b/g, "").trim());
 };
-const trimTrailingEmptyPages = (pages: ReturnType<typeof paginateDynamicTemplateBlocks>) => {
+const trimTrailingEmptyPages = (pages: DynamicTemplatePage[]) => {
   const trimmed = [...pages];
   while (trimmed.length > 1) {
     const last = trimmed[trimmed.length - 1];
@@ -132,115 +128,160 @@ const mapResolvedBlocks = (templateBlocks: string[], resolvedBlocks: string[]) =
   return { blocks: mapped, valid };
 };
 
+const resolveTemplatePages = (templateContent: string, content: string) => {
+  const templateBlocks = splitDynamicTemplateBlocks(templateContent);
+  const templatePages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
+  const resolvedMapping = mapResolvedBlocks(templateBlocks, splitDynamicTemplateBlocks(content));
+  const resolvedPages = templatePages.map(page => ({
+    ...page,
+    fragments: page.fragments.map(fragment => ({
+      ...fragment,
+      text: resolvedFragment(
+        fragment.text,
+        templateBlocks[fragment.blockIndex] || "",
+        resolvedMapping.blocks[fragment.blockIndex] || "",
+        fragment.start,
+        fragment.end,
+      ),
+    })),
+  }));
+  return {
+    savedPages: resolvedPages,
+    exportPages: mergeSpuriousTrailingPages(resolvedPages),
+    mappingValid: resolvedMapping.valid,
+  };
+};
+
 const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content, templateContent }, ref) {
-  const blocks = useMemo(() => splitDynamicTemplateBlocks(content), [content]);
   const bodyRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const lastMeasurement = useRef<{ overflow: boolean; pageCount: number } | null>(null);
+  const stablePasses = useRef(0);
   const [overflow, setOverflow] = useState(false);
   const [layoutMeasured, setLayoutMeasured] = useState(false);
-  const { pages, mappingValid, paginationValid } = useMemo(() => {
-    if (!templateContent) return { pages: [], mappingValid: false, paginationValid: false };
-    const templateBlocks = splitDynamicTemplateBlocks(templateContent);
-    const templatePages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
-    const resolvedMapping = mapResolvedBlocks(templateBlocks, blocks);
-    return {
-      pages: templatePages.map(page => ({
-      ...page,
-      fragments: page.fragments.map(fragment => ({
-        ...fragment,
-        text: resolvedFragment(
-          fragment.text,
-          templateBlocks[fragment.blockIndex] || "",
-          resolvedMapping.blocks[fragment.blockIndex] || "",
-          fragment.start,
-          fragment.end,
-        ),
-      })),
-      })),
-      mappingValid: resolvedMapping.valid,
-      // The saved pages are rendered below and measured against their actual
-      // body boundaries. Re-paginating resolved content with the editor's
-      // estimate can disagree with browser layout, especially after fonts and
-      // images settle, so it is not an overflow authority.
-      paginationValid: true,
-    };
-  }, [blocks, templateContent]);
+  const [layoutStable, setLayoutStable] = useState(false);
+
+  const { savedPages, exportPages, mappingValid } = useMemo(() => {
+    if (!templateContent) return { savedPages: [] as DynamicTemplatePage[], exportPages: [] as DynamicTemplatePage[], mappingValid: false };
+    return resolveTemplatePages(templateContent, content);
+  }, [content, templateContent]);
 
   useLayoutEffect(() => {
+    bodyRefs.current = {};
     setLayoutMeasured(false);
+    setLayoutStable(false);
+    lastMeasurement.current = null;
+    stablePasses.current = 0;
+    let cancelled = false;
     let frame = 0;
+
     const measure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const overflowingFragment = pages.map((_, pageIndex) => {
-          const body = bodyRefs.current[pageIndex];
-          return body ? measurePageOverflow(body, pageIndex) : null;
-        }).find(Boolean);
-        const hasOverflow = Boolean(overflowingFragment);
-        setOverflow(current => current === hasOverflow ? current : hasOverflow);
-        setLayoutMeasured(true);
+        void (async () => {
+          await nextAnimationFrames(2);
+          if (cancelled || !rootRef.current) return;
+          await waitForElementImages(rootRef.current);
+          if (cancelled) return;
+          await nextAnimationFrames(1);
+          if (cancelled) return;
+
+          const overflowingPage = exportPages.map((_, pageIndex) => {
+            const body = bodyRefs.current[pageIndex];
+            return body ? measurePageBodyOverflow(body, pageIndex) : null;
+          }).find(Boolean);
+          const hasOverflow = Boolean(overflowingPage);
+          const snapshot = { overflow: hasOverflow, pageCount: exportPages.length };
+          const previous = lastMeasurement.current;
+          if (previous && previous.overflow === snapshot.overflow && previous.pageCount === snapshot.pageCount) {
+            stablePasses.current += 1;
+          } else {
+            stablePasses.current = 0;
+          }
+          lastMeasurement.current = snapshot;
+          setOverflow(current => current === hasOverflow ? current : hasOverflow);
+          setLayoutMeasured(true);
+          setLayoutStable(stablePasses.current >= 1);
+        })();
       });
     };
+
     measure();
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    Object.values(bodyRefs.current).forEach(body => body && resizeObserver?.observe(body));
+    const observedBodies = () => Object.values(bodyRefs.current).filter(Boolean) as HTMLDivElement[];
+    observedBodies().forEach(body => resizeObserver?.observe(body));
     window.addEventListener("resize", measure);
-    const imageLoadHandlers = Object.values(bodyRefs.current).flatMap(body =>
-      body ? Array.from(body.querySelectorAll<HTMLImageElement>("img")) : [],
-    );
-    imageLoadHandlers.forEach(image => {
-      image.addEventListener("load", measure);
-    });
-    const fontsReady = document.fonts?.ready.then(measure);
+    const fontsReady = document.fonts?.ready.then(() => { if (!cancelled) measure(); });
     return () => {
+      cancelled = true;
       cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
       window.removeEventListener("resize", measure);
-      imageLoadHandlers.forEach(image => image.removeEventListener("load", measure));
       void fontsReady;
     };
-  }, [pages]);
+  }, [exportPages]);
+
+  const setRootRef = (element: HTMLDivElement | null) => {
+    rootRef.current = element;
+    if (typeof ref === "function") ref(element);
+    else if (ref) ref.current = element;
+  };
 
   return (
-    <div ref={ref} data-template-page-count={pages.length} data-layout-measured={layoutMeasured ? "true" : "false"} data-layout-overflow={overflow || !mappingValid || !paginationValid ? "true" : "false"} className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto">
-    {(!mappingValid || !paginationValid || overflow) && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{mappingValid ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted." : "This document could not be mapped to the saved template layout. Download is disabled."}</p>}
-      {pages.map((page, pageIndex) => {
-        return (
-          <article data-template-page={pageIndex} key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">
-            {pageIndex === 0 && <header className="border-b-2 border-brand-600 pb-4">
+    <div
+      ref={setRootRef}
+      data-saved-template-page-count={savedPages.length}
+      data-template-page-count={exportPages.length}
+      data-layout-measured={layoutMeasured ? "true" : "false"}
+      data-layout-stable={layoutStable ? "true" : "false"}
+      data-layout-overflow={overflow || !mappingValid ? "true" : "false"}
+      className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto"
+    >
+      {(!mappingValid || overflow) && (
+        <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {mappingValid
+            ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted."
+            : "This document could not be mapped to the saved template layout. Download is disabled."}
+        </p>
+      )}
+      {exportPages.map((page, pageIndex) => (
+        <article data-template-page={pageIndex} key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">
+          {pageIndex === 0 && (
+            <header className="border-b-2 border-brand-600 pb-4">
               <div className="flex items-start justify-between gap-4">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   <img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" />
-                <div className="min-w-0">
+                  <div className="min-w-0">
                     <h2 className="text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</h2>
-                  <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p>
+                    <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p>
                   </div>
                 </div>
-              <div className="shrink-0">
+                <div className="shrink-0">
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.website}</p>
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.email}</p>
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.phone}</p>
                 </div>
               </div>
-            </header>}
-            {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
-            <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: pageIndex === 0 ? "780px" : "920px" }} className="shrink-0 overflow-hidden">
-              {page.fragments.map((fragment, fragmentIndex) => {
-                const isTable = /^<table\b/i.test(fragment.text.trim());
-                const previousFragment = page.fragments[fragmentIndex - 1]?.text.trim() ?? "";
-                const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
-                const adjacentToTable = isTable || /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
-                const hasFollowingContent = page.fragments.slice(fragmentIndex + 1).some(next => next.text.trim().length > 0);
-                const addParagraphSpacing = hasFollowingContent && !adjacentToTable;
-                return <div key={`${fragment.blockIndex}-${fragment.start}`} className={`${addParagraphSpacing ? "mb-3" : ""} whitespace-pre-wrap wrap-break-words`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
-              })}
-            </div>
-            <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
-              <p>{LETTER_BRANDING.address}</p>
-              <p className="mt-1 text-ink-400">Page {pageIndex + 1}</p>
-            </footer>
-          </article>
-        );
-      })}
+            </header>
+          )}
+          {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
+          <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: pageIndex === 0 ? "780px" : "920px" }} className="shrink-0 overflow-hidden">
+            {page.fragments.map((fragment, fragmentIndex) => {
+              const isTable = /^<table\b/i.test(fragment.text.trim());
+              const previousFragment = page.fragments[fragmentIndex - 1]?.text.trim() ?? "";
+              const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
+              const adjacentToTable = isTable || /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
+              const hasFollowingContent = page.fragments.slice(fragmentIndex + 1).some(next => next.text.trim().length > 0);
+              const addParagraphSpacing = hasFollowingContent && !adjacentToTable;
+              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} className={`${addParagraphSpacing ? "mb-3" : ""} whitespace-pre-wrap wrap-break-words`} dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
+            })}
+          </div>
+          <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
+            <p>{LETTER_BRANDING.address}</p>
+            <p className="mt-1 text-ink-400">Page {pageIndex + 1}</p>
+          </footer>
+        </article>
+      ))}
     </div>
   );
 });

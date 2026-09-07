@@ -1,16 +1,23 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { nextAnimationFrames, waitForElementImages } from "@/lib/dynamicLetterLayout";
 import { deliverPdf } from "@/lib/pdfDownload";
 
 type EmployeeNameParam = string | undefined;
 const PDF_PAGE_WIDTH_PX = 794;
 const PDF_PAGE_HEIGHT_PX = 1120;
+const LAYOUT_WAIT_ATTEMPTS = 60;
 
 const waitForPreviewLayout = async (previewElement: HTMLElement) => {
   if (document.fonts?.ready) await document.fonts.ready;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    if (previewElement.dataset.layoutMeasured === "true") return;
+  await waitForElementImages(previewElement);
+  for (let attempt = 0; attempt < LAYOUT_WAIT_ATTEMPTS; attempt += 1) {
+    await nextAnimationFrames(2);
+    if (previewElement.dataset.layoutStable === "true") return;
+    if (previewElement.dataset.layoutMeasured === "true" && attempt >= 20) return;
+  }
+  if (previewElement.dataset.layoutMeasured !== "true") {
+    throw new Error("The saved template page layout is unavailable. Download is disabled.");
   }
 };
 

@@ -13,6 +13,7 @@ import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
+import { HIDDEN_PDF_PREVIEW_CONTAINER_STYLE } from "@/lib/dynamicLetterLayout";
 import { shareIOSFile } from "@/lib/iosFileDownload";
 import { isIOSBrowser } from "@/lib/pdfDownload";
 import api, { getErrorMessage, getProfilePhotoUrl } from "@/lib/api";
@@ -910,7 +911,7 @@ export default function MyProfilePage() {
           </div>
         )}
         {pendingDynamicPdf && selectedDocument && dynamicValues?.resolved_content && (
-          <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0, width: "794px" }}>
+          <div aria-hidden="true" style={HIDDEN_PDF_PREVIEW_CONTAINER_STYLE}>
             <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />
           </div>
         )}
