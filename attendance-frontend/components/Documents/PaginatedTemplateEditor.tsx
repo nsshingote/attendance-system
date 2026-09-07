@@ -247,8 +247,14 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         br.setAttribute("aria-hidden", "true");
         paragraph.appendChild(br);
       }
+      // A range on the paragraph element immediately before <br> is not a
+      // stable typing position. Browsers can normalize it to a later editable
+      // node (the screenshot's word at the bottom of the letter). Anchor the
+      // restored caret in a real text node at the new paragraph's start.
+      const textNode = document.createTextNode("");
+      paragraph.insertBefore(textNode, paragraph.firstChild);
       const range = document.createRange();
-      range.setStart(paragraph, 0);
+      range.setStart(textNode, 0);
       range.collapse(true);
       const selection = window.getSelection();
       selection?.removeAllRanges();
@@ -415,6 +421,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const nextValue = `${sliceHtml(block, 0, active.fragmentStart)}${nextFragmentText}${sliceHtml(block, tailStart, textLength(block))}`;
     if (render && restoreCaret) pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)], render, notifyParent);
+    // Native typing keeps this DOM fragment mounted between input events. Its
+    // data-fragment-end came from the pre-input render, so keep the in-memory
+    // boundary in sync with the serialized fragment before the next key.
+    activeSelection.current = {
+      ...active,
+      fragmentEnd: active.fragmentStart + textLength(nextFragmentText),
+    };
   };
   const editingTable = (event?: { target: EventTarget | null; nativeEvent?: Event }) => {
     const elementFor = (node: EventTarget | Node | null) => node instanceof HTMLElement ? node : node instanceof Node ? node.parentElement : null;
@@ -535,6 +548,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       tableEditPending.current = true;
       return;
     }
+    // onInput fires after the browser moves the caret. Reading that live range
+    // is required before serializing; otherwise the first character typed
+    // after Enter is committed using Enter's old (zero-length) caret range.
+    updateActiveSelection();
     // Keep native typing in the live fragment. Serialization still happens,
     // but defer both React re-render and parent onChange so dangerouslySetInnerHTML
     // does not reset the active fragment mid-keystroke.
