@@ -9,15 +9,19 @@ type DynamicLetterPreviewProps = { title: string; content: string; templateConte
 // must measure the same 682px content width rather than a wider mobile-dependent
 // approximation.
 const A4_PAGINATION_GEOMETRY: DynamicPaginationGeometry = { pageWidth: 794, horizontalPadding: 112 };
-// Browser subpixel rounding and mobile font metrics can create a 1px boundary
-// discrepancy at fixed-height page bodies even when the content still fits.
+// Allow only normal CSS subpixel rounding; layout is remeasured after fonts and
+// images settle so device-specific fallback metrics do not need a large buffer.
 const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 2;
 
 const hasPageLayoutOverflow = (body: HTMLDivElement) => {
   const rect = body.getBoundingClientRect();
   const boundary = rect.top + body.clientHeight;
-  const elements = Array.from(body.querySelectorAll<HTMLElement>("*"));
-  const contentBottom = elements.reduce((bottom, element) => Math.max(bottom, element.getBoundingClientRect().bottom), rect.top);
+  const contentBottom = Array.from(body.children).reduce((bottom, element) => {
+    const elementRect = element.getBoundingClientRect();
+    return elementRect.width > 0 && elementRect.height > 0
+      ? Math.max(bottom, elementRect.bottom)
+      : bottom;
+  }, rect.top);
   return contentBottom - boundary > PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX;
 };
 
@@ -77,6 +81,22 @@ const resolvedFragment = (sourceFragment: string, sourceBlock: string, resolvedB
 
 const isTableBlock = (block: string) => /^<table\b/i.test(block.trim());
 const isBreakBlock = (block: string) => /^(\[\[dynamic:page-break\]\])$/i.test(block.trim());
+const hasMeaningfulHtml = (html: string) => {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  if (container.querySelector("table, img, hr, svg, video, iframe")) return true;
+  return Boolean(container.textContent?.replace(/\u200b/g, "").trim());
+};
+const trimTrailingEmptyPages = (pages: ReturnType<typeof paginateDynamicTemplateBlocks>) => {
+  const trimmed = [...pages];
+  while (trimmed.length > 1) {
+    const last = trimmed[trimmed.length - 1];
+    const hasContent = last.fragments.some(fragment => hasMeaningfulHtml(fragment.text));
+    if (hasContent || last.manualBreakBefore !== undefined) break;
+    trimmed.pop();
+  }
+  return trimmed;
+};
 const sameTableStructure = (sourceBlock: string, resolvedBlock: string) => {
   const source = document.createElement("div");
   source.innerHTML = sourceBlock;
@@ -125,11 +145,12 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   const blocks = useMemo(() => splitDynamicTemplateBlocks(content), [content]);
   const bodyRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [overflow, setOverflow] = useState(false);
-  const { pages, mappingValid } = useMemo(() => {
-    if (!templateContent) return { pages: [], mappingValid: false };
+  const { pages, mappingValid, paginationValid } = useMemo(() => {
+    if (!templateContent) return { pages: [], mappingValid: false, paginationValid: false };
     const templateBlocks = splitDynamicTemplateBlocks(templateContent);
-    const templatePages = paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY);
+    const templatePages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
     const resolvedMapping = mapResolvedBlocks(templateBlocks, blocks);
+    const resolvedPages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(resolvedMapping.blocks, A4_PAGINATION_GEOMETRY));
     return {
       pages: templatePages.map(page => ({
       ...page,
@@ -145,6 +166,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
       })),
       })),
       mappingValid: resolvedMapping.valid,
+      paginationValid: resolvedPages.length <= templatePages.length,
     };
   }, [blocks, templateContent]);
 
@@ -181,8 +203,8 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   }, [pages]);
 
   return (
-    <div ref={ref} data-layout-overflow={overflow || !mappingValid ? "true" : "false"} className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto">
-      {(!mappingValid || overflow) && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{mappingValid ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted." : "This document could not be mapped to the saved template layout. Download is disabled."}</p>}
+    <div ref={ref} data-template-page-count={pages.length} data-layout-overflow={overflow || !mappingValid || !paginationValid ? "true" : "false"} className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto">
+    {(!mappingValid || !paginationValid || overflow) && <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{mappingValid ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted." : "This document could not be mapped to the saved template layout. Download is disabled."}</p>}
       {pages.map((page, pageIndex) => {
         return (
           <article data-template-page={pageIndex} key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">

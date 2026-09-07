@@ -542,14 +542,20 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           beforeCaret.selectNodeContents(fragment);
           beforeCaret.setEnd(range.startContainer, range.startOffset);
           const position = beforeCaret.toString().length;
-          activeSelection.current = {
-            ...activeSelection.current,
-            start: position,
-            end: position,
-            fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
-            fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
-            blockIndex: Number(fragment.dataset.blockIndex),
-          };
+          const blockIndex = Number(fragment.dataset.blockIndex);
+          const block = blocksRef.current[blockIndex];
+          if (block !== undefined && !isDynamicPageBreak(block)) {
+            const before = sliceHtml(block, 0, position);
+            const after = sliceHtml(block, position, textLength(block));
+            pendingCaret.current = { blockIndex: blockIndex + 1, position: 0 };
+            applyBlocks([
+              ...blocksRef.current.slice(0, blockIndex),
+              before,
+              after || "<p><br></p>",
+              ...blocksRef.current.slice(blockIndex + 1),
+            ]);
+            return;
+          }
         }
       }
       replaceActiveSelection("\n");

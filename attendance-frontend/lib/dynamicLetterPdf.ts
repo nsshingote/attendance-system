@@ -67,6 +67,10 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
     throw new Error("The document content does not fit within the saved template page layout.");
   }
   const pages = Array.from(previewElement.querySelectorAll<HTMLElement>("article[data-template-page]"));
+  const expectedPageCount = Number(previewElement.dataset.templatePageCount);
+  if (!Number.isInteger(expectedPageCount) || expectedPageCount < 1 || pages.length !== expectedPageCount) {
+    throw new Error("The saved template page layout is unavailable. Download is disabled.");
+  }
   if (pages.length) {
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       for (const [index, page] of pages.entries()) {
