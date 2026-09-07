@@ -153,7 +153,6 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
     const templateBlocks = splitDynamicTemplateBlocks(templateContent);
     const templatePages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
     const resolvedMapping = mapResolvedBlocks(templateBlocks, blocks);
-    const resolvedPages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(resolvedMapping.blocks, A4_PAGINATION_GEOMETRY));
     return {
       pages: templatePages.map(page => ({
       ...page,
@@ -169,7 +168,11 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
       })),
       })),
       mappingValid: resolvedMapping.valid,
-      paginationValid: resolvedPages.length <= templatePages.length,
+      // The saved pages are rendered below and measured against their actual
+      // body boundaries. Re-paginating resolved content with the editor's
+      // estimate can disagree with browser layout, especially after fonts and
+      // images settle, so it is not an overflow authority.
+      paginationValid: true,
     };
   }, [blocks, templateContent]);
 

@@ -227,9 +227,28 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     let node = walker.nextNode();
     if (!node) {
       const paragraph = fragment.querySelector("p") ?? fragment;
-      paragraph.querySelector("br[data-template-caret-placeholder]")?.remove();
-      node = document.createTextNode("");
-      paragraph.appendChild(node);
+      const placeholder = paragraph.querySelector("br[data-template-caret-placeholder]");
+      if (!placeholder) {
+        const br = document.createElement("br");
+        br.dataset.templateCaretPlaceholder = "true";
+        br.setAttribute("aria-hidden", "true");
+        paragraph.appendChild(br);
+      }
+      const range = document.createRange();
+      range.setStart(paragraph, 0);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      activeSelection.current = {
+        blockIndex: caret.blockIndex,
+        start: caret.position,
+        end: caret.position,
+        fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+        fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+      };
+      pendingCaret.current = null;
+      return;
     }
     let remaining = localPosition;
     while (node) {
