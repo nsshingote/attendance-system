@@ -48,8 +48,25 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   measure.innerHTML = text || " "; document.body.appendChild(measure);
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
 };
-const CARET_PLACEHOLDER_HTML = '<br data-template-caret-placeholder="true" aria-hidden="true">';
-const stripCaretPlaceholder = (html: string) => html.replace(/<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>/gi, "");
+const CARET_PLACEHOLDER_HTML = '<p><br data-template-caret-placeholder="true" aria-hidden="true"></p>';
+const stripCaretPlaceholder = (html: string) => html
+  .replace(/<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>/gi, "")
+  .replace(/<p>\s*<\/p>/gi, "")
+  .replace(/<p><br><\/p>/gi, "");
+const splitTableBlockHtml = (html: string) => {
+  const trimmed = html.trim();
+  if (!/^<table\b/i.test(trimmed)) return null;
+  const match = html.match(/^(\s*<table\b[\s\S]*?<\/table>)([\s\S]*)$/i);
+  if (!match) return null;
+  return { table: match[1], trailing: stripCaretPlaceholder(match[2]) };
+};
+const canonicalizeHtml = (html: string) => {
+  const source = document.createElement("div");
+  source.innerHTML = html;
+  return source.innerHTML;
+};
+const sameBlocks = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((block, index) => canonicalizeHtml(block) === canonicalizeHtml(right[index]));
 const textLength = (html: string) => {
   const element = document.createElement("div");
   element.innerHTML = html;
@@ -131,14 +148,13 @@ export const paginateDynamicTemplateBlocks = (blocks: string[], geometry?: Dynam
       while (rowStart < rowCount) {
         const page = pages[pages.length - 1];
         const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
-        const gap = page.fragments.length ? 12 : 0;
-        const remaining = limit - used - gap;
+        const remaining = limit - used;
         const tableFragment = tableFragmentForPage(block, rowStart, Math.max(23, remaining), geometry);
         rowCount = tableFragment.rowCount;
         const height = blockHeight(tableFragment.html, geometry);
         if (page.fragments.length && height > remaining) { pages.push({ fragments: [] }); used = 0; continue; }
         page.fragments.push({ blockIndex, start: 0, end: textLength(block), text: tableFragment.html });
-        used += gap + height;
+        used += height;
         rowStart = tableFragment.end;
         if (rowStart < rowCount) { pages.push({ fragments: [] }); used = 0; }
       }
@@ -192,8 +208,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // onInput serializes the live DOM before notifying the parent. Ignore that
     // matching controlled-value echo so React does not replace the active
     // contentEditable fragment between keystrokes.
-    if (JSON.stringify(blocksRef.current) === JSON.stringify(next)) return;
-    setBlocks(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+    if (sameBlocks(blocksRef.current, next)) return;
+    setBlocks(current => sameBlocks(current, next) ? current : next);
     blocksRef.current = next;
   }, [value]);
   useLayoutEffect(() => { blocksRef.current = blocks; }, [blocks]);
@@ -210,8 +226,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
     if (!node) {
+      const paragraph = fragment.querySelector("p") ?? fragment;
+      paragraph.querySelector("br[data-template-caret-placeholder]")?.remove();
       node = document.createTextNode("");
-      fragment.appendChild(node);
+      paragraph.appendChild(node);
     }
     let remaining = localPosition;
     while (node) {
@@ -243,16 +261,16 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
     activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset), fragmentStart, fragmentEnd: Number(startElement.dataset.fragmentEnd) };
   };
-  const applyBlocks = (next: string[], render = true) => {
+  const applyBlocks = (next: string[], render = true, notifyParent = render) => {
     const normalized = next.length ? next : [""];
     const current = blocksRef.current;
-    if (JSON.stringify(current) === JSON.stringify(normalized)) return;
+    if (sameBlocks(current, normalized)) return;
     historyRef.current.past.push(current);
     if (historyRef.current.past.length > 100) historyRef.current.past.shift();
     historyRef.current.future = [];
     blocksRef.current = normalized;
     if (render) setBlocks(normalized);
-    onChange(joinDynamicTemplateBlocks(normalized));
+    if (notifyParent) onChange(joinDynamicTemplateBlocks(normalized));
   };
   const undoBlocks = () => {
     const previous = historyRef.current.past.pop();
@@ -316,20 +334,38 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     replaceActiveSelection(replacement);
   };
   useImperativeHandle(ref, () => ({ insertPlaceholder, insertPageBreak }));
-  const commitDocument = (restoreCaret = true, render = true) => {
+  const commitDocument = (restoreCaret = true, render = true, notifyParent = render) => {
     if (!editor.current) return;
     const active = activeSelection.current;
     const fragment = editor.current.querySelector<HTMLElement>(`[data-block-index="${active.blockIndex}"][data-fragment-start="${active.fragmentStart}"]`);
     const block = blocksRef.current[active.blockIndex];
     if (!fragment || block === undefined) return;
-    const nextFragmentText = stripCaretPlaceholder(fragment.innerHTML);
+    let nextFragmentText = stripCaretPlaceholder(fragment.innerHTML);
+    const tableSplit = splitTableBlockHtml(nextFragmentText);
+    if (tableSplit?.trailing) {
+      const nextBlockIndex = active.blockIndex + 1;
+      const nextBlock = blocksRef.current[nextBlockIndex] ?? "";
+      const trailingWrapped = /^<(p|div|h[1-6]|ul|ol|blockquote)\b/i.test(tableSplit.trailing.trim())
+        ? tableSplit.trailing
+        : `<p>${tableSplit.trailing}</p>`;
+      const mergedNext = `${trailingWrapped}${nextBlock}`;
+      if (render && restoreCaret) pendingCaret.current = { blockIndex: nextBlockIndex, position: textLength(trailingWrapped) };
+      applyBlocks([
+        ...blocksRef.current.slice(0, active.blockIndex),
+        tableSplit.table,
+        ...splitDynamicTemplateBlocks(mergedNext),
+        ...blocksRef.current.slice(nextBlockIndex + 1),
+      ], render, notifyParent);
+      return;
+    }
+    if (tableSplit) nextFragmentText = tableSplit.table;
     const previousFragmentLength = active.fragmentEnd - active.fragmentStart;
     const selectedLength = active.end - active.start;
     const insertedLength = textLength(nextFragmentText) - (previousFragmentLength - selectedLength);
     const tailStart = renderedFragmentTailStart(active, block);
     const nextValue = `${sliceHtml(block, 0, active.fragmentStart)}${nextFragmentText}${sliceHtml(block, tailStart, textLength(block))}`;
     if (render && restoreCaret) pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
-    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)], render);
+    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)], render, notifyParent);
   };
   const editingTable = (event?: { target: EventTarget | null; nativeEvent?: Event }) => {
     const elementFor = (node: EventTarget | Node | null) => node instanceof HTMLElement ? node : node instanceof Node ? node.parentElement : null;
@@ -370,57 +406,90 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     applyBlocks([...currentBlocks.slice(0, blockIndex), source.innerHTML, ...currentBlocks.slice(blockIndex + 1)]);
   };
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    const table = (event.target as HTMLElement).closest<HTMLTableElement>("table");
-    if (!table) return;
-    const bounds = table.getBoundingClientRect();
-    const nearResizeHandle = event.clientX >= bounds.right - 18 && event.clientY >= bounds.bottom - 18;
-    if (!nearResizeHandle) {
-      resizingTable.current = null;
-      resizeStart.current = null;
+    const target = event.target as HTMLElement;
+    const table = target.closest<HTMLTableElement>("table");
+    if (table) {
+      const bounds = table.getBoundingClientRect();
+      const nearResizeHandle = event.clientX >= bounds.right - 18 && event.clientY >= bounds.bottom - 18;
+      if (!nearResizeHandle) {
+        resizingTable.current = null;
+        resizeStart.current = null;
+        return;
+      }
+      event.preventDefault();
+      resizingTable.current = table;
+      resizeStart.current = { table, x: event.clientX, y: event.clientY, width: bounds.width, height: bounds.height };
+      const move = (moveEvent: PointerEvent) => {
+        const start = resizeStart.current;
+        if (!start) return;
+        moveEvent.preventDefault();
+        start.table.style.width = `${Math.max(240, Math.round(start.width + moveEvent.clientX - start.x))}px`;
+        start.table.style.height = `${Math.max(40, Math.round(start.height + moveEvent.clientY - start.y))}px`;
+      };
+      const up = () => {
+        resizeCleanup.current?.();
+        const resizedTable = resizingTable.current;
+        resizingTable.current = null;
+        resizeStart.current = null;
+        if (!resizedTable) return;
+        const resizedBounds = resizedTable.getBoundingClientRect();
+        resizedTable.style.width = `${Math.round(resizedBounds.width)}px`;
+        resizedTable.style.height = `${Math.round(resizedBounds.height)}px`;
+        persistTable(resizedTable);
+      };
+      const cleanup = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        if (resizeCleanup.current === cleanup) resizeCleanup.current = null;
+      };
+      resizeCleanup.current?.();
+      resizeCleanup.current = cleanup;
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
       return;
     }
-    event.preventDefault();
-    resizingTable.current = table;
-    resizeStart.current = { table, x: event.clientX, y: event.clientY, width: bounds.width, height: bounds.height };
-    const move = (moveEvent: PointerEvent) => {
-      const start = resizeStart.current;
-      if (!start) return;
-      moveEvent.preventDefault();
-      start.table.style.width = `${Math.max(240, Math.round(start.width + moveEvent.clientX - start.x))}px`;
-      start.table.style.height = `${Math.max(40, Math.round(start.height + moveEvent.clientY - start.y))}px`;
-    };
-    const up = () => {
-      resizeCleanup.current?.();
-      const resizedTable = resizingTable.current;
-      resizingTable.current = null;
-      resizeStart.current = null;
-      if (!resizedTable) return;
-      const resizedBounds = resizedTable.getBoundingClientRect();
-      resizedTable.style.width = `${Math.round(resizedBounds.width)}px`;
-      resizedTable.style.height = `${Math.round(resizedBounds.height)}px`;
-      persistTable(resizedTable);
-    };
-    const cleanup = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      if (resizeCleanup.current === cleanup) resizeCleanup.current = null;
-    };
-    resizeCleanup.current?.();
-    resizeCleanup.current = cleanup;
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    const tableFragment = target.closest<HTMLElement>("[data-template-fragment][contenteditable='false']");
+    if (tableFragment && !target.closest("table") && editor.current) {
+      const blockIndex = Number(tableFragment.dataset.blockIndex);
+      const nextFragment = Number.isInteger(blockIndex)
+        ? editor.current.querySelector<HTMLElement>(`[data-block-index="${blockIndex + 1}"]`)
+        : null;
+      if (nextFragment) {
+        event.preventDefault();
+        const paragraph = nextFragment.querySelector("p") ?? nextFragment;
+        paragraph.querySelector("br[data-template-caret-placeholder]")?.remove();
+        let textNode = Array.from(paragraph.childNodes).find(node => node.nodeType === Node.TEXT_NODE) ?? null;
+        if (!textNode) {
+          textNode = document.createTextNode("");
+          paragraph.appendChild(textNode);
+        }
+        const range = document.createRange();
+        range.setStart(textNode, 0);
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        activeSelection.current = {
+          blockIndex: blockIndex + 1,
+          start: 0,
+          end: 0,
+          fragmentStart: Number(nextFragment.dataset.fragmentStart ?? 0),
+          fragmentEnd: Number(nextFragment.dataset.fragmentEnd ?? 0),
+        };
+      }
+    }
   };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
     if (isTableEdit(event)) {
       tableEditPending.current = true;
       return;
     }
-    // Keep native typing in the live fragment. Serialization and parent
-    // synchronization still happen, but React must not replace that fragment
-    // while the browser is advancing its caret.
-    commitDocument(false, false);
+    // Keep native typing in the live fragment. Serialization still happens,
+    // but defer both React re-render and parent onChange so dangerouslySetInnerHTML
+    // does not reset the active fragment mid-keystroke.
+    commitDocument(false, false, false);
   };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     const table = editingTable(event);
@@ -429,11 +498,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (tableEditPending.current) {
       tableEditPending.current = false;
       if (table) persistTable(table);
-      else commitDocument(false);
+      else commitDocument(false, false, true);
+      setBlocks(blocksRef.current);
       return;
     }
-    // Normal text was serialized without a React render so the native caret
-    // stayed alive. Re-render once editing ends to refresh pagination.
+    commitDocument(false, false, true);
     setBlocks(blocksRef.current);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -527,7 +596,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .fill(null)
       .map(() => tr)
       .join("");
-    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;resize:both;overflow:auto;min-width:240px;">${tbody}</table>`;
+    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;resize:both;overflow:auto;min-width:240px;margin:0;">${tbody}</table>`;
 
     const block = blocksRef.current[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
@@ -538,7 +607,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       ...blocksRef.current.slice(0, active.blockIndex),
       ...(before ? [before] : []),
       table,
-      ...(after ? [after] : [""]),
+      ...(after ? [after] : ["<p><br></p>"]),
       ...blocksRef.current.slice(active.blockIndex + 1),
     ];
     // Always keep one real editable paragraph after a table. Without this
@@ -598,7 +667,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
               const adjacentToTable = /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
               const addParagraphSpacing = hasFollowingContent && !isTable && !tableCaretBlock && !adjacentToTable;
-              return <div key={`${fragment.blockIndex}:${fragment.start}:${fragment.text.match(/data-table-row-start=\"(\d+)\"/)?.[1] ?? ""}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={`w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${addParagraphSpacing ? "mb-3" : ""}`} dangerouslySetInnerHTML={{ __html: fragment.text || (tableCaretBlock ? CARET_PLACEHOLDER_HTML : "") }} />;
+              const fragmentHtml = fragment.text || (tableCaretBlock ? CARET_PLACEHOLDER_HTML : "");
+              const fragmentClass = `w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:my-0 [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${addParagraphSpacing ? "mb-3" : ""} ${tableCaretBlock ? "min-h-[1.625em]" : ""}`;
+              if (isTable) {
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragmentHtml }} />;
+              }
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragmentHtml }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
