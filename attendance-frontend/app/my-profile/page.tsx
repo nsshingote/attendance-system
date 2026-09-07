@@ -454,7 +454,7 @@ export default function MyProfilePage() {
       ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
       : null;
   const dynamicValues = selectedDocument && !appointmentValues && !offerValues
-    ? (JSON.parse(selectedDocument.content) as { resolved_content?: string; template_content?: string })
+    ? (JSON.parse(selectedDocument.content) as { resolved_content?: string; template_content?: string; template_layout?: unknown; layout_validated?: boolean })
     : null;
 
   useEffect(() => {
@@ -906,13 +906,13 @@ export default function MyProfilePage() {
               </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />}
             </div>
           </div>
         )}
         {pendingDynamicPdf && selectedDocument && dynamicValues?.resolved_content && (
           <div aria-hidden="true" style={HIDDEN_PDF_PREVIEW_CONTAINER_STYLE}>
-            <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />
+            <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />
           </div>
         )}
         {selectedSlip && (

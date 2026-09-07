@@ -100,6 +100,21 @@ export async function downloadDynamicLetterPdf(title: string, content: string, e
           onclone: clonedDocument => {
             const clonedPages = clonedDocument.querySelectorAll<HTMLElement>("article");
             clonedPages.forEach(clonedPage => {
+              // Pending downloads render the preview in an in-viewport,
+              // visibility:hidden container. html2canvas copies that ancestor
+              // state and therefore paints a white canvas unless the capture
+              // page itself is made paintable in the cloned document.
+              clonedPage.style.visibility = "visible";
+              clonedPage.style.opacity = "1";
+              // Opacity is composited by each ancestor, rather than inherited,
+              // so restoring it on the page alone cannot undo the hidden
+              // download container.
+              let ancestor = clonedPage.parentElement;
+              while (ancestor && ancestor !== clonedDocument.body) {
+                ancestor.style.visibility = "visible";
+                ancestor.style.opacity = "1";
+                ancestor = ancestor.parentElement;
+              }
               clonedPage.style.width = `${PDF_PAGE_WIDTH_PX}px`;
               clonedPage.style.minWidth = `${PDF_PAGE_WIDTH_PX}px`;
               clonedPage.style.maxWidth = `${PDF_PAGE_WIDTH_PX}px`;

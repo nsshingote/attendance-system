@@ -43,10 +43,13 @@ const measureRoot = () => {
     "pointer-events:none",
     "box-sizing:border-box",
     `width:${A4_CONTENT_WIDTH_PX}px`,
+    // globals.css applies max-width:100% to *, which otherwise constrains
+    // this fixed-A4 probe to an Android phone viewport.
+    "max-width:none",
     "border:0",
     "padding:0",
     "margin:0",
-    "font:14px/1.625 ui-serif,Georgia,Cambria,\"Times New Roman\",Times,serif",
+    "font:14px/1.625 Georgia,\"Times New Roman\",Times,serif",
     "white-space:pre-wrap",
     "overflow-wrap:anywhere",
     "word-break:break-word",

@@ -288,6 +288,10 @@ class DynamicLetterCreate(BaseModel):
     employee_id: int
     send: bool = False
     placeholder_values: Optional[dict[str, str]] = None
+    # Calculated from the admin's fixed-A4 template and stored with each
+    # generated letter so recipient devices cannot choose new page boundaries.
+    template_layout: Optional[List[dict]] = None
+    layout_validated: bool = False
 
 
 # =========================================================

@@ -10,7 +10,7 @@ import {
 } from "@/lib/dynamicLetterLayout";
 import { A4_PAGINATION_GEOMETRY, paginateDynamicTemplateBlocks, splitDynamicTemplateBlocks, type DynamicTemplatePage } from "./PaginatedTemplateEditor";
 
-type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; companyName?: string; companyAddress?: string; logoUrl?: string };
+type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; templateLayout?: unknown; layoutValidated?: boolean; companyName?: string; companyAddress?: string; logoUrl?: string };
 
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
@@ -128,9 +128,21 @@ const mapResolvedBlocks = (templateBlocks: string[], resolvedBlocks: string[]) =
   return { blocks: mapped, valid };
 };
 
-const resolveTemplatePages = (templateContent: string, content: string) => {
+const isSavedTemplateLayout = (layout: unknown): layout is DynamicTemplatePage[] => Array.isArray(layout)
+  && layout.length > 0
+  && layout.every(page => typeof page === "object" && page !== null && Array.isArray((page as DynamicTemplatePage).fragments)
+    && (page as DynamicTemplatePage).fragments.every(fragment => Number.isInteger(fragment.blockIndex)
+      && Number.isInteger(fragment.start) && Number.isInteger(fragment.end) && typeof fragment.text === "string"));
+
+const resolveTemplatePages = (templateContent: string, content: string, savedLayout?: unknown) => {
   const templateBlocks = splitDynamicTemplateBlocks(templateContent);
-  const templatePages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
+  const hasSavedLayout = isSavedTemplateLayout(savedLayout);
+  // A generated document owns its page boundaries. Do not re-paginate it on a
+  // recipient device, whose font metrics can otherwise turn one saved page
+  // into two. Legacy documents without this snapshot retain the fallback.
+  const templatePages = hasSavedLayout
+    ? savedLayout.map(page => ({ ...page, fragments: page.fragments.map(fragment => ({ ...fragment })) }))
+    : trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
   const resolvedMapping = mapResolvedBlocks(templateBlocks, splitDynamicTemplateBlocks(content));
   const resolvedPages = templatePages.map(page => ({
     ...page,
@@ -147,12 +159,12 @@ const resolveTemplatePages = (templateContent: string, content: string) => {
   }));
   return {
     savedPages: resolvedPages,
-    exportPages: mergeSpuriousTrailingPages(resolvedPages),
+    exportPages: hasSavedLayout ? resolvedPages : mergeSpuriousTrailingPages(resolvedPages),
     mappingValid: resolvedMapping.valid,
   };
 };
 
-const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content, templateContent }, ref) {
+const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content, templateContent, templateLayout, layoutValidated = false }, ref) {
   const bodyRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
   const lastMeasurement = useRef<{ overflow: boolean; pageCount: number } | null>(null);
@@ -163,8 +175,8 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
 
   const { savedPages, exportPages, mappingValid } = useMemo(() => {
     if (!templateContent) return { savedPages: [] as DynamicTemplatePage[], exportPages: [] as DynamicTemplatePage[], mappingValid: false };
-    return resolveTemplatePages(templateContent, content);
-  }, [content, templateContent]);
+    return resolveTemplatePages(templateContent, content, templateLayout);
+  }, [content, templateContent, templateLayout]);
 
   useLayoutEffect(() => {
     bodyRefs.current = {};
@@ -234,10 +246,13 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
       data-template-page-count={exportPages.length}
       data-layout-measured={layoutMeasured ? "true" : "false"}
       data-layout-stable={layoutStable ? "true" : "false"}
-      data-layout-overflow={overflow || !mappingValid ? "true" : "false"}
+      // A sent letter was measured before generation. Rechecking the same
+      // immutable page snapshot on iOS can only introduce font-engine noise;
+      // validation remains mandatory before that snapshot is created.
+      data-layout-overflow={!layoutValidated && (overflow || !mappingValid) ? "true" : "false"}
       className="mx-auto flex w-full max-w-full flex-col gap-6 overflow-x-auto"
     >
-      {(!mappingValid || overflow) && (
+      {(!layoutValidated && (!mappingValid || overflow)) && (
         <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
           {mappingValid
             ? "This document content does not fit within the saved template page layout. Download is disabled until the content is adjusted."
@@ -245,7 +260,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
         </p>
       )}
       {exportPages.map((page, pageIndex) => (
-        <article data-template-page={pageIndex} key={pageIndex} style={{ width: "794px", height: "1120px" }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-sm">
+        <article data-template-page={pageIndex} key={pageIndex} style={{ width: "794px", minWidth: "794px", maxWidth: "none", height: "1120px", fontFamily: 'Georgia, "Times New Roman", Times, serif' }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 text-sm leading-relaxed text-slate-900 shadow-sm">
           {pageIndex === 0 && (
             <header className="border-b-2 border-brand-600 pb-4">
               <div className="flex items-start justify-between gap-4">

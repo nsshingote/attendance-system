@@ -48,7 +48,11 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   const pageWidth = geometry?.pageWidth ?? Math.min(794, Math.max(240, window.innerWidth - 48));
   const horizontalPadding = geometry?.horizontalPadding ?? (window.innerWidth >= 640 ? 96 : 64);
   const contentWidth = Math.max(176, pageWidth - horizontalPadding);
-  measure.style.cssText = `position:absolute;visibility:hidden;box-sizing:border-box;width:${contentWidth}px;border:0;padding:0;font:14px/1.625 ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;white-space:pre-wrap;overflow-wrap:anywhere;`;
+  // The application-wide mobile guard sets `max-width: 100%` on every
+  // element.  Explicitly opt this A4 measurement node out: otherwise Android
+  // measures at the phone viewport width even when the requested geometry is
+  // 794px and invents an extra page.
+  measure.style.cssText = `position:absolute;visibility:hidden;box-sizing:border-box;width:${contentWidth}px;max-width:none;border:0;padding:0;font:14px/1.625 Georgia, "Times New Roman", Times, serif;white-space:pre-wrap;overflow-wrap:anywhere;`;
   measure.innerHTML = text || " "; document.body.appendChild(measure);
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
 };
@@ -74,7 +78,10 @@ const sameBlocks = (left: string[], right: string[]) =>
 const textLength = (html: string) => {
   const element = document.createElement("div");
   element.innerHTML = html;
-  return element.innerText.length;
+  // All fragment offsets are consumed by sliceHtml, which walks text nodes.
+  // innerText adds layout-dependent line breaks for block elements and <br>,
+  // making Enter/Backspace target a different character than sliceHtml.
+  return element.textContent?.length ?? 0;
 };
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
@@ -285,13 +292,24 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const range = selection.getRangeAt(0);
     const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
     const startElement = findFragment(range.startContainer); const endElement = findFragment(range.endContainer);
-    if (!startElement || startElement !== endElement) return;
+    if (!startElement || !endElement || startElement.dataset.blockIndex !== endElement.dataset.blockIndex) return;
     const findTableCell = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("td, th");
     const startCell = findTableCell(range.startContainer); const endCell = findTableCell(range.endContainer);
     tableSelection.current = startCell && startCell === endCell ? range.cloneRange() : null;
-    const offsetIn = (node: Node, offset: number) => { const before = document.createRange(); before.selectNodeContents(startElement); before.setEnd(node, offset); return before.toString().length; };
+    const offsetIn = (element: HTMLElement, node: Node, offset: number) => {
+      const before = document.createRange();
+      before.selectNodeContents(element);
+      before.setEnd(node, offset);
+      return before.toString().length;
+    };
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
-    activeSelection.current = { blockIndex, start: fragmentStart + offsetIn(range.startContainer, range.startOffset), end: fragmentStart + offsetIn(range.endContainer, range.endOffset), fragmentStart, fragmentEnd: Number(startElement.dataset.fragmentEnd) };
+    activeSelection.current = {
+      blockIndex,
+      start: fragmentStart + offsetIn(startElement, range.startContainer, range.startOffset),
+      end: Number(endElement.dataset.fragmentStart) + offsetIn(endElement, range.endContainer, range.endOffset),
+      fragmentStart,
+      fragmentEnd: Number(startElement.dataset.fragmentEnd),
+    };
   };
   const applyBlocks = (next: string[], render = true, notifyParent = render) => {
     const normalized = next.length ? next : [""];
@@ -347,8 +365,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       return;
     }
     const active = activeSelection.current; const block = blocksRef.current[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
-    const selectionEnd = Math.min(active.end, renderedFragmentTailStart(active, block));
-    const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, selectionEnd, textLength(block))}`;
+    const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, active.end, textLength(block))}`;
     pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + replacement.length };
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)]);
   };
@@ -576,7 +593,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
             before.setEnd(node, offset);
             const probe = document.createElement("div");
             probe.appendChild(before.cloneContents());
-            return probe.innerText.length;
+            return probe.textContent?.length ?? 0;
           };
           const fragmentStart = Number(fragment.dataset.fragmentStart ?? 0);
           const absolutePosition = fragmentStart + offsetIn(range.startContainer, range.startOffset);
@@ -599,7 +616,22 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           }
         }
       }
-      replaceActiveSelection("\n");
+      // A raw newline is split into separate source blocks by
+      // splitDynamicTemplateBlocks, while replaceActiveSelection restores the
+      // caret in the old block.  Build the paragraph boundary explicitly so a
+      // selected range follows the same caret flow as a collapsed Enter.
+      const before = sliceHtml(block, 0, active.start);
+      const after = sliceHtml(block, active.end, textLength(block));
+      const emptyBlock = "<p><br></p>";
+      const caretBlockIndex = active.blockIndex + (before ? 1 : 0);
+      pendingCaret.current = { blockIndex: caretBlockIndex, position: 0 };
+      applyBlocks([
+        ...blocksRef.current.slice(0, active.blockIndex),
+        ...(before ? [before] : []),
+        emptyBlock,
+        ...(after ? [after] : []),
+        ...blocksRef.current.slice(active.blockIndex + 1),
+      ]);
       return;
     }
     if (active.start !== active.end) { replaceActiveSelection(""); return; }
@@ -723,7 +755,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
-        <section className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-14 py-7 font-serif text-sm leading-relaxed text-slate-900 shadow-md">
+        <section style={{ fontFamily: 'Georgia, "Times New Roman", Times, serif' }} className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-14 py-7 text-sm leading-relaxed text-slate-900 shadow-md">
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>

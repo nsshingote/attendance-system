@@ -331,7 +331,10 @@ def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(
         values.update({key: value for key, value in payload.placeholder_values.items() if isinstance(value, str)})
     resolved_content = _resolve_template(template.content, values)
     snapshot = {"format": "dynamic_letter_v1", "template_id": template.id, "template_name": template.name,
-                "template_content": template.content, "resolved_content": resolved_content, "placeholder_values": values}
+                "template_content": template.content, "resolved_content": resolved_content, "placeholder_values": values,
+                # Immutable document metadata: later template edits and the
+                # recipient's device cannot change this letter's page count.
+                "template_layout": payload.template_layout, "layout_validated": payload.layout_validated}
     status = "Sent" if payload.send else "Draft"
     item = EmployeeDocument(employee_id=employee.id, document_type=template.document_type, title=template.name,
                             content=json.dumps(snapshot), status=status, created_by=current_user.id,

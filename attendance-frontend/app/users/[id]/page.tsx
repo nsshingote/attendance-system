@@ -329,7 +329,7 @@ export default function UserDetailPage() {
 
   const appointmentValues = selectedGeneratedDocument?.document_type === "appointment_letter" ? JSON.parse(selectedGeneratedDocument.content) as AppointmentLetterValues : null;
   const offerValues = selectedGeneratedDocument?.document_type === "offer_letter" ? JSON.parse(selectedGeneratedDocument.content) as OfferLetterValues : null;
-  const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string; template_content?: string } : null;
+  const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string; template_content?: string; template_layout?: unknown; layout_validated?: boolean } : null;
 
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedGeneratedDocument || selectedGeneratedDocument.id !== pendingDynamicPdf.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
@@ -556,13 +556,13 @@ export default function UserDetailPage() {
             </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />}
+              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />}
           </div>
         </div>
       )}
       {pendingDynamicPdf && selectedGeneratedDocument && dynamicValues?.resolved_content && (
         <div aria-hidden="true" style={HIDDEN_PDF_PREVIEW_CONTAINER_STYLE}>
-          <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} />
+          <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />
         </div>
       )}
       {iosDownloadFile && (
