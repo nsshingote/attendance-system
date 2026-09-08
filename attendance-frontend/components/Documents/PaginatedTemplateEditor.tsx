@@ -10,6 +10,9 @@ interface PaginatedTemplateEditorProps { value: string; onChange: (value: string
 export const PAGE_HEIGHT = 1120;
 const FIRST_PAGE_CONTENT_HEIGHT = 780;
 const OTHER_PAGE_CONTENT_HEIGHT = 920;
+const TABLE_MIN_WIDTH_PX = 240;
+const TABLE_COLUMN_MIN_WIDTH_PX = 48;
+const TABLE_RESIZE_HANDLE_PX = 18;
 
 export const splitDynamicTemplateBlocks = (value: string) => {
   const blocks: string[] = [];
@@ -83,6 +86,14 @@ const textLength = (html: string) => {
   // making Enter/Backspace target a different character than sliceHtml.
   return element.textContent?.length ?? 0;
 };
+const textOffsetInContainer = (container: HTMLElement, node: Node, offset: number) => {
+  const before = document.createRange();
+  before.selectNodeContents(container);
+  before.setEnd(node, offset);
+  const probe = document.createElement("div");
+  probe.appendChild(before.cloneContents());
+  return probe.textContent?.length ?? 0;
+};
 const sliceHtml = (html: string, start: number, end: number) => {
   const source = document.createElement("div");
   source.innerHTML = html;
@@ -131,9 +142,7 @@ const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: numbe
   const visualTable = table.cloneNode(false) as HTMLTableElement;
   // This is applied to the page-only clone. Resizing never mutates the source
   // table during pagination; persistTable saves a completed user resize.
-  visualTable.style.resize = "both";
-  visualTable.style.overflow = "auto";
-  if (!visualTable.style.minWidth) visualTable.style.minWidth = "240px";
+  if (!visualTable.style.minWidth) visualTable.style.minWidth = `${TABLE_MIN_WIDTH_PX}px`;
   const body = document.createElement("tbody");
   visualTable.appendChild(body);
   let end = start;
@@ -217,7 +226,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const tableSelection = useRef<Range | null>(null);
   const resizingTable = useRef<HTMLTableElement | null>(null);
-  const resizeStart = useRef<{ table: HTMLTableElement; x: number; y: number; width: number; height: number } | null>(null);
+  const resizeStart = useRef<{ table: HTMLTableElement; x: number; width: number; columnWidths: number[] } | null>(null);
+  const columnResizeStart = useRef<{ table: HTMLTableElement; colIndex: number; x: number; widths: number[] } | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
@@ -237,8 +247,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const caret = pendingCaret.current;
     if (!caret || !editor.current) return;
     const fragment = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`)).find(element => {
-      const start = Number(element.dataset.fragmentStart);
-      return caret.position >= start && caret.position <= start + element.innerText.length;
+      const fragmentStart = Number(element.dataset.fragmentStart);
+      const fragmentEnd = Number(element.dataset.fragmentEnd);
+      return caret.position >= fragmentStart && caret.position <= fragmentEnd;
     });
     if (!fragment) return;
     const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
@@ -308,17 +319,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const findTableCell = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("td, th");
     const startCell = findTableCell(range.startContainer); const endCell = findTableCell(range.endContainer);
     tableSelection.current = startCell && startCell === endCell ? range.cloneRange() : null;
-    const offsetIn = (element: HTMLElement, node: Node, offset: number) => {
-      const before = document.createRange();
-      before.selectNodeContents(element);
-      before.setEnd(node, offset);
-      return before.toString().length;
-    };
     const blockIndex = Number(startElement.dataset.blockIndex); const fragmentStart = Number(startElement.dataset.fragmentStart);
     activeSelection.current = {
       blockIndex,
-      start: fragmentStart + offsetIn(startElement, range.startContainer, range.startOffset),
-      end: Number(endElement.dataset.fragmentStart) + offsetIn(endElement, range.endContainer, range.endOffset),
+      start: fragmentStart + textOffsetInContainer(startElement, range.startContainer, range.startOffset),
+      end: Number(endElement.dataset.fragmentStart) + textOffsetInContainer(endElement, range.endContainer, range.endOffset),
       fragmentStart,
       fragmentEnd: Number(startElement.dataset.fragmentEnd),
     };
@@ -469,53 +474,122 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // a page-local fragment when that mapping is unavailable or inconsistent.
     if (!Number.isInteger(rowStart) || !Number.isInteger(rowEnd) || rowStart < 0 || rowEnd !== rowStart + renderedRows.length || sourceRows.length < rowEnd) return;
     renderedRows.forEach((row, index) => { sourceRows[rowStart + index].outerHTML = row.outerHTML; });
+    table.style.removeProperty("height");
     const style = table.getAttribute("style");
     if (style !== null) sourceTable.setAttribute("style", style);
     applyBlocks([...currentBlocks.slice(0, blockIndex), source.innerHTML, ...currentBlocks.slice(blockIndex + 1)]);
+  };
+  const tableColumnWidths = (table: HTMLTableElement) => {
+    const firstRow = table.rows[0];
+    if (!firstRow) return [];
+    return Array.from(firstRow.cells).map(cell => cell.getBoundingClientRect().width);
+  };
+  const applyTableColumnWidths = (table: HTMLTableElement, widths: number[]) => {
+    Array.from(table.rows).forEach(row => {
+      Array.from(row.cells).forEach((cell, index) => {
+        if (widths[index]) cell.style.width = `${Math.max(TABLE_COLUMN_MIN_WIDTH_PX, Math.round(widths[index]))}px`;
+      });
+    });
+  };
+  const applyTableWidth = (table: HTMLTableElement, nextWidth: number, baseWidth: number, baseColumnWidths: number[]) => {
+    const width = Math.max(TABLE_MIN_WIDTH_PX, Math.round(nextWidth));
+    const scale = baseWidth > 0 ? width / baseWidth : 1;
+    const scaledWidths = baseColumnWidths.map(columnWidth =>
+      Math.max(TABLE_COLUMN_MIN_WIDTH_PX, Math.round(columnWidth * scale)),
+    );
+    applyTableColumnWidths(table, scaledWidths);
+    table.style.width = `${width}px`;
+    table.style.removeProperty("height");
+  };
+  const columnResizeTarget = (event: React.PointerEvent<HTMLDivElement>, table: HTMLTableElement) => {
+    const cell = (event.target as HTMLElement).closest<HTMLTableCellElement>("td, th");
+    if (!cell || !table.contains(cell)) return null;
+    const bounds = cell.getBoundingClientRect();
+    if (event.clientX < bounds.right - 8) return null;
+    const row = cell.parentElement as HTMLTableRowElement;
+    const colIndex = Array.from(row.cells).indexOf(cell);
+    if (colIndex < 0) return null;
+    return { table, colIndex };
+  };
+  const beginPointerDrag = (move: (event: PointerEvent) => void, up: (event: PointerEvent) => void) => {
+    const cleanup = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (resizeCleanup.current === cleanup) resizeCleanup.current = null;
+    };
+    resizeCleanup.current?.();
+    resizeCleanup.current = cleanup;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     const table = target.closest<HTMLTableElement>("table");
     if (table) {
+      const columnTarget = columnResizeTarget(event, table);
+      if (columnTarget) {
+        event.preventDefault();
+        document.body.style.cursor = "col-resize";
+        columnResizeStart.current = {
+          table,
+          colIndex: columnTarget.colIndex,
+          x: event.clientX,
+          widths: tableColumnWidths(table),
+        };
+        const move = (moveEvent: PointerEvent) => {
+          const start = columnResizeStart.current;
+          if (!start) return;
+          moveEvent.preventDefault();
+          const nextWidths = [...start.widths];
+          nextWidths[start.colIndex] = Math.max(TABLE_COLUMN_MIN_WIDTH_PX, Math.round(start.widths[start.colIndex] + moveEvent.clientX - start.x));
+          applyTableColumnWidths(start.table, nextWidths);
+        };
+        const up = () => {
+          resizeCleanup.current?.();
+          document.body.style.cursor = "";
+          const resizedTable = columnResizeStart.current?.table;
+          columnResizeStart.current = null;
+          if (resizedTable) {
+            resizedTable.style.removeProperty("height");
+            persistTable(resizedTable);
+          }
+        };
+        beginPointerDrag(move, up);
+        return;
+      }
       const bounds = table.getBoundingClientRect();
-      const nearResizeHandle = event.clientX >= bounds.right - 18 && event.clientY >= bounds.bottom - 18;
+      const nearResizeHandle = event.clientX >= bounds.right - TABLE_RESIZE_HANDLE_PX && event.clientY >= bounds.bottom - TABLE_RESIZE_HANDLE_PX;
       if (!nearResizeHandle) {
         resizingTable.current = null;
         resizeStart.current = null;
         return;
       }
       event.preventDefault();
+      document.body.style.cursor = "ew-resize";
       resizingTable.current = table;
-      resizeStart.current = { table, x: event.clientX, y: event.clientY, width: bounds.width, height: bounds.height };
+      const startWidth = bounds.width;
+      const startColumnWidths = tableColumnWidths(table);
+      resizeStart.current = { table, x: event.clientX, width: startWidth, columnWidths: startColumnWidths };
       const move = (moveEvent: PointerEvent) => {
         const start = resizeStart.current;
         if (!start) return;
         moveEvent.preventDefault();
-        start.table.style.width = `${Math.max(240, Math.round(start.width + moveEvent.clientX - start.x))}px`;
-        start.table.style.height = `${Math.max(40, Math.round(start.height + moveEvent.clientY - start.y))}px`;
+        applyTableWidth(start.table, start.width + moveEvent.clientX - start.x, start.width, start.columnWidths);
       };
       const up = () => {
         resizeCleanup.current?.();
+        document.body.style.cursor = "";
         const resizedTable = resizingTable.current;
         resizingTable.current = null;
         resizeStart.current = null;
         if (!resizedTable) return;
-        const resizedBounds = resizedTable.getBoundingClientRect();
-        resizedTable.style.width = `${Math.round(resizedBounds.width)}px`;
-        resizedTable.style.height = `${Math.round(resizedBounds.height)}px`;
+        resizedTable.style.width = `${Math.max(TABLE_MIN_WIDTH_PX, Math.round(resizedTable.getBoundingClientRect().width))}px`;
+        resizedTable.style.removeProperty("height");
         persistTable(resizedTable);
       };
-      const cleanup = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", up);
-        if (resizeCleanup.current === cleanup) resizeCleanup.current = null;
-      };
-      resizeCleanup.current?.();
-      resizeCleanup.current = cleanup;
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", up);
+      beginPointerDrag(move, up);
       return;
     }
     const tableFragment = target.closest<HTMLElement>("[data-template-fragment][contenteditable='false']");
@@ -610,16 +684,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
         const fragment = findFragment(range.startContainer);
         if (fragment) {
-          const offsetIn = (node: Node, offset: number) => {
-            const before = document.createRange();
-            before.selectNodeContents(fragment);
-            before.setEnd(node, offset);
-            const probe = document.createElement("div");
-            probe.appendChild(before.cloneContents());
-            return probe.textContent?.length ?? 0;
-          };
           const fragmentStart = Number(fragment.dataset.fragmentStart ?? 0);
-          const absolutePosition = fragmentStart + offsetIn(range.startContainer, range.startOffset);
+          const absolutePosition = fragmentStart + textOffsetInContainer(fragment, range.startContainer, range.startOffset);
           const blockIndex = Number(fragment.dataset.blockIndex);
           const block = blocksRef.current[blockIndex];
           if (block !== undefined && !isDynamicPageBreak(block)) {
@@ -721,7 +787,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .fill(null)
       .map(() => tr)
       .join("");
-    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;resize:both;overflow:auto;min-width:240px;margin:0;">${tbody}</table>`;
+    const table = `<table contenteditable="false" style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${TABLE_MIN_WIDTH_PX}px;margin:0;">${tbody}</table>`;
 
     const block = blocksRef.current[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) return;
@@ -775,7 +841,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, redoBlocks)}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none">
+    <div ref={editor} contentEditable={true} tabIndex={0} role="textbox" aria-multiline="true" suppressContentEditableWarning onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none [&_table_td]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)] [&_table_th]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)]">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section style={{ fontFamily: 'Georgia, "Times New Roman", Times, serif' }} className="mx-auto flex h-1120px w-[min(794px,calc(100vw-48px))] flex-col bg-white px-14 py-7 text-sm leading-relaxed text-slate-900 shadow-md">
@@ -793,7 +859,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const adjacentToTable = /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
               const addParagraphSpacing = hasFollowingContent && !isTable && !tableCaretBlock && !adjacentToTable;
               const fragmentHtml = fragment.text || (tableCaretBlock ? CARET_PLACEHOLDER_HTML : "");
-              const fragmentClass = `w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:my-0 [&_table]:min-w-60 [&_table]:resize [&_table]:overflow-auto ${addParagraphSpacing ? "mb-3" : ""} ${tableCaretBlock ? "min-h-[1.625em]" : ""}`;
+              const fragmentClass = `w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-[''] ${addParagraphSpacing ? "mb-3" : ""} ${tableCaretBlock ? "min-h-[1.625em]" : ""}`;
               if (isTable) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragmentHtml }} />;
               }
