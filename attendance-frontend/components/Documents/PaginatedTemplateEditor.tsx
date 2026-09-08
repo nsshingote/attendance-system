@@ -62,12 +62,21 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
 };
 const CARET_PLACEHOLDER_HTML = '<p><br data-template-caret-placeholder="true" aria-hidden="true"></p>';
-const ENTER_LINE_HTML = '<p><br>\u200B</p>';
+// Do not create a new empty paragraph for Enter.  A paragraph is a block in
+// the browser DOM, but a fragment can be split or re-mounted independently
+// during pagination.  In particular, a paragraph containing only <br> and a
+// zero-width character is normalised differently around non-editable tables,
+// which made the restored selection jump to a different page.  A real line
+// break plus an inline caret anchor has the same editing semantics here while
+// retaining one unambiguous logical character for the caret mapper.
+const ENTER_LINE_HTML = '<br><span data-template-caret-anchor="true">\u200B</span>';
 const stripCaretPlaceholder = (html: string) => html
   .replace(/\u200B/g, "")
-  .replace(/<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>/gi, "")
-  .replace(/<p>\s*<\/p>/gi, "")
-  .replace(/<p><br><\/p>/gi, "");
+  // Only remove the editor's own temporary caret host.  A plain <p><br></p>
+  // is user content: it represents the deliberate blank line in
+  // "hello / [blank] / world" and must survive a reflow or blur.
+  .replace(/<p>\s*<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>\s*<\/p>/gi, "")
+  .replace(/<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>/gi, "");
 const splitTableBlockHtml = (html: string) => {
   const trimmed = html.trim();
   if (!/^<table\b/i.test(trimmed)) return null;
@@ -204,6 +213,11 @@ const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: numbe
   // This is applied to the page-only clone. Resizing never mutates the source
   // table during pagination; persistTable saves a completed user resize.
   if (!visualTable.style.minWidth) visualTable.style.minWidth = `${TABLE_MIN_WIDTH_PX}px`;
+  // Height resizing is persisted on individual rows.  Keeping the source
+  // table's *total* height on every page fragment makes each fragment reserve
+  // the full table height, creating the apparent blank space above/below a
+  // table after it has been resized.
+  visualTable.style.removeProperty("height");
   const body = document.createElement("tbody");
   visualTable.appendChild(body);
   let end = start;
@@ -291,6 +305,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const columnResizeStart = useRef<{ table: HTMLTableElement; colIndex: number; x: number; widths: number[] } | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
+  const pendingTableCaret = useRef<{ blockIndex: number; rowIndex: number; cellIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -306,7 +321,33 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
-    if (!caret || !editor.current) return;
+    if (!editor.current) return;
+    if (!caret) {
+      const tableCaret = pendingTableCaret.current;
+      if (!tableCaret) return;
+      const fragment = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${tableCaret.blockIndex}"]`)).find(element => {
+        const table = element.querySelector<HTMLTableElement>("table");
+        const start = Number(table?.dataset.tableRowStart ?? -1);
+        const end = Number(table?.dataset.tableRowEnd ?? -1);
+        return start <= tableCaret.rowIndex && tableCaret.rowIndex < end;
+      });
+      const table = fragment?.querySelector<HTMLTableElement>("table");
+      const rowStart = Number(table?.dataset.tableRowStart ?? 0);
+      const cell = table?.rows[tableCaret.rowIndex - rowStart]?.cells[tableCaret.cellIndex];
+      if (!cell) return;
+      const target = caretTargetAtLogicalOffset(cell, tableCaret.position);
+      const textNode = target?.node ?? document.createTextNode("");
+      if (!target) cell.appendChild(textNode);
+      const range = document.createRange();
+      range.setStart(textNode, target?.offset ?? 0);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      tableSelection.current = range.cloneRange();
+      pendingTableCaret.current = null;
+      return;
+    }
     const fragment = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`)).find(element => {
       const fragmentStart = Number(element.dataset.fragmentStart);
       const fragmentEnd = Number(element.dataset.fragmentEnd);
@@ -429,6 +470,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       selection?.removeAllRanges();
       selection?.addRange(range);
       tableSelection.current = range.cloneRange();
+      const row = tableCell.parentElement as HTMLTableRowElement;
+      pendingTableCaret.current = {
+        blockIndex: Number(tableFragment.dataset.blockIndex),
+        rowIndex: Number(table.dataset.tableRowStart ?? 0) + Array.from(table.rows).indexOf(row),
+        cellIndex: Array.from(row.cells).indexOf(tableCell as HTMLTableCellElement),
+        position: textOffsetInContainer(tableCell, range.startContainer, range.startOffset),
+      };
       persistTable(table);
       return;
     }
@@ -526,7 +574,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (!Number.isInteger(rowStart) || !Number.isInteger(rowEnd) || rowStart < 0 || rowEnd !== rowStart + renderedRows.length || sourceRows.length < rowEnd) return;
     renderedRows.forEach((row, index) => { sourceRows[rowStart + index].outerHTML = row.outerHTML; });
     const style = table.getAttribute("style");
-    if (style !== null) sourceTable.setAttribute("style", style);
+    if (style !== null) {
+      sourceTable.setAttribute("style", style);
+      // applyTableSize records the requested height on rows, which stays
+      // correct when the table is split across pages.  A table-level height
+      // would instead be applied again to every visual fragment.
+      sourceTable.style.removeProperty("height");
+    }
     applyBlocks([...currentBlocks.slice(0, blockIndex), source.innerHTML, ...currentBlocks.slice(blockIndex + 1)]);
   };
   const tableColumnWidths = (table: HTMLTableElement) => {
