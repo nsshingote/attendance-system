@@ -7,18 +7,28 @@ Simple SMTP-based email sending for notifications
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 from typing import List
 
 from config import settings
 from utils.logger import logger
 
 
-def send_email(to_emails: List[str], subject: str, html_body: str, reply_to: str | None = None) -> bool:
-    """Send an HTML email to one or more recipients. Returns True on success.
+def send_email(
+    to_emails: List[str],
+    subject: str,
+    html_body: str,
+    reply_to: str | None = None,
+    plain_text_body: str | None = None,
+) -> bool:
+    """Send an email to one or more recipients. Returns True on success.
 
     `reply_to`, when given, sets the Reply-To header so the recipient's
     reply goes to that address (e.g. the employee) instead of the shared
     sending mailbox in EMAIL_USER.
+
+    When `plain_text_body` is provided, it is sent before the HTML body as
+    the plain-text alternative without changing existing callers.
     """
     if not to_emails:
         return False
@@ -33,6 +43,8 @@ def send_email(to_emails: List[str], subject: str, html_body: str, reply_to: str
     msg["To"] = ", ".join(to_emails)
     if reply_to:
         msg["Reply-To"] = reply_to
+    if plain_text_body is not None:
+        msg.attach(MIMEText(plain_text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
     try:
@@ -127,10 +139,29 @@ def send_new_feedback_notification(to_emails: List[str], employee_name: str, fee
 
 
 def send_password_reset_email(to_email: str, reset_link: str):
-    subject = "Password Reset Request"
-    body = f"""
-    <p>You requested a password reset. Click the link below to reset your password:</p>
-    <p><a href="{reset_link}">{reset_link}</a></p>
-    <p>If you did not request this, please ignore this email.</p>
+    subject = "Reset your Attendance System password"
+    plain_text_body = f"""A password reset was requested for your Attendance System account.
+
+Reset your password using this link:
+{reset_link}
+
+This link expires in 30 minutes.
+If you did not request this password reset, you can safely ignore this email.
+"""
+    safe_reset_link = escape(reset_link, quote=True)
+    html_body = f"""
+    <div>
+      <h2>Reset your Attendance System password</h2>
+      <p>A password reset was requested for your account.</p>
+      <p>
+        <a href="{safe_reset_link}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;">
+          Reset your password
+        </a>
+      </p>
+      <p>Or copy and paste this URL into your browser:</p>
+      <p><a href="{safe_reset_link}">{safe_reset_link}</a></p>
+      <p>This link expires in 30 minutes.</p>
+      <p>If you did not request this password reset, you can safely ignore this email.</p>
+    </div>
     """
-    return send_email([to_email], subject, body)
+    return send_email([to_email], subject, html_body, plain_text_body=plain_text_body)

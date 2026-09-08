@@ -365,6 +365,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const range = document.createRange();
       range.setStart(textNode, target?.offset ?? 0);
       range.collapse(true);
+      editor.current?.focus({ preventScroll: true });
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
@@ -398,6 +399,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const range = document.createRange();
       range.setStart(textNode, 0);
       range.collapse(true);
+      editor.current?.focus({ preventScroll: true });
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
@@ -414,6 +416,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const range = document.createRange();
     range.setStart(target.node, target.offset);
     range.collapse(true);
+    editor.current.focus({ preventScroll: true });
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
@@ -880,7 +883,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         nextValue,
         ...blocksRef.current.slice(active.blockIndex + 1),
       ]);
-      requestAnimationFrame(() => editor.current?.focus());
       return;
     }
     if (active.start !== active.end) { replaceActiveSelection(""); return; }
