@@ -39,7 +39,29 @@ export const splitDynamicTemplateBlocks = (value: string) => {
   if (text.length || !blocks.length || isDynamicPageBreak(blocks[blocks.length - 1])) pushContentBlocks(text.join("\n"));
   return blocks.length ? blocks : [""];
 };
-export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.join("\n");
+const isCaretPlaceholderBreak = (node: Node) =>
+  node.nodeType === Node.ELEMENT_NODE &&
+  (node as Element).nodeName === "BR" &&
+  (node as Element).getAttribute("data-template-caret-placeholder") === "true";
+const stripEditorScaffolding = (html: string) => {
+  const source = document.createElement("div");
+  source.innerHTML = html;
+  // Unwrap, rather than remove, a caret anchor.  The browser may put typed
+  // text or inline formatting inside it after Enter, and that is real content.
+  source.querySelectorAll<HTMLElement>('[data-template-caret-anchor="true"]').forEach(anchor => {
+    anchor.replaceWith(...Array.from(anchor.childNodes));
+  });
+  source.querySelectorAll<HTMLElement>("[data-template-caret-host]").forEach(host => host.remove());
+  source.querySelectorAll<HTMLBRElement>('br[data-template-caret-placeholder="true"]').forEach(placeholder => {
+    const paragraph = placeholder.parentElement;
+    placeholder.remove();
+    if (paragraph?.nodeName === "P" && !paragraph.textContent?.trim() && !paragraph.children.length) paragraph.remove();
+  });
+  // ZWSP is an editor-only caret aid whether it was in an anchor or appeared
+  // as a standalone browser-normalised text node.
+  return source.innerHTML.replace(/\u200B/g, "");
+};
+export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.map(stripEditorScaffolding).join("\n");
 export type DynamicTemplateFragment = { blockIndex: number; start: number; end: number; text: string };
 export type DynamicTemplatePage = { fragments: DynamicTemplateFragment[]; manualBreakBefore?: number };
 
@@ -61,7 +83,10 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   measure.innerHTML = text || " "; document.body.appendChild(measure);
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
 };
-const CARET_PLACEHOLDER_HTML = '<p><br data-template-caret-placeholder="true" aria-hidden="true"></p>';
+// This host occupies no layout height.  Once typing starts, caret restoration
+// inserts a normal text node in the fragment itself and this host is removed
+// from the next serialized document update.
+const CARET_PLACEHOLDER_HTML = '<span data-template-caret-host="true" aria-hidden="true" style="display:block;height:0;line-height:0;overflow:visible"><br data-template-caret-placeholder="true"></span>';
 // Do not create a new empty paragraph for Enter.  A paragraph is a block in
 // the browser DOM, but a fragment can be split or re-mounted independently
 // during pagination.  In particular, a paragraph containing only <br> and a
@@ -70,13 +95,7 @@ const CARET_PLACEHOLDER_HTML = '<p><br data-template-caret-placeholder="true" ar
 // break plus an inline caret anchor has the same editing semantics here while
 // retaining one unambiguous logical character for the caret mapper.
 const ENTER_LINE_HTML = '<br><span data-template-caret-anchor="true">\u200B</span>';
-const stripCaretPlaceholder = (html: string) => html
-  .replace(/\u200B/g, "")
-  // Only remove the editor's own temporary caret host.  A plain <p><br></p>
-  // is user content: it represents the deliberate blank line in
-  // "hello / [blank] / world" and must survive a reflow or blur.
-  .replace(/<p>\s*<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>\s*<\/p>/gi, "")
-  .replace(/<br\b[^>]*data-template-caret-placeholder=(?:"|')true(?:"|')[^>]*>/gi, "");
+const stripCaretPlaceholder = stripEditorScaffolding;
 const splitTableBlockHtml = (html: string) => {
   const trimmed = html.trim();
   if (!/^<table\b/i.test(trimmed)) return null;
@@ -86,13 +105,16 @@ const splitTableBlockHtml = (html: string) => {
 };
 const canonicalizeHtml = (html: string) => {
   const source = document.createElement("div");
-  source.innerHTML = html;
+  // A controlled-value echo has the serialized form (without temporary
+  // caret nodes), while the live editor may still contain an anchor.
+  source.innerHTML = stripEditorScaffolding(html);
   return source.innerHTML;
 };
 const sameBlocks = (left: string[], right: string[]) =>
   left.length === right.length && left.every((block, index) => canonicalizeHtml(block) === canonicalizeHtml(right[index]));
 const logicalTextLength = (node: Node): number => {
   if (node.nodeType === Node.TEXT_NODE) return (node.textContent || "").replace(/\u200B/g, "").length;
+  if (isCaretPlaceholderBreak(node)) return 0;
   if (node.nodeType === Node.ELEMENT_NODE && (node as Element).nodeName === "BR") return 1;
   return Array.from(node.childNodes).reduce((length, child) => length + logicalTextLength(child), 0);
 };
@@ -139,6 +161,7 @@ const sliceHtml = (html: string, start: number, end: number) => {
       return copied ? document.createTextNode(copied) : null;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (isCaretPlaceholderBreak(node)) return null;
     if (node.nodeName === "BR") {
       const included = position >= start && position < end;
       position += 1;
@@ -178,6 +201,7 @@ const caretTargetAtLogicalOffset = (container: HTMLElement, target: number) => {
       previousWasBreak = false;
       return null;
     }
+    if (isCaretPlaceholderBreak(node)) return null;
     if (node.nodeType === Node.ELEMENT_NODE && (node as Element).nodeName === "BR") {
       position += 1;
       previousWasBreak = true;
@@ -487,7 +511,14 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   };
   const insertPageBreak = () => {
     const active = activeSelection.current; const block = blocksRef.current[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
-    const parts = [block.slice(0, active.start), DYNAMIC_PAGE_BREAK, block.slice(active.end)].filter((part, index) => part || index === 1);
+    // Selection offsets are logical text offsets, not offsets in the HTML
+    // string.  Slicing the raw markup can cut through a table, placeholder,
+    // or formatting tag and corrupt the document around the page break.
+    const parts = [
+      sliceHtml(block, 0, active.start),
+      DYNAMIC_PAGE_BREAK,
+      sliceHtml(block, active.end, textLength(block)),
+    ].filter((part, index) => part || index === 1);
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...parts, ...blocksRef.current.slice(active.blockIndex + 1)]);
     requestAnimationFrame(() => editor.current?.focus());
   };
@@ -922,12 +953,22 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (block === undefined || isDynamicPageBreak(block)) return;
     const before = sliceHtml(block, 0, active.start);
     const after = sliceHtml(block, active.end, textLength(block));
+    // Browsers commonly represent an untouched caret line as <p><br></p>.
+    // It is editor scaffolding at this point, not an intentional user-created
+    // blank paragraph, so keep it as the zero-length post-table caret host.
+    const afterIsUntouchedCaretLine = /^<p>\s*<br\s*\/?\s*>\s*<\/p>$/i.test(after.trim());
+    const trailingContent = afterIsUntouchedCaretLine ? "" : after;
     const tableIndex = active.blockIndex + (before ? 1 : 0);
     const nextBlocks = [
       ...blocksRef.current.slice(0, active.blockIndex),
       ...(before ? [before] : []),
       table,
-      ...(after ? [after] : ["<p><br></p>"]),
+      // A zero-length block is rendered as a temporary caret host.  Storing
+      // <p><br></p> here creates a *real* blank line and the first typed
+      // paragraph becomes a second block, which is the gap shown below a
+      // table in the editor.  The empty block turns into the first line as
+      // soon as the user types.
+      ...(trailingContent ? [trailingContent] : [""]),
       ...blocksRef.current.slice(active.blockIndex + 1),
     ];
     // Always keep one real editable paragraph after a table. Without this
