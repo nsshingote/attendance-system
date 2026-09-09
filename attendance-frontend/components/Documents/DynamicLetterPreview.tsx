@@ -268,7 +268,13 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
                   <img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" />
                   <div className="min-w-0">
                     <h2 className="text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</h2>
-                    <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline}</p>
+                    <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">
+                      {LETTER_BRANDING.tagline.split(" ").map((word, wordIndex, words) => (
+                        <span key={`${word}-${wordIndex}`} className={wordIndex < words.length - 1 ? "mr-1 inline-block" : "inline-block"}>
+                          {word}
+                        </span>
+                      ))}
+                    </p>
                   </div>
                 </div>
                 <div className="shrink-0">

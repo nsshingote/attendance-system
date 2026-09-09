@@ -12,6 +12,14 @@ export type OfferLetterValues = {
   acceptance_date?: string;
 };
 
+function drawHeaderTagline(pdf: jsPDF, x: number, y: number) {
+  let currentX = x;
+  for (const word of "India's First Home Inspection Startup".split(" ")) {
+    pdf.text(word, currentX, y);
+    currentX += pdf.getTextWidth(word) + 0.8;
+  }
+}
+
 export function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFileReady?: (file: File) => void) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
@@ -32,7 +40,7 @@ export function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFileReady
   pdf.setTextColor(30, 58, 138);
   pdf.text("Checkup", 36, y);
   pdf.setFontSize(7);
-  pdf.text("India's First Home Inspection Startup", 17, y + 5);
+  drawHeaderTagline(pdf, 17, y + 5);
   y += 12;
 
   // Divider line
