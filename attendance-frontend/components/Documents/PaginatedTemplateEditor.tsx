@@ -373,9 +373,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
     const target = caretTargetAtLogicalOffset(fragment, localPosition);
     if (!target) {
-      const paragraph = fragment.querySelector("p") ?? fragment;
       const range = document.createRange();
-      range.setStart(paragraph, 0);
+      // Keep the caret in the fragment's editing host. A range anchored on
+      // the empty structural paragraph can be treated as outside the host by
+      // the browser, so the next native character is lost after Enter.
+      range.setStart(fragment, 0);
       range.collapse(true);
       editor.current?.focus({ preventScroll: true });
       const selection = window.getSelection();
