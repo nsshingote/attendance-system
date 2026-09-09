@@ -87,7 +87,6 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
 // block-level editable node after a non-editable table for typing, Enter, and
 // Backspace to keep the selection in the correct fragment.
 const CARET_PLACEHOLDER_HTML = '<p style="margin:0"><br data-template-caret-placeholder="true"></p>';
-const ENTER_LINE_HTML = '<p style="margin:0"><br><span data-template-caret-anchor="true">\u200B</span></p>';
 const stripCaretPlaceholder = stripEditorScaffolding;
 const splitTableBlockHtml = (html: string) => {
   const trimmed = html.trim();
@@ -863,17 +862,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       }
       const before = sliceHtml(block, 0, splitStart);
       const after = sliceHtml(block, splitEnd, textLength(block));
-      const nextValue = `${before}${ENTER_LINE_HTML}${after}`;
-      const caretPosition = textLength(before) + 1;
-      pendingCaret.current = { blockIndex: active.blockIndex, position: caretPosition };
-      activeSelection.current = {
-        ...active,
-        start: caretPosition,
-        end: caretPosition,
-      };
+      // Keep each line in its own logical block. Keeping the synthetic line
+      // break inside one paginated fragment caused the browser to restore the
+      // caret above the previous line after a table.
+      const beforeBlocks = before ? splitDynamicTemplateBlocks(before) : [""];
+      const afterBlocks = after ? splitDynamicTemplateBlocks(after) : [""];
+      const nextCaretBlock = active.blockIndex + beforeBlocks.length;
+      pendingCaret.current = { blockIndex: nextCaretBlock, position: 0 };
       applyBlocks([
         ...blocksRef.current.slice(0, active.blockIndex),
-        nextValue,
+        ...beforeBlocks,
+        ...afterBlocks,
         ...blocksRef.current.slice(active.blockIndex + 1),
       ]);
       return;
@@ -1023,7 +1022,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
               const adjacentToTable = /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
               const addParagraphSpacing = hasFollowingContent && !isTable && !tableCaretBlock && !adjacentToTable;
-              const fragmentHtml = fragment.text || (tableCaretBlock ? CARET_PLACEHOLDER_HTML : "");
+              // Every empty block needs a real editable paragraph. Without it,
+              // a new template has no DOM caret target, and an empty block
+              // after a non-editable table cannot receive the next line.
+              const fragmentHtml = fragment.text || CARET_PLACEHOLDER_HTML;
               const fragmentClass = `w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-[''] ${addParagraphSpacing ? "mb-3" : ""} ${tableCaretBlock ? "min-h-[1.625em]" : ""}`;
               if (isTable) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragmentHtml }} />;
