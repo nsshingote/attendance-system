@@ -83,18 +83,11 @@ const blockHeight = (text: string, geometry?: DynamicPaginationGeometry) => {
   measure.innerHTML = text || " "; document.body.appendChild(measure);
   const height = Math.max(23, Math.ceil(measure.getBoundingClientRect().height) + 4); measure.remove(); return height;
 };
-// This host occupies no layout height.  Once typing starts, caret restoration
-// inserts a normal text node in the fragment itself and this host is removed
-// from the next serialized document update.
-const CARET_PLACEHOLDER_HTML = '<span data-template-caret-host="true" aria-hidden="true" style="display:block;height:0;line-height:0;overflow:visible"><br data-template-caret-placeholder="true"></span>';
-// Do not create a new empty paragraph for Enter.  A paragraph is a block in
-// the browser DOM, but a fragment can be split or re-mounted independently
-// during pagination.  In particular, a paragraph containing only <br> and a
-// zero-width character is normalised differently around non-editable tables,
-// which made the restored selection jump to a different page.  A real line
-// break plus an inline caret anchor has the same editing semantics here while
-// retaining one unambiguous logical character for the caret mapper.
-const ENTER_LINE_HTML = '<br><span data-template-caret-anchor="true">\u200B</span>';
+// Keep an actual zero-margin paragraph as the caret host. Browsers need a
+// block-level editable node after a non-editable table for typing, Enter, and
+// Backspace to keep the selection in the correct fragment.
+const CARET_PLACEHOLDER_HTML = '<p style="margin:0"><br data-template-caret-placeholder="true"></p>';
+const ENTER_LINE_HTML = '<p style="margin:0"><br><span data-template-caret-anchor="true">\u200B</span></p>';
 const stripCaretPlaceholder = stripEditorScaffolding;
 const splitTableBlockHtml = (html: string) => {
   const trimmed = html.trim();
