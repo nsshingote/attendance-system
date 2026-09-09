@@ -7,7 +7,7 @@ Simple SMTP-based email sending for notifications
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from html import escape
+from email.utils import formatdate, make_msgid
 from typing import List
 
 from config import settings
@@ -37,15 +37,21 @@ def send_email(
         logger.warning("Email credentials (EMAIL_USER / EMAIL_PASSWORD) not configured; skipping email send.")
         return False
 
-    msg = MIMEMultipart("alternative")
+    if plain_text_body is not None and not html_body:
+        msg = MIMEText(plain_text_body, "plain")
+    else:
+        msg = MIMEMultipart("alternative")
+        if plain_text_body is not None:
+            msg.attach(MIMEText(plain_text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+
     msg["Subject"] = subject
     msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_USER}>"
     msg["To"] = ", ".join(to_emails)
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
     if reply_to:
         msg["Reply-To"] = reply_to
-    if plain_text_body is not None:
-        msg.attach(MIMEText(plain_text_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
 
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
@@ -148,20 +154,4 @@ Reset your password using this link:
 This link expires in 30 minutes.
 If you did not request this password reset, you can safely ignore this email.
 """
-    safe_reset_link = escape(reset_link, quote=True)
-    html_body = f"""
-    <div>
-      <h2>Reset your Attendance System password</h2>
-      <p>A password reset was requested for your account.</p>
-      <p>
-        <a href="{safe_reset_link}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;">
-          Reset your password
-        </a>
-      </p>
-      <p>Or copy and paste this URL into your browser:</p>
-      <p><a href="{safe_reset_link}">{safe_reset_link}</a></p>
-      <p>This link expires in 30 minutes.</p>
-      <p>If you did not request this password reset, you can safely ignore this email.</p>
-    </div>
-    """
-    return send_email([to_email], subject, html_body, plain_text_body=plain_text_body)
+    return send_email([to_email], subject, html_body="", plain_text_body=plain_text_body)
