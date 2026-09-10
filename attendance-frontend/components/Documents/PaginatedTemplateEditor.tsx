@@ -7,6 +7,8 @@ import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMar
 
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; }
 interface PaginatedTemplateEditorProps { value: string; onChange: (value: string) => void; title: string; }
+type DiagnosticLevel = "info" | "warn" | "error";
+type DiagnosticEntry = { id: number; level: DiagnosticLevel; message: string; details?: string; timestamp: string };
 export const PAGE_HEIGHT = 1120;
 const FIRST_PAGE_CONTENT_HEIGHT = 780;
 const OTHER_PAGE_CONTENT_HEIGHT = 920;
@@ -409,6 +411,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [tableCols, setTableCols] = useState(2);
   const [hoveredRows, setHoveredRows] = useState(2);
   const [hoveredCols, setHoveredCols] = useState(2);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
+  const diagnosticId = useRef(0);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const tableSelection = useRef<Range | null>(null);
   const resizeStart = useRef<{ table: HTMLTableElement; x: number; y: number; width: number; height: number; logicalHeight: number; columnWidths: number[]; rowHeights: number[] } | null>(null);
@@ -419,6 +423,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pendingTableCaret = useRef<{ blockIndex: number; rowIndex: number; cellIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
+  const recordDiagnostic = (level: DiagnosticLevel, message: string, details?: unknown) => {
+    const formattedDetails = details === undefined ? undefined : typeof details === "string" ? details : JSON.stringify(details);
+    const entry: DiagnosticEntry = {
+      id: diagnosticId.current++,
+      level,
+      message,
+      details: formattedDetails,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    setDiagnostics(current => [...current, entry].slice(-100));
+  };
   useEffect(() => {
     const next = splitDynamicTemplateBlocks(value);
     // onInput serializes the live DOM before notifying the parent. Ignore that
@@ -445,7 +460,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const table = fragment?.querySelector<HTMLTableElement>("table");
       const rowStart = Number(table?.dataset.tableRowStart ?? 0);
       const cell = table?.rows[tableCaret.rowIndex - rowStart]?.cells[tableCaret.cellIndex];
-      if (!cell) return;
+      if (!cell) {
+        recordDiagnostic("error", "Could not restore caret in table cell", tableCaret);
+        return;
+      }
       const target = caretTargetAtLogicalOffset(cell, tableCaret.position);
       const textNode = target?.node ?? document.createTextNode("");
       if (!target) cell.appendChild(textNode);
@@ -458,6 +476,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       selection?.addRange(range);
       tableSelection.current = range.cloneRange();
       pendingTableCaret.current = null;
+      recordDiagnostic("info", "Restored caret in table cell", tableCaret);
       return;
     }
     const fragments = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`));
@@ -488,27 +507,45 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         fragmentEnd === caret.position
       );
     });
-    if (!fragment) return;
+    if (!fragment) {
+      recordDiagnostic("error", "Could not find fragment for pending caret", {
+        caret,
+        blockLength,
+        fragmentCount: fragments.length,
+      });
+      return;
+    }
     // This runs after React has committed the replacement blocks but before
     // the browser paints. Restoring in requestAnimationFrame left one frame in
     // which contentEditable could discard the selection in a new empty <p>.
-    restoreCaretInFragment(
-      fragment,
-      caret.position - Number(fragment.dataset.fragmentStart ?? 0),
-      caret,
-      activeSelection,
-      pendingCaret,
-    );
+    try {
+      restoreCaretInFragment(
+        fragment,
+        caret.position - Number(fragment.dataset.fragmentStart ?? 0),
+        caret,
+        activeSelection,
+        pendingCaret,
+      );
+      recordDiagnostic("info", "Restored caret", {
+        blockIndex: caret.blockIndex,
+        position: caret.position,
+      });
+    } catch (error) {
+      recordDiagnostic("error", "Caret restoration failed", error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }, [pages]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
     if (!selection?.rangeCount) {
+      recordDiagnostic("warn", "No browser selection available");
       return;
     }
     const range = selection.getRangeAt(0);
     const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
     const startElement = findFragment(range.startContainer); const endElement = findFragment(range.endContainer);
     if (!startElement || !endElement || startElement.dataset.blockIndex !== endElement.dataset.blockIndex) {
+      recordDiagnostic("warn", "Selection is outside one editable fragment");
       return;
     }
     const findTableCell = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("td, th");
@@ -981,7 +1018,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     updateActiveSelection();
     const active = activeSelection.current;
     const block = blocksRef.current[active.blockIndex];
-    if (block === undefined || isDynamicPageBreak(block)) return;
+    if (block === undefined || isDynamicPageBreak(block)) {
+      recordDiagnostic("error", "Caret action has no editable block", { key: event.key, active });
+      return;
+    }
     event.preventDefault();
     if (event.key === "Enter") {
       const selection = window.getSelection();
@@ -998,8 +1038,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       }
       const before = sliceHtml(block, 0, splitStart);
       const after = sliceHtml(block, splitEnd, textLength(block));
+      recordDiagnostic("info", "Enter pressed", {
+        active,
+        splitStart,
+        splitEnd,
+        blockLength: textLength(block),
+        beforeLength: textLength(before),
+        afterLength: textLength(after),
+      });
       if (!before && !after && textLength(block) === 0) {
         pendingCaret.current = { blockIndex: active.blockIndex + 1, position: 0 };
+        recordDiagnostic("info", "Created empty block after Enter", pendingCaret.current);
         applyBlocks([
           ...blocksRef.current.slice(0, active.blockIndex + 1),
           "",
@@ -1017,6 +1066,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         blockIndex: nextCaretBlock,
         position: 0,
       };
+      recordDiagnostic("info", "Queued caret restoration after Enter", pendingCaret.current);
       applyBlocks([
         ...blocksRef.current.slice(0, active.blockIndex),
         ...beforeBlocks,
@@ -1184,7 +1234,24 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
         </section>
       </div>)} 
-    </div> 
+    </div>
+    <section aria-label="Editor diagnostics" className="mt-3 rounded border border-amber-300 bg-white p-3 text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-ink-800">Live caret diagnostics</h3>
+          <p className="text-ink-500">Reproduce the Enter issue and review the latest editor events.</p>
+        </div>
+        <button type="button" onClick={() => setDiagnostics([])} className="rounded border border-ink-200 px-2 py-1 text-ink-700">Clear</button>
+      </div>
+      <div className="mt-2 max-h-48 overflow-auto rounded bg-ink-50 p-2 font-mono">
+        {diagnostics.length ? diagnostics.map(entry => (
+          <div key={entry.id} className={entry.level === "error" ? "text-red-700" : entry.level === "warn" ? "text-amber-700" : "text-ink-700"}>
+            <span>[{entry.timestamp}] [{entry.level}] {entry.message}</span>
+            {entry.details && <pre className="whitespace-pre-wrap break-words pl-4">{entry.details}</pre>}
+          </div>
+        )) : <p className="text-ink-500">No diagnostics recorded yet.</p>}
+      </div>
+    </section>
     {showTableDialog && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="rounded-lg bg-white p-6 shadow-lg max-w-sm w-full">
