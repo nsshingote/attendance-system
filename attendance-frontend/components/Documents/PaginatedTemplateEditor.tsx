@@ -221,14 +221,6 @@ const tableFragmentForPage = (tableHtml: string, start: number, maxHeight: numbe
   const rows = Array.from(table.rows);
   if (!rows.length) return { html: table.outerHTML, end: 0, rowCount: 0 };
   const visualTable = table.cloneNode(false) as HTMLTableElement;
-  // This is applied to the page-only clone. Resizing never mutates the source
-  // table during pagination; persistTable saves a completed user resize.
-  if (!visualTable.style.minWidth) visualTable.style.minWidth = `${TABLE_MIN_WIDTH_PX}px`;
-  // Height resizing is persisted on individual rows.  Keeping the source
-  // table's *total* height on every page fragment makes each fragment reserve
-  // the full table height, creating the apparent blank space above/below a
-  // table after it has been resized.
-  visualTable.style.removeProperty("height");
   const body = document.createElement("tbody");
   visualTable.appendChild(body);
   let end = start;
@@ -311,8 +303,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [hoveredCols, setHoveredCols] = useState(2);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const tableSelection = useRef<Range | null>(null);
-  const resizingTable = useRef<HTMLTableElement | null>(null);
-  const resizeStart = useRef<{ table: HTMLTableElement; x: number; y: number; width: number; height: number; columnWidths: number[]; rowHeights: number[] } | null>(null);
+  const resizeStart = useRef<{ table: HTMLTableElement; x: number; y: number; width: number; height: number; logicalHeight: number; columnWidths: number[]; rowHeights: number[] } | null>(null);
+  const rowResizeStart = useRef<{ table: HTMLTableElement; rowIndex: number; y: number; heights: number[] } | null>(null);
   const columnResizeStart = useRef<{ table: HTMLTableElement; colIndex: number; x: number; widths: number[] } | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
@@ -352,7 +344,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const range = document.createRange();
       range.setStart(textNode, target?.offset ?? 0);
       range.collapse(true);
-      editor.current?.focus({ preventScroll: true });
+      cell.focus({ preventScroll: true });
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
@@ -373,13 +365,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
     const target = caretTargetAtLogicalOffset(fragment, localPosition);
     if (!target) {
+      const paragraph = fragment.querySelector("p") ?? fragment;
+      const textNode = document.createTextNode("");
+      paragraph.appendChild(textNode);
       const range = document.createRange();
-      // Keep the caret in the fragment's editing host. A range anchored on
-      // the empty structural paragraph can be treated as outside the host by
-      // the browser, so the next native character is lost after Enter.
-      range.setStart(fragment, 0);
+      range.setStart(textNode, 0);
       range.collapse(true);
-      editor.current?.focus({ preventScroll: true });
+      fragment.focus({ preventScroll: true });
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
@@ -396,7 +388,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const range = document.createRange();
     range.setStart(target.node, target.offset);
     range.collapse(true);
-    editor.current.focus({ preventScroll: true });
+    fragment.focus({ preventScroll: true });
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
@@ -579,7 +571,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     return startTable && startTable === endTable ? startTable : null;
   };
   const isTableEdit = (event?: { target: EventTarget | null; nativeEvent?: Event }) => Boolean(editingTable(event));
-  const persistTable = (table: HTMLTableElement) => {
+  const persistTable = (table: HTMLTableElement, resize?: { columnWidths?: number[]; heightScale?: number }) => {
     const fragment = table.closest<HTMLElement>("[data-template-fragment]");
     const blockIndex = Number(fragment?.dataset.blockIndex);
     const currentBlocks = blocksRef.current;
@@ -594,11 +586,23 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const rowEnd = Number(table.dataset.tableRowEnd ?? 0);
     const renderedRows = Array.from(table.rows);
     const sourceRows = Array.from(sourceTable.rows);
+    const sourceRowHeights = sourceRows.map(row => Number.parseFloat(row.style.height) || TABLE_ROW_MIN_HEIGHT_PX);
     // A paginated table edit is valid only when it maps to the exact source
     // row range that pagination rendered. Never replace the source table with
     // a page-local fragment when that mapping is unavailable or inconsistent.
     if (!Number.isInteger(rowStart) || !Number.isInteger(rowEnd) || rowStart < 0 || rowEnd !== rowStart + renderedRows.length || sourceRows.length < rowEnd) return;
     renderedRows.forEach((row, index) => { sourceRows[rowStart + index].outerHTML = row.outerHTML; });
+    if (resize?.columnWidths) {
+      sourceRows.forEach(row => Array.from(row.cells).forEach((cell, index) => {
+        const width = resize.columnWidths?.[index];
+        if (width) cell.style.width = `${Math.max(TABLE_COLUMN_MIN_WIDTH_PX, Math.round(width))}px`;
+      }));
+    }
+    if (resize?.heightScale) {
+      sourceRows.forEach((row, index) => {
+        row.style.height = `${Math.max(TABLE_ROW_MIN_HEIGHT_PX, Math.round(sourceRowHeights[index] * resize.heightScale!))}px`;
+      });
+    }
     const style = table.getAttribute("style");
     if (style !== null) {
       sourceTable.setAttribute("style", style);
@@ -615,6 +619,18 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     return Array.from(firstRow.cells).map(cell => cell.getBoundingClientRect().width);
   };
   const tableRowHeights = (table: HTMLTableElement) => Array.from(table.rows).map(row => row.getBoundingClientRect().height);
+  const logicalTableHeight = (table: HTMLTableElement) => {
+    const fragment = table.closest<HTMLElement>("[data-template-fragment]");
+    const blockIndex = Number(fragment?.dataset.blockIndex);
+    const currentBlock = blocksRef.current[blockIndex];
+    if (!Number.isInteger(blockIndex) || currentBlock === undefined) return tableRowHeights(table).reduce((total, height) => total + height, 0);
+    const source = document.createElement("div");
+    source.innerHTML = currentBlock;
+    const tableIndex = Array.from(fragment?.querySelectorAll("table") ?? []).indexOf(table);
+    const sourceTable = source.querySelectorAll("table")[tableIndex];
+    if (!sourceTable) return tableRowHeights(table).reduce((total, height) => total + height, 0);
+    return Math.max(TABLE_MIN_HEIGHT_PX, Array.from(sourceTable.rows).reduce((total, row) => total + (Number.parseFloat(row.style.height) || TABLE_ROW_MIN_HEIGHT_PX), 0));
+  };
   const applyTableColumnWidths = (table: HTMLTableElement, widths: number[]) => {
     Array.from(table.rows).forEach(row => {
       Array.from(row.cells).forEach((cell, index) => {
@@ -661,6 +677,28 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (colIndex < 0) return null;
     return { table, colIndex };
   };
+  const rowResizeTarget = (event: React.PointerEvent<HTMLDivElement>, table: HTMLTableElement) => {
+    const row = (event.target as HTMLElement).closest<HTMLTableRowElement>("tr");
+    if (!row || !table.contains(row)) return null;
+    const bounds = row.getBoundingClientRect();
+    if (event.clientY < bounds.bottom - 8 || event.clientY > bounds.bottom + 8) return null;
+    const rowIndex = Array.from(table.rows).indexOf(row);
+    return rowIndex >= 0 && rowIndex < table.rows.length - 1 ? { table, rowIndex } : null;
+  };
+  const tableEdgeResizeTarget = (event: React.PointerEvent<HTMLDivElement>, table: HTMLTableElement) => {
+    const bounds = table.getBoundingClientRect();
+    const nearRight = event.clientX >= bounds.right - TABLE_RESIZE_HANDLE_PX;
+    const nearBottom = event.clientY >= bounds.bottom - TABLE_RESIZE_HANDLE_PX;
+    const nearLeft = event.clientX <= bounds.left + TABLE_RESIZE_HANDLE_PX;
+    if (nearRight && nearBottom) return { axis: "both" as const, direction: 1 };
+    if (nearRight && event.clientY >= bounds.top && event.clientY <= bounds.bottom) return { axis: "width" as const, direction: 1 };
+    if (nearLeft && event.clientY >= bounds.top && event.clientY <= bounds.bottom) return { axis: "width" as const, direction: -1 };
+    if (nearBottom && event.clientX >= bounds.left && event.clientX <= bounds.right) return { axis: "height" as const, direction: 1 };
+    return null;
+  };
+  const setResizeSelection = (disabled: boolean) => {
+    document.body.style.userSelect = disabled ? "none" : "";
+  };
   const beginPointerDrag = (move: (event: PointerEvent) => void, up: (event: PointerEvent) => void) => {
     const cleanup = () => {
       window.removeEventListener("pointermove", move);
@@ -678,9 +716,57 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const target = event.target as HTMLElement;
     const table = target.closest<HTMLTableElement>("table");
     if (table) {
+      const edgeTarget = tableEdgeResizeTarget(event, table);
+      if (edgeTarget) {
+        event.preventDefault();
+        setResizeSelection(true);
+        document.body.style.cursor = edgeTarget.axis === "width" ? "ew-resize" : edgeTarget.axis === "height" ? "ns-resize" : "nwse-resize";
+        const bounds = table.getBoundingClientRect();
+        const start = {
+          table,
+          x: event.clientX,
+          y: event.clientY,
+          width: bounds.width,
+          height: bounds.height,
+          logicalHeight: logicalTableHeight(table),
+          columnWidths: tableColumnWidths(table),
+          rowHeights: tableRowHeights(table),
+        };
+        resizeStart.current = start;
+        const move = (moveEvent: PointerEvent) => {
+          if (!resizeStart.current) return;
+          moveEvent.preventDefault();
+          applyTableSize(
+            table,
+            start.width + (edgeTarget.axis === "width" || edgeTarget.axis === "both" ? edgeTarget.direction * (moveEvent.clientX - start.x) : 0),
+            start.height + (edgeTarget.axis === "height" || edgeTarget.axis === "both" ? edgeTarget.direction * (moveEvent.clientY - start.y) : 0),
+            start.width,
+            start.height,
+            start.columnWidths,
+            start.rowHeights,
+          );
+        };
+        const up = (upEvent: PointerEvent) => {
+          resizeCleanup.current?.();
+          document.body.style.cursor = "";
+          setResizeSelection(false);
+          resizeStart.current = null;
+          const heightDelta = edgeTarget.axis === "height" || edgeTarget.axis === "both"
+            ? edgeTarget.direction * (upEvent.clientY - start.y)
+            : 0;
+          const logicalHeight = Math.max(TABLE_MIN_HEIGHT_PX, start.logicalHeight + heightDelta);
+          persistTable(table, {
+            columnWidths: edgeTarget.axis === "width" || edgeTarget.axis === "both" ? tableColumnWidths(table) : undefined,
+            heightScale: edgeTarget.axis === "height" || edgeTarget.axis === "both" ? logicalHeight / start.logicalHeight : undefined,
+          });
+        };
+        beginPointerDrag(move, up);
+        return;
+      }
       const columnTarget = columnResizeTarget(event, table);
       if (columnTarget) {
         event.preventDefault();
+        setResizeSelection(true);
         document.body.style.cursor = "col-resize";
         columnResizeStart.current = {
           table,
@@ -699,68 +785,44 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         const up = () => {
           resizeCleanup.current?.();
           document.body.style.cursor = "";
+          setResizeSelection(false);
           const resizedTable = columnResizeStart.current?.table;
           columnResizeStart.current = null;
+          if (resizedTable) persistTable(resizedTable, { columnWidths: tableColumnWidths(resizedTable) });
+        };
+        beginPointerDrag(move, up);
+        return;
+      }
+      const rowTarget = rowResizeTarget(event, table);
+      if (rowTarget) {
+        event.preventDefault();
+        setResizeSelection(true);
+        document.body.style.cursor = "ns-resize";
+        rowResizeStart.current = {
+          table,
+          rowIndex: rowTarget.rowIndex,
+          y: event.clientY,
+          heights: tableRowHeights(table),
+        };
+        const move = (moveEvent: PointerEvent) => {
+          const start = rowResizeStart.current;
+          if (!start) return;
+          moveEvent.preventDefault();
+          const heights = [...start.heights];
+          heights[start.rowIndex] = Math.max(TABLE_ROW_MIN_HEIGHT_PX, Math.round(start.heights[start.rowIndex] + moveEvent.clientY - start.y));
+          applyTableRowHeights(start.table, heights);
+        };
+        const up = () => {
+          resizeCleanup.current?.();
+          document.body.style.cursor = "";
+          setResizeSelection(false);
+          const resizedTable = rowResizeStart.current?.table;
+          rowResizeStart.current = null;
           if (resizedTable) persistTable(resizedTable);
         };
         beginPointerDrag(move, up);
         return;
       }
-      const bounds = table.getBoundingClientRect();
-      const nearResizeHandle = event.clientX >= bounds.right - TABLE_RESIZE_HANDLE_PX && event.clientY >= bounds.bottom - TABLE_RESIZE_HANDLE_PX;
-      if (!nearResizeHandle) {
-        resizingTable.current = null;
-        resizeStart.current = null;
-        return;
-      }
-      event.preventDefault();
-      document.body.style.cursor = "nwse-resize";
-      resizingTable.current = table;
-      resizeStart.current = {
-        table,
-        x: event.clientX,
-        y: event.clientY,
-        width: bounds.width,
-        height: bounds.height,
-        columnWidths: tableColumnWidths(table),
-        rowHeights: tableRowHeights(table),
-      };
-      const move = (moveEvent: PointerEvent) => {
-        const start = resizeStart.current;
-        if (!start) return;
-        moveEvent.preventDefault();
-        applyTableSize(
-          start.table,
-          start.width + moveEvent.clientX - start.x,
-          start.height + moveEvent.clientY - start.y,
-          start.width,
-          start.height,
-          start.columnWidths,
-          start.rowHeights,
-        );
-      };
-      const up = () => {
-        resizeCleanup.current?.();
-        document.body.style.cursor = "";
-        const start = resizeStart.current;
-        const resizedTable = resizingTable.current;
-        resizingTable.current = null;
-        resizeStart.current = null;
-        if (!resizedTable || !start) return;
-        const resizedBounds = resizedTable.getBoundingClientRect();
-        applyTableSize(
-          resizedTable,
-          resizedBounds.width,
-          resizedBounds.height,
-          start.width,
-          start.height,
-          start.columnWidths,
-          start.rowHeights,
-        );
-        persistTable(resizedTable);
-      };
-      beginPointerDrag(move, up);
-      return;
     }
   };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
