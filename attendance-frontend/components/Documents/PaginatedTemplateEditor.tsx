@@ -227,23 +227,30 @@ const restoreCaretInFragment = (
   activeSelectionRef: MutableRefObject<{ blockIndex: number; start: number; end: number; fragmentStart: number; fragmentEnd: number }>,
   pendingCaretRef: MutableRefObject<{ blockIndex: number; position: number } | null>,
 ) => {
-  const paragraph = fragment.querySelector("p") ?? fragment;
-  const target = caretTargetAtLogicalOffset(fragment, localPosition);
-  const needsTextNodeCaret = !target || isEmptyEditableParagraph(paragraph);
-  if (needsTextNodeCaret) {
+  const paragraph = fragment.querySelector<HTMLElement>("p") ?? fragment;
+
+  // A newly-created empty logical block must receive a real text node.
+  // Do not use a zero-width-space caret anchor because it changes the
+  // logical text model and can cause the browser to relocate the selection.
+  if (localPosition === 0 && isEmptyEditableParagraph(paragraph)) {
+    paragraph.replaceChildren();
+
+    const textNode = document.createTextNode("");
+    paragraph.appendChild(textNode);
+
     const range = document.createRange();
-    paragraph.querySelectorAll("br").forEach(br => br.remove());
-    let textNode = Array.from(paragraph.childNodes).find(node => node.nodeType === Node.TEXT_NODE) as Text | undefined;
-    if (!textNode) {
-      textNode = document.createTextNode("\u200B");
-      paragraph.appendChild(textNode);
-    }
     range.setStart(textNode, 0);
     range.collapse(true);
-    fragment.focus({ preventScroll: true });
+
     const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+
+    fragment.focus({ preventScroll: true });
+
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
     activeSelectionRef.current = {
       blockIndex: caret.blockIndex,
       start: caret.position,
@@ -254,13 +261,27 @@ const restoreCaretInFragment = (
     pendingCaretRef.current = null;
     return;
   }
+
+  const target = caretTargetAtLogicalOffset(fragment, localPosition);
+
+  if (!target) {
+    pendingCaretRef.current = null;
+    return;
+  }
+
   const range = document.createRange();
   range.setStart(target.node, target.offset);
   range.collapse(true);
-  fragment.focus({ preventScroll: true });
+
   const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+
+  fragment.focus({ preventScroll: true });
+
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
   activeSelectionRef.current = {
     blockIndex: caret.blockIndex,
     start: caret.position,
@@ -430,8 +451,16 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       Number(element.dataset.fragmentEnd) === caret.position && caret.position === blockLength
     );
     if (!fragment) return;
-    const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
-    restoreCaretInFragment(fragment, localPosition, caret, activeSelection, pendingCaret);
+    // This runs after React has committed the replacement blocks but before
+    // the browser paints. Restoring in requestAnimationFrame left one frame in
+    // which contentEditable could discard the selection in a new empty <p>.
+    restoreCaretInFragment(
+      fragment,
+      caret.position - Number(fragment.dataset.fragmentStart ?? 0),
+      caret,
+      activeSelection,
+      pendingCaret,
+    );
   }, [pages]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
@@ -1105,7 +1134,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               }
               if (!fragment.text) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
-                  <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}>{"\u200B"}</p>
+                  <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}></p>
                 </div>;
               }
               return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
