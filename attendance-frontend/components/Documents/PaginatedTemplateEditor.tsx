@@ -251,8 +251,8 @@ const restoreCaretInFragment = (
    * selection directly inside that paragraph.
    */
   if (localPosition === 0 && isEmptyEditableParagraph(paragraph)) {
-    paragraph.focus({ preventScroll: true });
-
+    //paragraph.focus({ preventScroll: true });
+      fragment.focus({ preventScroll: true });
     const range = document.createRange();
     range.selectNodeContents(paragraph);
     range.collapse(true);
@@ -1247,7 +1247,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         {diagnostics.length ? diagnostics.map(entry => (
           <div key={entry.id} className={entry.level === "error" ? "text-red-700" : entry.level === "warn" ? "text-amber-700" : "text-ink-700"}>
             <span>[{entry.timestamp}] [{entry.level}] {entry.message}</span>
-            {entry.details && <pre className="whitespace-pre-wrap break-words pl-4">{entry.details}</pre>}
+            {entry.details && <pre className="whitespace-pre-wrap wrap-break-words pl-4">{entry.details}</pre>}
           </div>
         )) : <p className="text-ink-500">No diagnostics recorded yet.</p>}
       </div>
