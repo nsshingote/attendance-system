@@ -54,6 +54,37 @@ export const splitDynamicTemplateBlocks = (value: string) => {
 const stripEditorScaffolding = (html: string) => {
   const source = document.createElement("div");
   source.innerHTML = html;
+  const blockTags = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DIV", "DL", "FIELDSET", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL"]);
+  const removeLayoutWhitespace = (parent: Node) => {
+    Array.from(parent.childNodes).forEach((node, index, nodes) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        removeLayoutWhitespace(node);
+        return;
+      }
+      if (node.nodeType !== Node.TEXT_NODE || !/^\s+$/.test(node.textContent ?? "")) return;
+      const previous = nodes[index - 1];
+      const next = nodes[index + 1];
+      const isRootOnlyWhitespace = parent === source && !Array.from(parent.childNodes).some(child =>
+        child !== node && (child.nodeType === Node.ELEMENT_NODE || (child.nodeType === Node.TEXT_NODE && (child.textContent ?? "").trim()))
+      );
+      if (
+        isRootOnlyWhitespace ||
+        previous?.nodeType === Node.ELEMENT_NODE &&
+        next?.nodeType === Node.ELEMENT_NODE &&
+        blockTags.has((previous as Element).nodeName) &&
+        blockTags.has((next as Element).nodeName)
+      ) {
+        node.remove();
+      } else if (
+        parent === source &&
+        ((previous?.nodeType === Node.ELEMENT_NODE && blockTags.has((previous as Element).nodeName)) ||
+          (next?.nodeType === Node.ELEMENT_NODE && blockTags.has((next as Element).nodeName)))
+      ) {
+        node.remove();
+      }
+    });
+  };
+  removeLayoutWhitespace(source);
   source.querySelectorAll<HTMLElement>("[data-template-editable-block]").forEach(block => {
     if (!block.textContent?.trim() && !block.children.length) {
       block.remove();
