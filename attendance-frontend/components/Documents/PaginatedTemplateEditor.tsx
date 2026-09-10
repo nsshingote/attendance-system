@@ -825,6 +825,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       }
     }
   };
+  const handleEditableFragmentKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    handleKeyDown(event);
+    event.stopPropagation();
+  };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
     if (isTableEdit(event)) {
       tableEditPending.current = true;
@@ -837,7 +841,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // Keep native typing in the live fragment. Serialization still happens,
     // but defer both React re-render and parent onChange so dangerouslySetInnerHTML
     // does not reset the active fragment mid-keystroke.
-    commitDocument(false, false, true);
+    commitDocument(false, false, false);
   };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     const table = editingTable(event);
@@ -1061,11 +1065,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
               }
               if (!fragment.text) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass}>
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
                   <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }} />
                 </div>;
               }
-              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
