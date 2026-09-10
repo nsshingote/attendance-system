@@ -366,10 +366,15 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const target = caretTargetAtLogicalOffset(fragment, localPosition);
     if (!target) {
       const paragraph = fragment.querySelector("p") ?? fragment;
-      const textNode = document.createTextNode("");
-      paragraph.appendChild(textNode);
       const range = document.createRange();
-      range.setStart(textNode, 0);
+      const br = paragraph.querySelector("br");
+      if (br) {
+        range.setStartBefore(br);
+      } else {
+        const textNode = document.createTextNode("");
+        paragraph.appendChild(textNode);
+        range.setStart(textNode, 0);
+      }
       range.collapse(true);
       fragment.focus({ preventScroll: true });
       const selection = window.getSelection();
@@ -844,6 +849,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     commitDocument(false, false, false);
   };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (pendingCaret.current) return;
     const table = editingTable(event);
     if (table && event.relatedTarget instanceof Node && table.contains(event.relatedTarget)) return;
     if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.closest("[data-template-placeholder]")) return;
@@ -1066,7 +1072,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               }
               if (!fragment.text) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
-                  <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }} />
+                  <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}><br /></p>
                 </div>;
               }
               return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
