@@ -224,45 +224,59 @@ const restoreCaretInFragment = (
   fragment: HTMLElement,
   localPosition: number,
   caret: { blockIndex: number; position: number },
-  activeSelectionRef: MutableRefObject<{ blockIndex: number; start: number; end: number; fragmentStart: number; fragmentEnd: number }>,
-  pendingCaretRef: MutableRefObject<{ blockIndex: number; position: number } | null>,
+  activeSelectionRef: MutableRefObject<{
+    blockIndex: number;
+    start: number;
+    end: number;
+    fragmentStart: number;
+    fragmentEnd: number;
+  }>,
+  pendingCaretRef: MutableRefObject<{
+    blockIndex: number;
+    position: number;
+  } | null>,
 ) => {
   const paragraph = fragment.querySelector<HTMLElement>("p") ?? fragment;
 
-  // A newly-created empty logical block must receive a real text node.
-  // Do not use a zero-width-space caret anchor because it changes the
-  // logical text model and can cause the browser to relocate the selection.
-  if (localPosition === 0 && isEmptyEditableParagraph(paragraph)) {
-    paragraph.replaceChildren();
+  const selection = window.getSelection();
+  if (!selection) return;
 
-    const textNode = document.createTextNode("");
-    paragraph.appendChild(textNode);
+  /*
+   * Empty fragment created by Enter.
+   *
+   * Do not try to calculate a text-node offset here.
+   * Give the browser an actual editable paragraph and place the
+   * selection directly inside that paragraph.
+   */
+  if (localPosition === 0 && isEmptyEditableParagraph(paragraph)) {
+    paragraph.focus({ preventScroll: true });
 
     const range = document.createRange();
-    range.setStart(textNode, 0);
+    range.selectNodeContents(paragraph);
     range.collapse(true);
 
-    const selection = window.getSelection();
-
-    fragment.focus({ preventScroll: true });
-
-    if (selection) {
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
+    selection.removeAllRanges();
+    selection.addRange(range);
 
     activeSelectionRef.current = {
       blockIndex: caret.blockIndex,
       start: caret.position,
       end: caret.position,
-      fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
-      fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+      fragmentStart: Number(
+        fragment.dataset.fragmentStart ?? 0,
+      ),
+      fragmentEnd: Number(
+        fragment.dataset.fragmentEnd ?? 0,
+      ),
     };
     pendingCaretRef.current = null;
     return;
   }
 
-  const target = caretTargetAtLogicalOffset(fragment, localPosition);
+  const target = caretTargetAtLogicalOffset(
+    fragment,
+    localPosition,
+  );
 
   if (!target) {
     pendingCaretRef.current = null;
@@ -273,21 +287,26 @@ const restoreCaretInFragment = (
   range.setStart(target.node, target.offset);
   range.collapse(true);
 
-  const selection = window.getSelection();
-
+  /*
+   * Focus the actual editing host first, then install the range.
+   * This is important because the fragment is inside the
+   * contentEditable={false} outer editor.
+   */
   fragment.focus({ preventScroll: true });
 
-  if (selection) {
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
+  selection.removeAllRanges();
+  selection.addRange(range);
 
   activeSelectionRef.current = {
     blockIndex: caret.blockIndex,
     start: caret.position,
     end: caret.position,
-    fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
-    fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+    fragmentStart: Number(
+      fragment.dataset.fragmentStart ?? 0,
+    ),
+    fragmentEnd: Number(
+      fragment.dataset.fragmentEnd ?? 0,
+    ),
   };
   pendingCaretRef.current = null;
 };
@@ -444,12 +463,31 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const fragments = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`));
     const blockLength = textLength(blocksRef.current[caret.blockIndex] ?? "");
     const fragment = fragments.find(element => {
-      const fragmentStart = Number(element.dataset.fragmentStart);
-      const fragmentEnd = Number(element.dataset.fragmentEnd);
-      return caret.position >= fragmentStart && caret.position < fragmentEnd;
-    }) ?? fragments.find(element =>
-      Number(element.dataset.fragmentEnd) === caret.position && caret.position === blockLength
-    );
+      const fragmentStart = Number(element.dataset.fragmentStart ?? 0);
+      const fragmentEnd = Number(element.dataset.fragmentEnd ?? 0);
+
+      // Exact empty fragment: this is the important Enter case.
+      if (
+        caret.position === fragmentStart &&
+        caret.position === fragmentEnd
+      ) {
+        return true;
+      }
+
+      // Normal fragment containing the caret.
+      if (
+        caret.position >= fragmentStart &&
+        caret.position < fragmentEnd
+      ) {
+        return true;
+      }
+
+      // Caret at the very end of the block.
+      return (
+        caret.position === blockLength &&
+        fragmentEnd === caret.position
+      );
+    });
     if (!fragment) return;
     // This runs after React has committed the replacement blocks but before
     // the browser paints. Restoring in requestAnimationFrame left one frame in
@@ -975,7 +1013,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const beforeBlocks = before ? splitDynamicTemplateBlocks(before) : [""];
       const afterBlocks = after ? splitDynamicTemplateBlocks(after) : [""];
       const nextCaretBlock = active.blockIndex + beforeBlocks.length;
-      pendingCaret.current = { blockIndex: nextCaretBlock, position: 0 };
+      pendingCaret.current = {
+        blockIndex: nextCaretBlock,
+        position: 0,
+      };
       applyBlocks([
         ...blocksRef.current.slice(0, active.blockIndex),
         ...beforeBlocks,
