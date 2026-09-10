@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, MutableRefObject, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
@@ -212,6 +212,64 @@ const caretTargetAtLogicalOffset = (container: HTMLElement, target: number) => {
   };
   return visit(container) ?? fallback;
 };
+const isEmptyEditableParagraph = (paragraph: HTMLElement) => {
+  const text = paragraph.textContent?.replace(/\u200B/g, "") ?? "";
+  if (text.trim()) return false;
+  if (!paragraph.childNodes.length) return true;
+  return Array.from(paragraph.childNodes).every(node =>
+    node.nodeType === Node.ELEMENT_NODE && (node as Element).nodeName === "BR"
+  );
+};
+const restoreCaretInFragment = (
+  fragment: HTMLElement,
+  localPosition: number,
+  caret: { blockIndex: number; position: number },
+  activeSelectionRef: MutableRefObject<{ blockIndex: number; start: number; end: number; fragmentStart: number; fragmentEnd: number }>,
+  pendingCaretRef: MutableRefObject<{ blockIndex: number; position: number } | null>,
+) => {
+  const paragraph = fragment.querySelector("p") ?? fragment;
+  const target = caretTargetAtLogicalOffset(fragment, localPosition);
+  const needsTextNodeCaret = !target || isEmptyEditableParagraph(paragraph);
+  if (needsTextNodeCaret) {
+    const range = document.createRange();
+    paragraph.querySelectorAll("br").forEach(br => br.remove());
+    let textNode = Array.from(paragraph.childNodes).find(node => node.nodeType === Node.TEXT_NODE) as Text | undefined;
+    if (!textNode) {
+      textNode = document.createTextNode("\u200B");
+      paragraph.appendChild(textNode);
+    }
+    range.setStart(textNode, 0);
+    range.collapse(true);
+    fragment.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    activeSelectionRef.current = {
+      blockIndex: caret.blockIndex,
+      start: caret.position,
+      end: caret.position,
+      fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+      fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+    };
+    pendingCaretRef.current = null;
+    return;
+  }
+  const range = document.createRange();
+  range.setStart(target.node, target.offset);
+  range.collapse(true);
+  fragment.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  activeSelectionRef.current = {
+    blockIndex: caret.blockIndex,
+    start: caret.position,
+    end: caret.position,
+    fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+    fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
+  };
+  pendingCaretRef.current = null;
+};
 const fragmentForHeight = (html: string, maxHeight: number, geometry?: DynamicPaginationGeometry) => {
   const length = textLength(html);
   if (blockHeight(html, geometry) <= maxHeight) return length;
@@ -373,50 +431,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     );
     if (!fragment) return;
     const localPosition = caret.position - Number(fragment.dataset.fragmentStart);
-    const target = caretTargetAtLogicalOffset(fragment, localPosition);
-    if (!target) {
-      const paragraph = fragment.querySelector("p") ?? fragment;
-      const range = document.createRange();
-      const br = paragraph.querySelector("br");
-      // A range placed immediately before the placeholder <br> in a newly
-      // created block is not a reliable text insertion point in Chrome. It
-      // can move selection outside the nested contentEditable area (to the
-      // page footer). Replace that placeholder with a real empty text node
-      // and put the caret inside it instead.
-      br?.remove();
-      const textNode = document.createTextNode("");
-      paragraph.appendChild(textNode);
-      range.setStart(textNode, 0);
-      range.collapse(true);
-      fragment.focus({ preventScroll: true });
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      activeSelection.current = {
-        blockIndex: caret.blockIndex,
-        start: caret.position,
-        end: caret.position,
-        fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
-        fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
-      };
-      pendingCaret.current = null;
-      return;
-    }
-    const range = document.createRange();
-    range.setStart(target.node, target.offset);
-    range.collapse(true);
-    fragment.focus({ preventScroll: true });
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    activeSelection.current = {
-      blockIndex: caret.blockIndex,
-      start: caret.position,
-      end: caret.position,
-      fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
-      fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
-    };
-    pendingCaret.current = null;
+    restoreCaretInFragment(fragment, localPosition, caret, activeSelection, pendingCaret);
   }, [pages]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
@@ -917,6 +932,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const before = sliceHtml(block, 0, splitStart);
       const after = sliceHtml(block, splitEnd, textLength(block));
       if (!before && !after && textLength(block) === 0) {
+        pendingCaret.current = { blockIndex: active.blockIndex + 1, position: 0 };
+        applyBlocks([
+          ...blocksRef.current.slice(0, active.blockIndex + 1),
+          "",
+          ...blocksRef.current.slice(active.blockIndex + 1),
+        ]);
         return;
       }
       // Keep each line in its own logical block. Keeping the synthetic line
@@ -1084,7 +1105,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               }
               if (!fragment.text) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
-                  <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}><br /></p>
+                  <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}>{"\u200B"}</p>
                 </div>;
               }
               return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
