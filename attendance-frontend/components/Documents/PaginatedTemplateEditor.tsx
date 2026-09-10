@@ -378,13 +378,15 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       const paragraph = fragment.querySelector("p") ?? fragment;
       const range = document.createRange();
       const br = paragraph.querySelector("br");
-      if (br) {
-        range.setStartBefore(br);
-      } else {
-        const textNode = document.createTextNode("");
-        paragraph.appendChild(textNode);
-        range.setStart(textNode, 0);
-      }
+      // A range placed immediately before the placeholder <br> in a newly
+      // created block is not a reliable text insertion point in Chrome. It
+      // can move selection outside the nested contentEditable area (to the
+      // page footer). Replace that placeholder with a real empty text node
+      // and put the caret inside it instead.
+      br?.remove();
+      const textNode = document.createTextNode("");
+      paragraph.appendChild(textNode);
+      range.setStart(textNode, 0);
       range.collapse(true);
       fragment.focus({ preventScroll: true });
       const selection = window.getSelection();
