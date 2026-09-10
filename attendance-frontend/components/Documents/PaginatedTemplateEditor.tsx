@@ -60,6 +60,16 @@ const stripEditorScaffolding = (html: string) => {
     block.removeAttribute("data-template-editable-block");
     block.style.removeProperty("min-height");
     block.style.removeProperty("margin");
+    const hasText = Boolean(block.textContent?.trim());
+    const lastChild = block.lastChild;
+    if (
+      hasText &&
+      lastChild &&
+      lastChild.nodeType === Node.ELEMENT_NODE &&
+      (lastChild as Element).nodeName === "BR"
+    ) {
+      lastChild.remove();
+    }
   });
   const serialized = source.innerHTML;
   return serialized === "<p></p>" ? "" : serialized;
