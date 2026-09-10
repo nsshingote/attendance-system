@@ -251,14 +251,18 @@ const restoreCaretInFragment = (
    * selection directly inside that paragraph.
    */
   if (localPosition === 0 && isEmptyEditableParagraph(paragraph)) {
-    //paragraph.focus({ preventScroll: true });
-      fragment.focus({ preventScroll: true });
+    fragment.focus({ preventScroll: true });
     const range = document.createRange();
     range.selectNodeContents(paragraph);
     range.collapse(true);
 
     selection.removeAllRanges();
     selection.addRange(range);
+    if (!fragment.contains(selection.anchorNode)) {
+      paragraph.focus({ preventScroll: true });
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
 
     activeSelectionRef.current = {
       blockIndex: caret.blockIndex,
@@ -298,6 +302,12 @@ const restoreCaretInFragment = (
 
   selection.removeAllRanges();
   selection.addRange(range);
+  if (!fragment.contains(selection.anchorNode)) {
+    const editableParagraph = target.node.parentElement?.closest<HTMLElement>("p");
+    editableParagraph?.focus({ preventScroll: true });
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
 
   activeSelectionRef.current = {
     blockIndex: caret.blockIndex,
@@ -432,7 +442,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       details: formattedDetails,
       timestamp: new Date().toLocaleTimeString(),
     };
-    setDiagnostics(current => [...current, entry].slice(-100));
+    // Do not synchronously re-render the contentEditable tree while a browser
+    // selection is being installed; that can move the caret to a non-editable
+    // footer before the browser finishes applying the range.
+    window.setTimeout(() => setDiagnostics(current => [...current, entry].slice(-100)), 0);
   };
   useEffect(() => {
     const next = splitDynamicTemplateBlocks(value);
@@ -447,6 +460,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
+    recordDiagnostic("info", "Caret restoration effect started", caret ?? pendingTableCaret.current ?? "none");
     if (!editor.current) return;
     if (!caret) {
       const tableCaret = pendingTableCaret.current;
@@ -464,6 +478,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         recordDiagnostic("error", "Could not restore caret in table cell", tableCaret);
         return;
       }
+      recordDiagnostic("info", "Located table caret cell", {
+        rowStart,
+        rowIndex: tableCaret.rowIndex,
+        cellIndex: tableCaret.cellIndex,
+      });
       const target = caretTargetAtLogicalOffset(cell, tableCaret.position);
       const textNode = target?.node ?? document.createTextNode("");
       if (!target) cell.appendChild(textNode);
@@ -476,10 +495,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       selection?.addRange(range);
       tableSelection.current = range.cloneRange();
       pendingTableCaret.current = null;
-      recordDiagnostic("info", "Restored caret in table cell", tableCaret);
+      recordDiagnostic("info", "Restored caret in table cell", {
+        ...tableCaret,
+        selectionInsideCell: Boolean(selection?.anchorNode && cell.contains(selection.anchorNode)),
+      });
       return;
     }
-    const fragments = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"]`));
+    const fragments = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"][contenteditable="true"]`));
     const blockLength = textLength(blocksRef.current[caret.blockIndex] ?? "");
     const fragment = fragments.find(element => {
       const fragmentStart = Number(element.dataset.fragmentStart ?? 0);
@@ -515,6 +537,14 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       });
       return;
     }
+    recordDiagnostic("info", "Selected caret fragment", {
+      blockIndex: caret.blockIndex,
+      localPosition: caret.position - Number(fragment.dataset.fragmentStart ?? 0),
+      fragmentStart: fragment.dataset.fragmentStart,
+      fragmentEnd: fragment.dataset.fragmentEnd,
+      contentEditable: fragment.contentEditable,
+      htmlPreview: fragment.innerHTML.slice(0, 160),
+    });
     // This runs after React has committed the replacement blocks but before
     // the browser paints. Restoring in requestAnimationFrame left one frame in
     // which contentEditable could discard the selection in a new empty <p>.
@@ -526,9 +556,41 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         activeSelection,
         pendingCaret,
       );
+      const selection = window.getSelection();
+      const selectionInsideFragment = Boolean(selection?.anchorNode && fragment.contains(selection.anchorNode));
       recordDiagnostic("info", "Restored caret", {
         blockIndex: caret.blockIndex,
         position: caret.position,
+        selectionInsideFragment,
+        anchorNode: selection?.anchorNode?.nodeName ?? null,
+        anchorOffset: selection?.anchorOffset ?? null,
+      });
+      if (!selectionInsideFragment) {
+        recordDiagnostic("error", "Browser moved caret outside target fragment", {
+          targetBlockIndex: caret.blockIndex,
+          targetHtml: fragment.innerHTML.slice(0, 240),
+          selectionAnchor: selection?.anchorNode?.parentElement?.outerHTML.slice(0, 240) ?? null,
+        });
+      }
+      window.requestAnimationFrame(() => {
+        const latestSelection = window.getSelection();
+        if (latestSelection?.anchorNode && fragment.contains(latestSelection.anchorNode)) return;
+        recordDiagnostic("warn", "Caret changed after render; retrying target restoration", {
+          targetBlockIndex: caret.blockIndex,
+          selectionAnchor: latestSelection?.anchorNode?.parentElement?.outerHTML.slice(0, 240) ?? null,
+        });
+        restoreCaretInFragment(
+          fragment,
+          caret.position - Number(fragment.dataset.fragmentStart ?? 0),
+          caret,
+          activeSelection,
+          pendingCaret,
+        );
+        const retrySelection = window.getSelection();
+        recordDiagnostic("info", "Caret restoration retry completed", {
+          selectionInsideFragment: Boolean(retrySelection?.anchorNode && fragment.contains(retrySelection.anchorNode)),
+          anchorNode: retrySelection?.anchorNode?.nodeName ?? null,
+        });
       });
     } catch (error) {
       recordDiagnostic("error", "Caret restoration failed", error instanceof Error ? error.message : String(error));
@@ -1023,6 +1085,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       return;
     }
     event.preventDefault();
+    recordDiagnostic("info", "Handled caret keydown and prevented browser default", { key: event.key });
     if (event.key === "Enter") {
       const selection = window.getSelection();
       let splitStart = active.start;
@@ -1034,6 +1097,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         if (fragment) {
           const fragmentStart = Number(fragment.dataset.fragmentStart ?? 0);
           splitStart = splitEnd = fragmentStart + textOffsetInContainer(fragment, range.startContainer, range.startOffset);
+          recordDiagnostic("info", "Read live browser selection before split", {
+            anchorNode: range.startContainer.nodeName,
+            anchorOffset: range.startOffset,
+            fragmentStart,
+            computedPosition: splitStart,
+          });
         }
       }
       const before = sliceHtml(block, 0, splitStart);
@@ -1054,6 +1123,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           "",
           ...blocksRef.current.slice(active.blockIndex + 1),
         ]);
+        recordDiagnostic("info", "Applied blocks for empty Enter", { blockCount: blocksRef.current.length });
         return;
       }
       // Keep each line in its own logical block. Keeping the synthetic line
@@ -1073,6 +1143,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         ...afterBlocks,
         ...blocksRef.current.slice(active.blockIndex + 1),
       ]);
+      recordDiagnostic("info", "Applied blocks after Enter split", {
+        blockCount: blocksRef.current.length,
+        blockLengths: blocksRef.current.map(textLength),
+      });
       return;
     }
     if (active.start !== active.end) { replaceActiveSelection(""); return; }
