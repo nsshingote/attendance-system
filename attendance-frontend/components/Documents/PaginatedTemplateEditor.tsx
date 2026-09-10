@@ -837,7 +837,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // Keep native typing in the live fragment. Serialization still happens,
     // but defer both React re-render and parent onChange so dangerouslySetInnerHTML
     // does not reset the active fragment mid-keystroke.
-    commitDocument(false, false, false);
+    commitDocument(false, false, true);
   };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     const table = editingTable(event);
