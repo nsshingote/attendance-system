@@ -84,6 +84,9 @@ const stripEditorScaffolding = (html: string) => {
         lastChild.remove();
       }
     });
+  source.querySelectorAll<HTMLElement>("p").forEach(paragraph => {
+    paragraph.style.setProperty("margin", "0");
+  });
   const serialized = source.innerHTML;
   return serialized === "<p></p>" ? "" : serialized;
 };
