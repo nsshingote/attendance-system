@@ -1295,14 +1295,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline.split(" ").map((word, wordIndex, words) => <span key={`${word}-${wordIndex}`} className={wordIndex < words.length - 1 ? "mr-1 inline-block" : "inline-block"}>{word}</span>)}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
-            {page.fragments.map((fragment, fragmentIndex) => {
+            {page.fragments.map(fragment => {
               const isTable = /^<table\b/i.test(fragment.text.trim());
-              const hasFollowingContent = fragmentIndex < page.fragments.length - 1;
-              const previousFragment = page.fragments[fragmentIndex - 1]?.text.trim() ?? "";
-              const nextFragment = page.fragments[fragmentIndex + 1]?.text.trim() ?? "";
-              const adjacentToTable = /^<table\b/i.test(previousFragment) || /^<table\b/i.test(nextFragment);
-              const addParagraphSpacing = hasFollowingContent && !isTable && !adjacentToTable;
-              const fragmentClass = `w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-[''] ${addParagraphSpacing ? "mb-3" : ""}`;
+              const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
               if (isTable) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
               }
