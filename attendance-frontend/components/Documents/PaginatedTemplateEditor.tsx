@@ -671,6 +671,43 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           fragment.contains(document.activeElement),
       ),
     });
+
+    const logDelayedCaretState = (label: string) => {
+      const delayedSelection = window.getSelection();
+      console.info(label, {
+          activeElementOuterHTML:
+            document.activeElement?.outerHTML?.slice(0, 1000) ?? null,
+          anchorParentOuterHTML:
+            delayedSelection?.anchorNode?.parentElement?.outerHTML?.slice(
+              0,
+              1000,
+            ) ?? null,
+          anchorOffset: delayedSelection?.anchorOffset ?? null,
+          focusParentOuterHTML:
+            delayedSelection?.focusNode?.parentElement?.outerHTML?.slice(
+              0,
+              1000,
+            ) ?? null,
+          focusOffset: delayedSelection?.focusOffset ?? null,
+          rangeCount: delayedSelection?.rangeCount ?? 0,
+          selectionAnchorInsideTargetFragment: Boolean(
+            delayedSelection?.anchorNode &&
+              fragment.contains(delayedSelection.anchorNode),
+          ),
+          activeElementInsideTargetFragment: Boolean(
+            document.activeElement &&
+              fragment.contains(document.activeElement),
+          ),
+      });
+    };
+
+    window.requestAnimationFrame(() => {
+      logDelayedCaretState("AFTER RESTORE RAF");
+    });
+
+    window.setTimeout(() => {
+      logDelayedCaretState("AFTER RESTORE TIMEOUT");
+    }, 50);
   }, [blocks]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
