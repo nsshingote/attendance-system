@@ -598,6 +598,41 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
 
     // React has committed the new DOM. Restore into the fragment chosen
     // above; do not run a second boundary-ambiguous lookup.
+    const selectionBeforeRestore = window.getSelection();
+    const rangeBeforeRestore = selectionBeforeRestore?.rangeCount
+      ? selectionBeforeRestore.getRangeAt(0)
+      : null;
+    const selectionAnchorBeforeRestore = selectionBeforeRestore?.anchorNode;
+    const selectionAnchorElementBeforeRestore =
+      selectionAnchorBeforeRestore instanceof Element
+        ? selectionAnchorBeforeRestore
+        : selectionAnchorBeforeRestore?.parentElement;
+    console.log("BEFORE CARET RESTORE", {
+      targetFragmentOuterHTML: fragment.outerHTML.slice(0, 1000),
+      activeElement: document.activeElement,
+      anchorNode: selectionAnchorBeforeRestore,
+      anchorOffset: selectionBeforeRestore?.anchorOffset ?? null,
+      focusNode: selectionBeforeRestore?.focusNode ?? null,
+      focusOffset: selectionBeforeRestore?.focusOffset ?? null,
+      rangeCount: selectionBeforeRestore?.rangeCount ?? 0,
+      commonAncestorContainer:
+        rangeBeforeRestore?.commonAncestorContainer ?? null,
+      activeElementInsideTemplateFragment:
+        document.activeElement instanceof Element &&
+        Boolean(
+          document.activeElement.closest("[data-template-fragment]"),
+        ),
+      selectionAnchorInsideTemplateFragment:
+        Boolean(
+          selectionAnchorElementBeforeRestore?.closest(
+            "[data-template-fragment]",
+          ),
+        ),
+      blockIndex: fragment.dataset.blockIndex,
+      fragmentStart: fragment.dataset.fragmentStart,
+      fragmentEnd: fragment.dataset.fragmentEnd,
+    });
+
     restoreCaretInFragment(
       fragment,
       caret.position - Number(fragment.dataset.fragmentStart ?? 0),
@@ -605,6 +640,41 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       activeSelection,
       pendingCaret,
     );
+
+    const selectionAfterRestore = window.getSelection();
+    const rangeAfterRestore = selectionAfterRestore?.rangeCount
+      ? selectionAfterRestore.getRangeAt(0)
+      : null;
+    const selectionAnchorAfterRestore = selectionAfterRestore?.anchorNode;
+    const selectionAnchorElementAfterRestore =
+      selectionAnchorAfterRestore instanceof Element
+        ? selectionAnchorAfterRestore
+        : selectionAnchorAfterRestore?.parentElement;
+    console.log("AFTER CARET RESTORE", {
+      targetFragmentOuterHTML: fragment.outerHTML.slice(0, 1000),
+      activeElement: document.activeElement,
+      anchorNode: selectionAnchorAfterRestore,
+      anchorOffset: selectionAfterRestore?.anchorOffset ?? null,
+      focusNode: selectionAfterRestore?.focusNode ?? null,
+      focusOffset: selectionAfterRestore?.focusOffset ?? null,
+      rangeCount: selectionAfterRestore?.rangeCount ?? 0,
+      commonAncestorContainer:
+        rangeAfterRestore?.commonAncestorContainer ?? null,
+      activeElementInsideTemplateFragment:
+        document.activeElement instanceof Element &&
+        Boolean(
+          document.activeElement.closest("[data-template-fragment]"),
+        ),
+      selectionAnchorInsideTemplateFragment:
+        Boolean(
+          selectionAnchorElementAfterRestore?.closest(
+            "[data-template-fragment]",
+          ),
+        ),
+      blockIndex: fragment.dataset.blockIndex,
+      fragmentStart: fragment.dataset.fragmentStart,
+      fragmentEnd: fragment.dataset.fragmentEnd,
+    });
   }, [blocks]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
