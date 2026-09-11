@@ -288,7 +288,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
           {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
           <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: pageIndex === 0 ? "780px" : "920px" }} className="shrink-0 overflow-hidden">
             {page.fragments.map((fragment, fragmentIndex) => {
-              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} className="[&_p]:m-0 whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
+              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} className="[&_p]:m-0! whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: fragment.text || "" }} />;
             })}
           </div>
           <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
