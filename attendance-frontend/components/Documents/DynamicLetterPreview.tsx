@@ -44,9 +44,22 @@ const sliceHtml = (html: string, start: number, end: number) => {
 const normalizePreviewHtml = (html: string) => {
   const container = document.createElement("div");
   container.innerHTML = html;
-  container.querySelectorAll("p").forEach(paragraph => {
-    paragraph.style.setProperty("margin", "0");
-  });
+  const visit = (node: Node) => {
+    Array.from(node.childNodes).forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE && !child.textContent?.trim()) {
+        child.remove();
+        return;
+      }
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const element = child as HTMLElement;
+        if (/^(P|DIV|H1|H2|H3|H4|H5|H6|UL|OL|BLOCKQUOTE)$/.test(element.nodeName)) {
+          element.style.setProperty("margin", "0");
+        }
+        visit(element);
+      }
+    });
+  };
+  visit(container);
   return container.innerHTML;
 };
 
