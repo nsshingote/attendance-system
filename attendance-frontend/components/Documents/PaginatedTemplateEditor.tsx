@@ -488,6 +488,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
+    if (caret) {
+      console.info("CARET RESTORE START", {
+        blockIndex: caret.blockIndex,
+        position: caret.position,
+      });
+    }
 
     if (!editor.current) return;
 
@@ -594,43 +600,41 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       );
     });
 
+    console.info("CARET TARGET FRAGMENT", {
+      exists: Boolean(fragment),
+      outerHTML: fragment?.outerHTML.slice(0, 1000) ?? null,
+      blockIndex: fragment?.dataset.blockIndex ?? null,
+      fragmentStart: fragment?.dataset.fragmentStart ?? null,
+      fragmentEnd: fragment?.dataset.fragmentEnd ?? null,
+    });
+
     if (!fragment) return;
 
     // React has committed the new DOM. Restore into the fragment chosen
     // above; do not run a second boundary-ambiguous lookup.
+    const paragraph = fragment.querySelector<HTMLElement>("p") ?? fragment;
     const selectionBeforeRestore = window.getSelection();
-    const rangeBeforeRestore = selectionBeforeRestore?.rangeCount
-      ? selectionBeforeRestore.getRangeAt(0)
-      : null;
-    const selectionAnchorBeforeRestore = selectionBeforeRestore?.anchorNode;
-    const selectionAnchorElementBeforeRestore =
-      selectionAnchorBeforeRestore instanceof Element
-        ? selectionAnchorBeforeRestore
-        : selectionAnchorBeforeRestore?.parentElement;
-    console.log("BEFORE CARET RESTORE", {
-      targetFragmentOuterHTML: fragment.outerHTML.slice(0, 1000),
-      activeElement: document.activeElement,
-      anchorNode: selectionAnchorBeforeRestore,
+    console.info("TARGET EDITING HOST", {
+      fragmentIsContentEditable: fragment.isContentEditable,
+      parentIsContentEditable: fragment.parentElement?.isContentEditable ?? null,
+      paragraphIsContentEditable: paragraph.isContentEditable,
+    });
+    console.info("BEFORE RESTORE", {
+      activeElementOuterHTML:
+        document.activeElement?.outerHTML?.slice(0, 1000) ?? null,
+      anchorParentOuterHTML:
+        selectionBeforeRestore?.anchorNode?.parentElement?.outerHTML?.slice(
+          0,
+          1000,
+        ) ?? null,
       anchorOffset: selectionBeforeRestore?.anchorOffset ?? null,
-      focusNode: selectionBeforeRestore?.focusNode ?? null,
+      focusParentOuterHTML:
+        selectionBeforeRestore?.focusNode?.parentElement?.outerHTML?.slice(
+          0,
+          1000,
+        ) ?? null,
       focusOffset: selectionBeforeRestore?.focusOffset ?? null,
       rangeCount: selectionBeforeRestore?.rangeCount ?? 0,
-      commonAncestorContainer:
-        rangeBeforeRestore?.commonAncestorContainer ?? null,
-      activeElementInsideTemplateFragment:
-        document.activeElement instanceof Element &&
-        Boolean(
-          document.activeElement.closest("[data-template-fragment]"),
-        ),
-      selectionAnchorInsideTemplateFragment:
-        Boolean(
-          selectionAnchorElementBeforeRestore?.closest(
-            "[data-template-fragment]",
-          ),
-        ),
-      blockIndex: fragment.dataset.blockIndex,
-      fragmentStart: fragment.dataset.fragmentStart,
-      fragmentEnd: fragment.dataset.fragmentEnd,
     });
 
     restoreCaretInFragment(
@@ -642,38 +646,30 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     );
 
     const selectionAfterRestore = window.getSelection();
-    const rangeAfterRestore = selectionAfterRestore?.rangeCount
-      ? selectionAfterRestore.getRangeAt(0)
-      : null;
-    const selectionAnchorAfterRestore = selectionAfterRestore?.anchorNode;
-    const selectionAnchorElementAfterRestore =
-      selectionAnchorAfterRestore instanceof Element
-        ? selectionAnchorAfterRestore
-        : selectionAnchorAfterRestore?.parentElement;
-    console.log("AFTER CARET RESTORE", {
-      targetFragmentOuterHTML: fragment.outerHTML.slice(0, 1000),
-      activeElement: document.activeElement,
-      anchorNode: selectionAnchorAfterRestore,
+    console.info("AFTER RESTORE", {
+      activeElementOuterHTML:
+        document.activeElement?.outerHTML?.slice(0, 1000) ?? null,
+      anchorParentOuterHTML:
+        selectionAfterRestore?.anchorNode?.parentElement?.outerHTML?.slice(
+          0,
+          1000,
+        ) ?? null,
       anchorOffset: selectionAfterRestore?.anchorOffset ?? null,
-      focusNode: selectionAfterRestore?.focusNode ?? null,
+      focusParentOuterHTML:
+        selectionAfterRestore?.focusNode?.parentElement?.outerHTML?.slice(
+          0,
+          1000,
+        ) ?? null,
       focusOffset: selectionAfterRestore?.focusOffset ?? null,
       rangeCount: selectionAfterRestore?.rangeCount ?? 0,
-      commonAncestorContainer:
-        rangeAfterRestore?.commonAncestorContainer ?? null,
-      activeElementInsideTemplateFragment:
-        document.activeElement instanceof Element &&
-        Boolean(
-          document.activeElement.closest("[data-template-fragment]"),
-        ),
-      selectionAnchorInsideTemplateFragment:
-        Boolean(
-          selectionAnchorElementAfterRestore?.closest(
-            "[data-template-fragment]",
-          ),
-        ),
-      blockIndex: fragment.dataset.blockIndex,
-      fragmentStart: fragment.dataset.fragmentStart,
-      fragmentEnd: fragment.dataset.fragmentEnd,
+      selectionAnchorInsideTargetFragment: Boolean(
+        selectionAfterRestore?.anchorNode &&
+          fragment.contains(selectionAfterRestore.anchorNode),
+      ),
+      activeElementInsideTargetFragment: Boolean(
+        document.activeElement &&
+          fragment.contains(document.activeElement),
+      ),
     });
   }, [blocks]);
   const updateActiveSelection = () => {
