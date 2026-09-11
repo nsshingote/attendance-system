@@ -7,8 +7,6 @@ import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMar
 
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; }
 interface PaginatedTemplateEditorProps { value: string; onChange: (value: string) => void; title: string; }
-type DiagnosticLevel = "info" | "warn" | "error";
-type DiagnosticEntry = { id: number; level: DiagnosticLevel; message: string; details?: string; timestamp: string };
 export const PAGE_HEIGHT = 1120;
 const FIRST_PAGE_CONTENT_HEIGHT = 780;
 const OTHER_PAGE_CONTENT_HEIGHT = 920;
@@ -449,8 +447,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const [tableCols, setTableCols] = useState(2);
   const [hoveredRows, setHoveredRows] = useState(2);
   const [hoveredCols, setHoveredCols] = useState(2);
-  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
-  const diagnosticId = useRef(0);
   const activeSelection = useRef({ blockIndex: 0, start: 0, end: 0, fragmentStart: 0, fragmentEnd: 0 });
   const tableSelection = useRef<Range | null>(null);
   const resizeStart = useRef<{ table: HTMLTableElement; x: number; y: number; width: number; height: number; logicalHeight: number; columnWidths: number[]; rowHeights: number[] } | null>(null);
@@ -462,19 +458,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
   const lastInternalValue = useRef<string | null>(null);
-  const recordDiagnostic = (level: DiagnosticLevel, message: string, details?: unknown) => {
-    const formattedDetails = details === undefined ? undefined : typeof details === "string" ? details : JSON.stringify(details);
-    const entry: DiagnosticEntry = {
-      id: diagnosticId.current++,
-      level,
-      message,
-      details: formattedDetails,
-      timestamp: new Date().toLocaleTimeString(),
-    };
-    // Do not synchronously re-render the contentEditable tree while a browser
-    // selection is being installed; that can move the caret to a non-editable
-    // footer before the browser finishes applying the range.
-    window.setTimeout(() => setDiagnostics(current => [...current, entry].slice(-100)), 0);
+  const recordDiagnostic = (_level: string, _message: string, _details?: unknown) => {
+    // Retained as a no-op while the editor's temporary diagnostics are removed.
+    void _level;
+    void _message;
+    void _details;
   };
   useEffect(() => {
     const next = splitDynamicTemplateBlocks(value);
@@ -678,7 +666,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       .filter(fragment => Number(fragment.dataset.blockIndex) === active.blockIndex);
     return fragments[fragments.length - 1] === current ? textLength(block) : active.fragmentEnd;
   };
-  const replaceActiveSelection = (replacement: string) => {
+  const replaceActiveSelection = (replacement: string, caretPosition?: number) => {
     const range = tableSelection.current;
     const tableCell = range && (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement)?.closest<HTMLElement>("td, th");
     const tableFragment = tableCell?.closest<HTMLElement>("[data-template-fragment]");
@@ -705,7 +693,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     }
     const active = activeSelection.current; const block = blocksRef.current[active.blockIndex]; if (block === undefined || isDynamicPageBreak(block)) return;
     const nextValue = `${sliceHtml(block, 0, active.start)}${replacement}${sliceHtml(block, active.end, textLength(block))}`;
-    pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + replacement.length };
+    pendingCaret.current = {
+      blockIndex: active.blockIndex,
+      position: caretPosition ?? active.start + replacement.length,
+    };
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)]);
   };
   const insertPageBreak = () => {
@@ -1168,8 +1159,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     }
     if (active.start !== active.end) { replaceActiveSelection(""); return; }
     if (event.key === "Backspace" && active.start > 0) {
+      const caretPosition = active.start - 1;
       activeSelection.current = { ...active, start: active.start - 1 };
-      replaceActiveSelection("");
+      replaceActiveSelection("", caretPosition);
       return;
     }
     if (event.key === "Delete" && active.end < textLength(block)) {
@@ -1326,23 +1318,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         </section>
       </div>)} 
     </div>
-    <section aria-label="Editor diagnostics" className="mt-3 rounded border border-amber-300 bg-white p-3 text-xs">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-ink-800">Live caret diagnostics</h3>
-          <p className="text-ink-500">Reproduce the Enter issue and review the latest editor events.</p>
-        </div>
-        <button type="button" onClick={() => setDiagnostics([])} className="rounded border border-ink-200 px-2 py-1 text-ink-700">Clear</button>
-      </div>
-      <div className="mt-2 max-h-48 overflow-auto rounded bg-ink-50 p-2 font-mono">
-        {diagnostics.length ? diagnostics.map(entry => (
-          <div key={entry.id} className={entry.level === "error" ? "text-red-700" : entry.level === "warn" ? "text-amber-700" : "text-ink-700"}>
-            <span>[{entry.timestamp}] [{entry.level}] {entry.message}</span>
-            {entry.details && <pre className="whitespace-pre-wrap wrap-break-words pl-4">{entry.details}</pre>}
-          </div>
-        )) : <p className="text-ink-500">No diagnostics recorded yet.</p>}
-      </div>
-    </section>
     {showTableDialog && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="rounded-lg bg-white p-6 shadow-lg max-w-sm w-full">
