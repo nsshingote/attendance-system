@@ -21,7 +21,20 @@ export default function LetterTemplatesViewer() {
     const timer = window.setTimeout(() => { load().catch(error => toast.error(getErrorMessage(error))); }, 0);
     return () => window.clearTimeout(timer);
   }, []);
-  const save = async () => { if (!editing) return; try { if ("id" in editing) await api.put(`/employee-documents/letter-templates/${editing.id}`, editing); else await api.post("/employee-documents/letter-templates", editing); setEditing(null); await load(); toast.success("Letter template saved"); } catch (error) { toast.error(getErrorMessage(error)); } };
+  const save = async () => {
+    if (!editing) return;
+    try {
+      const content = contentInput.current?.commit() ?? editing.content;
+      const payload = { ...editing, content };
+      if ("id" in editing) await api.put(`/employee-documents/letter-templates/${editing.id}`, payload);
+      else await api.post("/employee-documents/letter-templates", payload);
+      setEditing(null);
+      await load();
+      toast.success("Letter template saved");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
   const append = (key: string) => {
     if (!editing) return;
     contentInput.current?.insertPlaceholder(`{{${key}}}`);

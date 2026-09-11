@@ -5,7 +5,7 @@ import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2,
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 
-export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; }
+export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; commit: () => string; }
 interface PaginatedTemplateEditorProps { value: string; onChange: (value: string) => void; title: string; }
 export const PAGE_HEIGHT = 1120;
 const FIRST_PAGE_CONTENT_HEIGHT = 780;
@@ -718,7 +718,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     updateActiveSelection();
     replaceActiveSelection(replacement);
   };
-  useImperativeHandle(ref, () => ({ insertPlaceholder, insertPageBreak }));
+  const commit = () => {
+    commitDocument(false, false, false);
+    return joinDynamicTemplateBlocks(blocksRef.current);
+  };
+  useImperativeHandle(ref, () => ({ insertPlaceholder, insertPageBreak, commit }));
   const commitDocument = (restoreCaret = true, render = true, notifyParent = render) => {
     if (!editor.current) return;
     const active = activeSelection.current;
