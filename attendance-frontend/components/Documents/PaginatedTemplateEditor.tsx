@@ -20,6 +20,20 @@ export const splitDynamicTemplateBlocks = (value: string) => {
   const blocks: string[] = [];
   let text: string[] = [];
   const pushContentBlocks = (content: string) => {
+    const source = document.createElement("div");
+    source.innerHTML = content;
+    const topLevelNodes = Array.from(source.childNodes).filter(node =>
+      !(node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()),
+    );
+    const blockNodes = topLevelNodes.filter(node =>
+      node.nodeType === Node.ELEMENT_NODE &&
+      /^(P|DIV|H1|H2|H3|H4|H5|H6|UL|OL|BLOCKQUOTE|TABLE)$/i.test((node as Element).nodeName),
+    );
+    if (topLevelNodes.length > 1 && blockNodes.length === topLevelNodes.length) {
+      blockNodes.forEach(node => blocks.push((node as Element).outerHTML));
+      return;
+    }
+
     // A table must never enter the generic text slicing path below. That path
     // clones ancestor nodes for each page fragment, which creates partial table
     // DOM that browsers normalise differently on every edit.
@@ -64,8 +78,7 @@ const stripEditorScaffolding = (html: string) => {
       });
 
       if (!block.textContent?.trim() && !block.children.length) {
-        block.remove();
-        return;
+        block.appendChild(document.createElement("br"));
       }
 
       block.removeAttribute("data-template-editable-block");
@@ -87,8 +100,7 @@ const stripEditorScaffolding = (html: string) => {
   source.querySelectorAll<HTMLElement>("p").forEach(paragraph => {
     paragraph.style.setProperty("margin", "0");
   });
-  const serialized = source.innerHTML;
-  return serialized === "<p></p>" ? "" : serialized;
+  return source.innerHTML;
 };
 export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.map(stripEditorScaffolding).join("\n");
 export type DynamicTemplateFragment = { blockIndex: number; start: number; end: number; text: string };
