@@ -294,11 +294,9 @@ const restoreCaretInFragment = (
 
     const selection = window.getSelection();
 
-    if (selection) {
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-
+    // Focus the nested editing host before installing its range. The outer
+    // editor is explicitly non-editable, so selecting first can otherwise
+    // leave focus on the page footer when React removes the old fragment.
     fragment.focus({ preventScroll: true });
 
     if (selection) {
@@ -574,70 +572,40 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         element.dataset.fragmentEnd ?? 0
       );
 
-      return (
+      // Enter creates a zero-length logical block. It must win over an
+      // adjacent fragment that happens to end at the same logical offset.
+      if (
+        caret.position === fragmentStart &&
+        caret.position === fragmentEnd
+      ) {
+        return true;
+      }
+
+      if (
         caret.position >= fragmentStart &&
         caret.position < fragmentEnd
-      );
-    }) ??
-    fragments.find(element => {
-      const fragmentEnd = Number(
-        element.dataset.fragmentEnd ?? 0
-      );
+      ) {
+        return true;
+      }
 
       return (
-        fragmentEnd === caret.position &&
-        caret.position === blockLength
+        caret.position === blockLength &&
+        fragmentEnd === caret.position
       );
     });
 
     if (!fragment) return;
 
-    /*
-     * React has already committed the new DOM.
-     * Restore the caret immediately in the layout phase.
-     */
-    const currentCaret = pendingCaret.current;
-
-    if (!currentCaret) return;
-
-    const currentFragments = Array.from(
-      editor.current.querySelectorAll<HTMLElement>(
-        `[data-block-index="${currentCaret.blockIndex}"]`
-      )
-    );
-
-    const currentFragment = currentFragments.find(
-      element => {
-        const start = Number(
-          element.dataset.fragmentStart ?? 0
-        );
-        const end = Number(
-          element.dataset.fragmentEnd ?? 0
-        );
-
-        return (
-          currentCaret.position >= start &&
-          currentCaret.position <= end
-        );
-      }
-    );
-
-    if (!currentFragment) return;
-
-    const currentLocalPosition =
-      currentCaret.position -
-      Number(
-        currentFragment.dataset.fragmentStart ?? 0
-      );
-
+    // React has committed the new DOM. Restore into the fragment chosen
+    // above; do not run a second boundary-ambiguous lookup.
     restoreCaretInFragment(
-      currentFragment,
-      currentLocalPosition,
-      currentCaret,
+      fragment,
+      caret.position - Number(fragment.dataset.fragmentStart ?? 0),
+      caret,
       activeSelection,
       pendingCaret,
     );
-  }, [pages]);
+  }, [blocks]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
     if (!selection?.rangeCount) {
@@ -1339,11 +1307,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
               }
               if (!fragment.text) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
                   <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}></p>
                 </div>;
               }
-              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
