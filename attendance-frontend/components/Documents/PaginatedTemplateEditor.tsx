@@ -458,12 +458,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
   const lastInternalValue = useRef<string | null>(null);
-  const recordDiagnostic = (_level: string, _message: string, _details?: unknown) => {
-    // Retained as a no-op while the editor's temporary diagnostics are removed.
-    void _level;
-    void _message;
-    void _details;
-  };
   useEffect(() => {
     const next = splitDynamicTemplateBlocks(value);
     if (lastInternalValue.current === value) {
@@ -601,14 +595,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const updateActiveSelection = () => {
     const selection = window.getSelection();
     if (!selection?.rangeCount) {
-      recordDiagnostic("warn", "No browser selection available");
       return;
     }
     const range = selection.getRangeAt(0);
     const findFragment = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-template-fragment]");
     const startElement = findFragment(range.startContainer); const endElement = findFragment(range.endContainer);
     if (!startElement || !endElement || startElement.dataset.blockIndex !== endElement.dataset.blockIndex) {
-      recordDiagnostic("warn", "Selection is outside one editable fragment");
       return;
     }
     const findTableCell = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("td, th");
@@ -1093,11 +1085,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     const active = activeSelection.current;
     const block = blocksRef.current[active.blockIndex];
     if (block === undefined || isDynamicPageBreak(block)) {
-      recordDiagnostic("error", "Caret action has no editable block", { key: event.key, active });
       return;
     }
     event.preventDefault();
-    recordDiagnostic("info", "Handled caret keydown and prevented browser default", { key: event.key });
     if (event.key === "Enter") {
       const selection = window.getSelection();
       let splitStart = active.start;
@@ -1109,33 +1099,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         if (fragment) {
           const fragmentStart = Number(fragment.dataset.fragmentStart ?? 0);
           splitStart = splitEnd = fragmentStart + textOffsetInContainer(fragment, range.startContainer, range.startOffset);
-          recordDiagnostic("info", "Read live browser selection before split", {
-            anchorNode: range.startContainer.nodeName,
-            anchorOffset: range.startOffset,
-            fragmentStart,
-            computedPosition: splitStart,
-          });
         }
       }
       const before = sliceHtml(block, 0, splitStart);
       const after = sliceHtml(block, splitEnd, textLength(block));
-      recordDiagnostic("info", "Enter pressed", {
-        active,
-        splitStart,
-        splitEnd,
-        blockLength: textLength(block),
-        beforeLength: textLength(before),
-        afterLength: textLength(after),
-      });
       if (!before && !after && textLength(block) === 0) {
         pendingCaret.current = { blockIndex: active.blockIndex + 1, position: 0 };
-        recordDiagnostic("info", "Created empty block after Enter", pendingCaret.current);
         applyBlocks([
           ...blocksRef.current.slice(0, active.blockIndex + 1),
           "",
           ...blocksRef.current.slice(active.blockIndex + 1),
         ]);
-        recordDiagnostic("info", "Applied blocks for empty Enter", { blockCount: blocksRef.current.length });
         return;
       }
       // Keep each line in its own logical block. Keeping the synthetic line
@@ -1148,17 +1122,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         blockIndex: nextCaretBlock,
         position: 0,
       };
-      recordDiagnostic("info", "Queued caret restoration after Enter", pendingCaret.current);
       applyBlocks([
         ...blocksRef.current.slice(0, active.blockIndex),
         ...beforeBlocks,
         ...afterBlocks,
         ...blocksRef.current.slice(active.blockIndex + 1),
       ]);
-      recordDiagnostic("info", "Applied blocks after Enter split", {
-        blockCount: blocksRef.current.length,
-        blockLengths: blocksRef.current.map(textLength),
-      });
       return;
     }
     if (active.start !== active.end) { replaceActiveSelection(""); return; }
@@ -1306,11 +1275,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
               }
               if (!fragment.text) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass}>
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none" }} className={fragmentClass}>
                   <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}></p>
                 </div>;
               }
-              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none" }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
             })}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
