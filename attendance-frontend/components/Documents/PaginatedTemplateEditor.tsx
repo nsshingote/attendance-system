@@ -461,6 +461,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pendingTableCaret = useRef<{ blockIndex: number; rowIndex: number; cellIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
+  const lastInternalValue = useRef<string | null>(null);
   const recordDiagnostic = (level: DiagnosticLevel, message: string, details?: unknown) => {
     const formattedDetails = details === undefined ? undefined : typeof details === "string" ? details : JSON.stringify(details);
     const entry: DiagnosticEntry = {
@@ -477,6 +478,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   };
   useEffect(() => {
     const next = splitDynamicTemplateBlocks(value);
+    if (lastInternalValue.current === value) {
+      lastInternalValue.current = null;
+      return;
+    }
     // onInput serializes the live DOM before notifying the parent. Ignore that
     // matching controlled-value echo so React does not replace the active
     // contentEditable fragment between keystrokes.
@@ -488,13 +493,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
-    if (caret) {
-      console.info("CARET RESTORE START", {
-        blockIndex: caret.blockIndex,
-        position: caret.position,
-      });
-    }
-
     if (!editor.current) return;
 
     if (!caret) {
@@ -600,43 +598,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       );
     });
 
-    console.info("CARET TARGET FRAGMENT", {
-      exists: Boolean(fragment),
-      outerHTML: fragment?.outerHTML.slice(0, 1000) ?? null,
-      blockIndex: fragment?.dataset.blockIndex ?? null,
-      fragmentStart: fragment?.dataset.fragmentStart ?? null,
-      fragmentEnd: fragment?.dataset.fragmentEnd ?? null,
-    });
-
     if (!fragment) return;
 
     // React has committed the new DOM. Restore into the fragment chosen
     // above; do not run a second boundary-ambiguous lookup.
-    const paragraph = fragment.querySelector<HTMLElement>("p") ?? fragment;
-    const selectionBeforeRestore = window.getSelection();
-    console.info("TARGET EDITING HOST", {
-      fragmentIsContentEditable: fragment.isContentEditable,
-      parentIsContentEditable: fragment.parentElement?.isContentEditable ?? null,
-      paragraphIsContentEditable: paragraph.isContentEditable,
-    });
-    console.info("BEFORE RESTORE", {
-      activeElementOuterHTML:
-        document.activeElement?.outerHTML?.slice(0, 1000) ?? null,
-      anchorParentOuterHTML:
-        selectionBeforeRestore?.anchorNode?.parentElement?.outerHTML?.slice(
-          0,
-          1000,
-        ) ?? null,
-      anchorOffset: selectionBeforeRestore?.anchorOffset ?? null,
-      focusParentOuterHTML:
-        selectionBeforeRestore?.focusNode?.parentElement?.outerHTML?.slice(
-          0,
-          1000,
-        ) ?? null,
-      focusOffset: selectionBeforeRestore?.focusOffset ?? null,
-      rangeCount: selectionBeforeRestore?.rangeCount ?? 0,
-    });
-
     restoreCaretInFragment(
       fragment,
       caret.position - Number(fragment.dataset.fragmentStart ?? 0),
@@ -644,70 +609,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       activeSelection,
       pendingCaret,
     );
-
-    const selectionAfterRestore = window.getSelection();
-    console.info("AFTER RESTORE", {
-      activeElementOuterHTML:
-        document.activeElement?.outerHTML?.slice(0, 1000) ?? null,
-      anchorParentOuterHTML:
-        selectionAfterRestore?.anchorNode?.parentElement?.outerHTML?.slice(
-          0,
-          1000,
-        ) ?? null,
-      anchorOffset: selectionAfterRestore?.anchorOffset ?? null,
-      focusParentOuterHTML:
-        selectionAfterRestore?.focusNode?.parentElement?.outerHTML?.slice(
-          0,
-          1000,
-        ) ?? null,
-      focusOffset: selectionAfterRestore?.focusOffset ?? null,
-      rangeCount: selectionAfterRestore?.rangeCount ?? 0,
-      selectionAnchorInsideTargetFragment: Boolean(
-        selectionAfterRestore?.anchorNode &&
-          fragment.contains(selectionAfterRestore.anchorNode),
-      ),
-      activeElementInsideTargetFragment: Boolean(
-        document.activeElement &&
-          fragment.contains(document.activeElement),
-      ),
-    });
-
-    const logDelayedCaretState = (label: string) => {
-      const delayedSelection = window.getSelection();
-      console.info(label, {
-          activeElementOuterHTML:
-            document.activeElement?.outerHTML?.slice(0, 1000) ?? null,
-          anchorParentOuterHTML:
-            delayedSelection?.anchorNode?.parentElement?.outerHTML?.slice(
-              0,
-              1000,
-            ) ?? null,
-          anchorOffset: delayedSelection?.anchorOffset ?? null,
-          focusParentOuterHTML:
-            delayedSelection?.focusNode?.parentElement?.outerHTML?.slice(
-              0,
-              1000,
-            ) ?? null,
-          focusOffset: delayedSelection?.focusOffset ?? null,
-          rangeCount: delayedSelection?.rangeCount ?? 0,
-          selectionAnchorInsideTargetFragment: Boolean(
-            delayedSelection?.anchorNode &&
-              fragment.contains(delayedSelection.anchorNode),
-          ),
-          activeElementInsideTargetFragment: Boolean(
-            document.activeElement &&
-              fragment.contains(document.activeElement),
-          ),
-      });
-    };
-
-    window.requestAnimationFrame(() => {
-      logDelayedCaretState("AFTER RESTORE RAF");
-    });
-
-    window.setTimeout(() => {
-      logDelayedCaretState("AFTER RESTORE TIMEOUT");
-    }, 50);
   }, [blocks]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
@@ -745,6 +646,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (render) setBlocks(normalized);
     if (notifyParent) {
       const serialized = joinDynamicTemplateBlocks(normalized);
+      lastInternalValue.current = serialized;
       onChange(serialized);
     }
   };
@@ -754,7 +656,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     historyRef.current.future.push(blocksRef.current);
     blocksRef.current = previous;
     setBlocks(previous);
-    onChange(joinDynamicTemplateBlocks(previous));
+    const serialized = joinDynamicTemplateBlocks(previous);
+    lastInternalValue.current = serialized;
+    onChange(serialized);
   };
   const redoBlocks = () => {
     const next = historyRef.current.future.pop();
@@ -762,7 +666,9 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     historyRef.current.past.push(blocksRef.current);
     blocksRef.current = next;
     setBlocks(next);
-    onChange(joinDynamicTemplateBlocks(next));
+    const serialized = joinDynamicTemplateBlocks(next);
+    lastInternalValue.current = serialized;
+    onChange(serialized);
   };
   const renderedFragmentTailStart = (active: typeof activeSelection.current, block: string) => {
     if (!editor.current) return textLength(block);
@@ -813,7 +719,6 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       sliceHtml(block, active.end, textLength(block)),
     ].filter((part, index) => part || index === 1);
     applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...parts, ...blocksRef.current.slice(active.blockIndex + 1)]);
-    requestAnimationFrame(() => editor.current?.focus());
   };
   const removePageBreak = (blockIndex: number) => applyBlocks(blocksRef.current.filter((_, index) => index !== blockIndex));
   const insertPlaceholder = (replacement: string) => {
