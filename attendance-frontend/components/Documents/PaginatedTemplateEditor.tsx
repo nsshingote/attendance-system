@@ -54,56 +54,23 @@ export const splitDynamicTemplateBlocks = (value: string) => {
 const stripEditorScaffolding = (html: string) => {
   const source = document.createElement("div");
   source.innerHTML = html;
-  const blockTags = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DIV", "DL", "FIELDSET", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL"]);
-  const removeLayoutWhitespace = (parent: Node) => {
-    Array.from(parent.childNodes).forEach((node, index, nodes) => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        removeLayoutWhitespace(node);
-        return;
-      }
-      if (node.nodeType !== Node.TEXT_NODE || !/^\s+$/.test(node.textContent ?? "")) return;
-      const previous = nodes[index - 1];
-      const next = nodes[index + 1];
-      const isRootOnlyWhitespace = parent === source && !Array.from(parent.childNodes).some(child =>
-        child !== node && (child.nodeType === Node.ELEMENT_NODE || (child.nodeType === Node.TEXT_NODE && (child.textContent ?? "").trim()))
-      );
-      if (
-        isRootOnlyWhitespace ||
-        previous?.nodeType === Node.ELEMENT_NODE &&
-        next?.nodeType === Node.ELEMENT_NODE &&
-        blockTags.has((previous as Element).nodeName) &&
-        blockTags.has((next as Element).nodeName)
-      ) {
-        node.remove();
-      } else if (
-        parent === source &&
-        ((previous?.nodeType === Node.ELEMENT_NODE && blockTags.has((previous as Element).nodeName)) ||
-          (next?.nodeType === Node.ELEMENT_NODE && blockTags.has((next as Element).nodeName)))
-      ) {
-        node.remove();
+  source
+    .querySelectorAll<HTMLElement>("[data-template-editable-block]")
+    .forEach(block => {
+      // Remove temporary zero-width-space caret anchors.
+      // They are editor-only and must never become part of the document value.
+      block.childNodes.forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          node.textContent = (node.textContent ?? "").replace(/\u200B/g, "");
+        }
+      });
+
+      const text = block.textContent?.trim() ?? "";
+
+      if (!text && !block.children.length) {
+        block.remove();
       }
     });
-  };
-  removeLayoutWhitespace(source);
-  source.querySelectorAll<HTMLElement>("[data-template-editable-block]").forEach(block => {
-    if (!block.textContent?.trim() && !block.children.length) {
-      block.remove();
-      return;
-    }
-    block.removeAttribute("data-template-editable-block");
-    block.style.removeProperty("min-height");
-    block.style.removeProperty("margin");
-    const hasText = Boolean(block.textContent?.trim());
-    const lastChild = block.lastChild;
-    if (
-      hasText &&
-      lastChild &&
-      lastChild.nodeType === Node.ELEMENT_NODE &&
-      (lastChild as Element).nodeName === "BR"
-    ) {
-      lastChild.remove();
-    }
-  });
   const serialized = source.innerHTML;
   return serialized === "<p></p>" ? "" : serialized;
 };
@@ -271,26 +238,54 @@ const restoreCaretInFragment = (
 ) => {
   const paragraph = fragment.querySelector<HTMLElement>("p") ?? fragment;
 
-  const selection = window.getSelection();
-  if (!selection) return;
-
   /*
-   * Empty fragment created by Enter.
+   * IMPORTANT:
    *
-   * Do not try to calculate a text-node offset here.
-   * Give the browser an actual editable paragraph and place the
-   * selection directly inside that paragraph.
+   * An empty Text node is NOT a reliable caret target.
+   * Browsers can normalize:
+   *
+   *   #text[offset=0]
+   *
+   * back to:
+   *
+   *   P[offset=0]
+   * when the text node contains zero characters.
+   *
+   * Therefore an invisible ZWSP is used as a temporary caret anchor.
+   *
+   * logicalTextLength(), textOffsetInContainer(), and
+   * caretOffsetInTextNode() already ignore \u200B.
    */
-  if (localPosition === 0 && isEmptyEditableParagraph(paragraph)) {
-    fragment.focus({ preventScroll: true });
+
+  if (
+    localPosition === 0 &&
+    isEmptyEditableParagraph(paragraph)
+  ) {
+    paragraph.replaceChildren();
+
+    const textNode = document.createTextNode("\u200B");
+    paragraph.appendChild(textNode);
+
+    /*
+     * Put the caret AFTER the ZWSP.
+     *
+     * The browser sees a real character, so it keeps the
+     * selection inside the Text node.
+     *
+     * Our logical text model still sees this as position 0.
+     */
     const range = document.createRange();
-    range.selectNodeContents(paragraph);
+    range.setStart(textNode, textNode.length);
     range.collapse(true);
 
-    selection.removeAllRanges();
-    selection.addRange(range);
-    if (!fragment.contains(selection.anchorNode)) {
-      paragraph.focus({ preventScroll: true });
+    const selection = window.getSelection();
+
+    /*
+     * Focus the actual contentEditable fragment first.
+     */
+    fragment.focus({ preventScroll: true });
+
+    if (selection) {
       selection.removeAllRanges();
       selection.addRange(range);
     }
@@ -299,20 +294,18 @@ const restoreCaretInFragment = (
       blockIndex: caret.blockIndex,
       start: caret.position,
       end: caret.position,
-      fragmentStart: Number(
-        fragment.dataset.fragmentStart ?? 0,
-      ),
-      fragmentEnd: Number(
-        fragment.dataset.fragmentEnd ?? 0,
-      ),
+      fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+      fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
     };
+
     pendingCaretRef.current = null;
+
     return;
   }
 
   const target = caretTargetAtLogicalOffset(
     fragment,
-    localPosition,
+    localPosition
   );
 
   if (!target) {
@@ -324,18 +317,11 @@ const restoreCaretInFragment = (
   range.setStart(target.node, target.offset);
   range.collapse(true);
 
-  /*
-   * Focus the actual editing host first, then install the range.
-   * This is important because the fragment is inside the
-   * contentEditable={false} outer editor.
-   */
+  const selection = window.getSelection();
+
   fragment.focus({ preventScroll: true });
 
-  selection.removeAllRanges();
-  selection.addRange(range);
-  if (!fragment.contains(selection.anchorNode)) {
-    const editableParagraph = target.node.parentElement?.closest<HTMLElement>("p");
-    editableParagraph?.focus({ preventScroll: true });
+  if (selection) {
     selection.removeAllRanges();
     selection.addRange(range);
   }
@@ -344,13 +330,10 @@ const restoreCaretInFragment = (
     blockIndex: caret.blockIndex,
     start: caret.position,
     end: caret.position,
-    fragmentStart: Number(
-      fragment.dataset.fragmentStart ?? 0,
-    ),
-    fragmentEnd: Number(
-      fragment.dataset.fragmentEnd ?? 0,
-    ),
+    fragmentStart: Number(fragment.dataset.fragmentStart ?? 0),
+    fragmentEnd: Number(fragment.dataset.fragmentEnd ?? 0),
   };
+
   pendingCaretRef.current = null;
 };
 const fragmentForHeight = (html: string, maxHeight: number, geometry?: DynamicPaginationGeometry) => {
@@ -491,142 +474,153 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pages = useMemo(() => paginateDynamicTemplateBlocks(blocks, A4_PAGINATION_GEOMETRY), [blocks]);
   useLayoutEffect(() => {
     const caret = pendingCaret.current;
-    recordDiagnostic("info", "Caret restoration effect started", caret ?? pendingTableCaret.current ?? "none");
+
     if (!editor.current) return;
+
     if (!caret) {
       const tableCaret = pendingTableCaret.current;
       if (!tableCaret) return;
+
       const fragment = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${tableCaret.blockIndex}"]`)).find(element => {
         const table = element.querySelector<HTMLTableElement>("table");
-        const start = Number(table?.dataset.tableRowStart ?? -1);
-        const end = Number(table?.dataset.tableRowEnd ?? -1);
-        return start <= tableCaret.rowIndex && tableCaret.rowIndex < end;
+        const start = Number(
+          table?.dataset.tableRowStart ?? -1
+        );
+        const end = Number(
+          table?.dataset.tableRowEnd ?? -1
+        );
+        return (
+          start <= tableCaret.rowIndex &&
+          tableCaret.rowIndex < end
+        );
       });
+
       const table = fragment?.querySelector<HTMLTableElement>("table");
-      const rowStart = Number(table?.dataset.tableRowStart ?? 0);
-      const cell = table?.rows[tableCaret.rowIndex - rowStart]?.cells[tableCaret.cellIndex];
-      if (!cell) {
-        recordDiagnostic("error", "Could not restore caret in table cell", tableCaret);
-        return;
+      const rowStart = Number(
+        table?.dataset.tableRowStart ?? 0
+      );
+
+      const cell =
+        table?.rows[
+          tableCaret.rowIndex - rowStart
+        ]?.cells[tableCaret.cellIndex];
+
+      if (!cell) return;
+
+      const target = caretTargetAtLogicalOffset(
+        cell,
+        tableCaret.position
+      );
+
+      const textNode =
+        target?.node ??
+        document.createTextNode("");
+
+      if (!target) {
+        cell.appendChild(textNode);
       }
-      recordDiagnostic("info", "Located table caret cell", {
-        rowStart,
-        rowIndex: tableCaret.rowIndex,
-        cellIndex: tableCaret.cellIndex,
-      });
-      const target = caretTargetAtLogicalOffset(cell, tableCaret.position);
-      const textNode = target?.node ?? document.createTextNode("");
-      if (!target) cell.appendChild(textNode);
+
       const range = document.createRange();
-      range.setStart(textNode, target?.offset ?? 0);
+
+      range.setStart(
+        textNode,
+        target?.offset ?? 0
+      );
+
       range.collapse(true);
-      cell.focus({ preventScroll: true });
+
       const selection = window.getSelection();
+
+      cell.focus({ preventScroll: true });
+
       selection?.removeAllRanges();
       selection?.addRange(range);
+
       tableSelection.current = range.cloneRange();
       pendingTableCaret.current = null;
-      recordDiagnostic("info", "Restored caret in table cell", {
-        ...tableCaret,
-        selectionInsideCell: Boolean(selection?.anchorNode && cell.contains(selection.anchorNode)),
-      });
+
       return;
     }
-    const fragments = Array.from(editor.current.querySelectorAll<HTMLElement>(`[data-block-index="${caret.blockIndex}"][contenteditable="true"]`));
+
+    const fragments = Array.from(
+      editor.current.querySelectorAll<HTMLElement>(
+        `[data-block-index="${caret.blockIndex}"]`
+      )
+    );
+
     const blockLength = textLength(blocksRef.current[caret.blockIndex] ?? "");
+
     const fragment = fragments.find(element => {
-      const fragmentStart = Number(element.dataset.fragmentStart ?? 0);
-      const fragmentEnd = Number(element.dataset.fragmentEnd ?? 0);
+      const fragmentStart = Number(
+        element.dataset.fragmentStart ?? 0
+      );
+      const fragmentEnd = Number(
+        element.dataset.fragmentEnd ?? 0
+      );
 
-      // Exact empty fragment: this is the important Enter case.
-      if (
-        caret.position === fragmentStart &&
-        caret.position === fragmentEnd
-      ) {
-        return true;
-      }
-
-      // Normal fragment containing the caret.
-      if (
+      return (
         caret.position >= fragmentStart &&
         caret.position < fragmentEnd
-      ) {
-        return true;
-      }
+      );
+    }) ??
+    fragments.find(element => {
+      const fragmentEnd = Number(
+        element.dataset.fragmentEnd ?? 0
+      );
 
-      // Caret at the very end of the block.
       return (
-        caret.position === blockLength &&
-        fragmentEnd === caret.position
+        fragmentEnd === caret.position &&
+        caret.position === blockLength
       );
     });
-    if (!fragment) {
-      recordDiagnostic("error", "Could not find fragment for pending caret", {
-        caret,
-        blockLength,
-        fragmentCount: fragments.length,
-      });
-      return;
-    }
-    recordDiagnostic("info", "Selected caret fragment", {
-      blockIndex: caret.blockIndex,
-      localPosition: caret.position - Number(fragment.dataset.fragmentStart ?? 0),
-      fragmentStart: fragment.dataset.fragmentStart,
-      fragmentEnd: fragment.dataset.fragmentEnd,
-      contentEditable: fragment.contentEditable,
-      htmlPreview: fragment.innerHTML.slice(0, 160),
-    });
-    // This runs after React has committed the replacement blocks but before
-    // the browser paints. Restoring in requestAnimationFrame left one frame in
-    // which contentEditable could discard the selection in a new empty <p>.
-    try {
-      restoreCaretInFragment(
-        fragment,
-        caret.position - Number(fragment.dataset.fragmentStart ?? 0),
-        caret,
-        activeSelection,
-        pendingCaret,
-      );
-      const selection = window.getSelection();
-      const selectionInsideFragment = Boolean(selection?.anchorNode && fragment.contains(selection.anchorNode));
-      recordDiagnostic("info", "Restored caret", {
-        blockIndex: caret.blockIndex,
-        position: caret.position,
-        selectionInsideFragment,
-        anchorNode: selection?.anchorNode?.nodeName ?? null,
-        anchorOffset: selection?.anchorOffset ?? null,
-      });
-      if (!selectionInsideFragment) {
-        recordDiagnostic("error", "Browser moved caret outside target fragment", {
-          targetBlockIndex: caret.blockIndex,
-          targetHtml: fragment.innerHTML.slice(0, 240),
-          selectionAnchor: selection?.anchorNode?.parentElement?.outerHTML.slice(0, 240) ?? null,
-        });
-      }
-      window.requestAnimationFrame(() => {
-        const latestSelection = window.getSelection();
-        if (latestSelection?.anchorNode && fragment.contains(latestSelection.anchorNode)) return;
-        recordDiagnostic("warn", "Caret changed after render; retrying target restoration", {
-          targetBlockIndex: caret.blockIndex,
-          selectionAnchor: latestSelection?.anchorNode?.parentElement?.outerHTML.slice(0, 240) ?? null,
-        });
-        restoreCaretInFragment(
-          fragment,
-          caret.position - Number(fragment.dataset.fragmentStart ?? 0),
-          caret,
-          activeSelection,
-          pendingCaret,
+
+    if (!fragment) return;
+
+    /*
+     * React has already committed the new DOM.
+     * Restore the caret immediately in the layout phase.
+     */
+    const currentCaret = pendingCaret.current;
+
+    if (!currentCaret) return;
+
+    const currentFragments = Array.from(
+      editor.current.querySelectorAll<HTMLElement>(
+        `[data-block-index="${currentCaret.blockIndex}"]`
+      )
+    );
+
+    const currentFragment = currentFragments.find(
+      element => {
+        const start = Number(
+          element.dataset.fragmentStart ?? 0
         );
-        const retrySelection = window.getSelection();
-        recordDiagnostic("info", "Caret restoration retry completed", {
-          selectionInsideFragment: Boolean(retrySelection?.anchorNode && fragment.contains(retrySelection.anchorNode)),
-          anchorNode: retrySelection?.anchorNode?.nodeName ?? null,
-        });
-      });
-    } catch (error) {
-      recordDiagnostic("error", "Caret restoration failed", error instanceof Error ? error.message : String(error));
-      throw error;
-    }
+        const end = Number(
+          element.dataset.fragmentEnd ?? 0
+        );
+
+        return (
+          currentCaret.position >= start &&
+          currentCaret.position <= end
+        );
+      }
+    );
+
+    if (!currentFragment) return;
+
+    const currentLocalPosition =
+      currentCaret.position -
+      Number(
+        currentFragment.dataset.fragmentStart ?? 0
+      );
+
+    restoreCaretInFragment(
+      currentFragment,
+      currentLocalPosition,
+      currentCaret,
+      activeSelection,
+      pendingCaret,
+    );
   }, [pages]);
   const updateActiveSelection = () => {
     const selection = window.getSelection();
