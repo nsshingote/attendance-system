@@ -65,10 +65,25 @@ const stripEditorScaffolding = (html: string) => {
         }
       });
 
-      const text = block.textContent?.trim() ?? "";
-
-      if (!text && !block.children.length) {
+      if (!block.textContent?.trim() && !block.children.length) {
         block.remove();
+        return;
+      }
+
+      block.removeAttribute("data-template-editable-block");
+      block.style.removeProperty("min-height");
+      block.style.removeProperty("margin");
+
+      const hasText = Boolean(block.textContent?.trim());
+      const lastChild = block.lastChild;
+
+      if (
+        hasText &&
+        lastChild &&
+        lastChild.nodeType === Node.ELEMENT_NODE &&
+        (lastChild as Element).nodeName === "BR"
+      ) {
+        lastChild.remove();
       }
     });
   const serialized = source.innerHTML;
@@ -263,26 +278,27 @@ const restoreCaretInFragment = (
   ) {
     paragraph.replaceChildren();
 
+    // Temporary DOM-only caret anchor.
+    // The logical text model already ignores ZWSP.
     const textNode = document.createTextNode("\u200B");
     paragraph.appendChild(textNode);
 
     /*
-     * Put the caret AFTER the ZWSP.
-     *
-     * The browser sees a real character, so it keeps the
-     * selection inside the Text node.
-     *
-     * Our logical text model still sees this as position 0.
+     * Put the browser caret AFTER the ZWSP.
+     * Logical position is still 0 because ZWSP is ignored
+     * by logicalTextLength/textOffsetInContainer.
      */
     const range = document.createRange();
-    range.setStart(textNode, textNode.length);
+    range.setStart(textNode, 1);
     range.collapse(true);
 
     const selection = window.getSelection();
 
-    /*
-     * Focus the actual contentEditable fragment first.
-     */
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
     fragment.focus({ preventScroll: true });
 
     if (selection) {
