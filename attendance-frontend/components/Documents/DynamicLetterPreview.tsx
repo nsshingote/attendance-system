@@ -180,13 +180,15 @@ const resolveTemplatePages = (templateContent: string, content: string, savedLay
     ...page,
     fragments: page.fragments.map(fragment => ({
       ...fragment,
-      text: resolvedFragment(
-        fragment.text,
-        templateBlocks[fragment.blockIndex] || "",
-        resolvedMapping.blocks[fragment.blockIndex] || "",
-        fragment.start,
-        fragment.end,
-      ),
+      text: hasSavedLayout
+        ? fragment.text
+        : resolvedFragment(
+          fragment.text,
+          templateBlocks[fragment.blockIndex] || "",
+          resolvedMapping.blocks[fragment.blockIndex] || "",
+          fragment.start,
+          fragment.end,
+        ),
     })),
   }));
   return {
