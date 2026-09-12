@@ -1,11 +1,13 @@
 import type { CSSProperties } from "react";
 import type { DynamicTemplatePage } from "@/components/Documents/PaginatedTemplateEditor";
 
-export const FIRST_PAGE_BODY_HEIGHT_PX = 780;
-export const OTHER_PAGE_BODY_HEIGHT_PX = 920;
+// A4 page content is 1008px after the 56px top and bottom padding.
+// Reserve the rendered header/title/footer before paginating the body.
+export const FIRST_PAGE_BODY_HEIGHT_PX = 845;
+export const OTHER_PAGE_BODY_HEIGHT_PX = 971;
 export const A4_CONTENT_WIDTH_PX = 682;
 export const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 8;
-export const FRAGMENT_GAP_PX = 12;
+export const FRAGMENT_GAP_PX = 0;
 
 /** In-viewport but invisible — reliable layout on iOS Safari (unlike far off-screen). */
 export const HIDDEN_PDF_PREVIEW_CONTAINER_STYLE: CSSProperties = {

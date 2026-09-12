@@ -3,13 +3,14 @@
 import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, MutableRefObject, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
+import { FIRST_PAGE_BODY_HEIGHT_PX, OTHER_PAGE_BODY_HEIGHT_PX } from "@/lib/dynamicLetterLayout";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; commit: () => string; }
 interface PaginatedTemplateEditorProps { value: string; onChange: (value: string) => void; title: string; }
 export const PAGE_HEIGHT = 1120;
-const FIRST_PAGE_CONTENT_HEIGHT = 780;
-const OTHER_PAGE_CONTENT_HEIGHT = 920;
+const FIRST_PAGE_CONTENT_HEIGHT = FIRST_PAGE_BODY_HEIGHT_PX;
+const OTHER_PAGE_CONTENT_HEIGHT = OTHER_PAGE_BODY_HEIGHT_PX;
 const TABLE_MIN_WIDTH_PX = 240;
 const TABLE_MIN_HEIGHT_PX = 40;
 const TABLE_COLUMN_MIN_WIDTH_PX = 48;
@@ -428,26 +429,24 @@ export const paginateDynamicTemplateBlocks = (blocks: string[], geometry?: Dynam
     }
     const blockLength = textLength(block);
     if (!blockLength) {
-      const page = pages[pages.length - 1];
       const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
       const isCaretAfterTable = /^<table\b/i.test(blocks[blockIndex - 1]?.trim());
-      const gap = isCaretAfterTable ? 0 : (page.fragments.length ? 12 : 0);
       const height = isCaretAfterTable ? 0 : blockHeight("", geometry);
-      if (!isCaretAfterTable && used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
+      if (!isCaretAfterTable && used + height > limit) { pages.push({ fragments: [] }); used = 0; }
       const target = pages[pages.length - 1];
       // The empty logical block is rendered as a real editable paragraph below.
       // Keep it in the page even when it has no measurable text height.
       target.fragments.push({ blockIndex, start: 0, end: 0, text: "" });
-      used += gap + height;
+      used += height;
       return;
     }
     let start = 0;
     do {
       const page = pages[pages.length - 1]; const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
-      const gap = page.fragments.length ? 12 : 0; const remaining = limit - used - gap;
+      const remaining = limit - used;
       if (remaining < 23) { pages.push({ fragments: [] }); used = 0; continue; }
       const end = start + fragmentForHeight(sliceHtml(block, start, blockLength), remaining, geometry); const text = sliceHtml(block, start, end);
-      page.fragments.push({ blockIndex, start, end, text }); used += gap + blockHeight(text, geometry); start = end;
+      page.fragments.push({ blockIndex, start, end, text }); used += blockHeight(text, geometry); start = end;
       if (start < blockLength) { pages.push({ fragments: [] }); used = 0; }
     } while (start < blockLength);
   });
@@ -1283,7 +1282,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
         <section style={{ width: "794px", minWidth: "794px", maxWidth: "none", height: "1120px", minHeight: "1120px", maxHeight: "1120px", fontFamily: 'Georgia, "Times New Roman", Times, serif' }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 text-sm leading-relaxed text-slate-900 shadow-md">
           {pageIndex === 0 && <div contentEditable={false} className="border-b-2 border-brand-600 pb-4"><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-3"><img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" /><div><p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p><p className="font-sans text-[10px] font-semibold text-brand-700">{LETTER_BRANDING.tagline.split(" ").map((word, wordIndex, words) => <span key={`${word}-${wordIndex}`} className={wordIndex < words.length - 1 ? "mr-1 inline-block" : "inline-block"}>{word}</span>)}</p></div></div><div className="font-sans text-[10px] text-blue-900"><p>{LETTER_BRANDING.website}</p><p>{LETTER_BRANDING.email}</p><p>{LETTER_BRANDING.phone}</p></div></div></div>}
           {pageIndex === 0 && <p contentEditable={false} className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
-          <div className={`${pageIndex === 0 ? "h-780px" : "h-920px"} shrink-0 overflow-hidden`}>
+          <div style={{ height: `${pageIndex === 0 ? FIRST_PAGE_BODY_HEIGHT_PX : OTHER_PAGE_BODY_HEIGHT_PX}px` }} className="shrink-0 overflow-hidden">
             {page.fragments.map((fragment, fragmentIndex) => {
               const isTable = /^<table\b/i.test(fragment.text.trim());
               const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
