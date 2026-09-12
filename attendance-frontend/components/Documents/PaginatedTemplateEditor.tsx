@@ -103,6 +103,19 @@ const stripEditorScaffolding = (html: string) => {
   });
   return source.innerHTML;
 };
+const isVisuallyEmptyNode = (node: Node) => {
+  if (node.nodeType === Node.TEXT_NODE) return !(node.textContent || "").replace(/\u200B/g, "").trim();
+  if (node.nodeType !== Node.ELEMENT_NODE) return true;
+  if ((node as Element).nodeName === "BR") return true;
+  return !(node.textContent || "").replace(/\u200B/g, "").trim();
+};
+const stripEdgeEmptyParagraphs = (html: string, edge: "start" | "end") => {
+  const source = document.createElement("div");
+  source.innerHTML = html;
+  const take = () => edge === "end" ? source.lastChild : source.firstChild;
+  while (source.childNodes.length > 1 && take() && isVisuallyEmptyNode(take()!)) take()!.remove();
+  return source.innerHTML;
+};
 export const joinDynamicTemplateBlocks = (blocks: string[]) =>
   blocks.map(block => block === "" ? "<p><br></p>" : stripEditorScaffolding(block)).join("\n");
 export type DynamicTemplateFragment = { blockIndex: number; start: number; end: number; text: string };
@@ -434,6 +447,8 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const pendingCaret = useRef<{ blockIndex: number; position: number } | null>(null);
   const pendingTableCaret = useRef<{ blockIndex: number; rowIndex: number; cellIndex: number; position: number } | null>(null);
   const tableEditPending = useRef(false);
+  const enterLocked = useRef(false);
+  const ignoreNextInput = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
   const lastInternalValue = useRef<string | null>(null);
   useEffect(() => {
@@ -1012,8 +1027,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const handleEditableFragmentKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     handleKeyDown(event);
     event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation();
   };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
+    if (ignoreNextInput.current) {
+      ignoreNextInput.current = false;
+      return;
+    }
     if (event?.target instanceof HTMLElement && event.target.closest("[data-editor-spacer]")) return;
     if (isTableEdit(event)) {
       tableEditPending.current = true;
@@ -1060,6 +1080,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     setBlocks(blocksRef.current);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const eventTarget = event.target instanceof Element ? event.target : null;
+    const eventFragment = eventTarget?.closest<HTMLElement>("[data-template-fragment]");
+    // Fragment keydown already handles Enter. The parent listener must not
+    // run the same split again or it inserts a second empty block.
+    if (eventFragment && event.currentTarget !== eventFragment) return;
     const table = editingTable(event);
     if (table) {
       const selection = window.getSelection();
@@ -1088,7 +1113,10 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     }
     event.preventDefault();
     if (event.key === "Enter") {
-      event.nativeEvent.stopImmediatePropagation?.();
+      if (enterLocked.current) return;
+      enterLocked.current = true;
+      ignoreNextInput.current = true;
+      queueMicrotask(() => { enterLocked.current = false; });
       const selection = window.getSelection();
       let splitStart = active.start;
       let splitEnd = active.end;
@@ -1101,40 +1129,13 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           splitStart = splitEnd = fragmentStart + textOffsetInContainer(fragment, range.startContainer, range.startOffset);
         }
       }
-      const before = sliceHtml(block, 0, splitStart);
-      const after = sliceHtml(block, splitEnd, textLength(block));
-      if (!before && !after && textLength(block) === 0) {
-        pendingCaret.current = { blockIndex: active.blockIndex + 1, position: 0 };
-        applyBlocks([
-          ...blocksRef.current.slice(0, active.blockIndex + 1),
-          "",
-          ...blocksRef.current.slice(active.blockIndex + 1),
-        ]);
-        return;
-      }
-      // Keep each line in its own logical block. Keeping the synthetic line
-      // break inside one paginated fragment caused the browser to restore the
-      // caret above the previous line after a table.
-      const isVisuallyEmptyBlock = (html: string) => {
-        const source = document.createElement("div");
-        source.innerHTML = html;
-        return !source.textContent?.replace(/\u200B/g, "").trim();
-      };
-      const beforeBlocks = before ? splitDynamicTemplateBlocks(before) : [""];
-      let afterBlocks = after ? splitDynamicTemplateBlocks(after) : [""];
-      if (afterBlocks.length === 1 && isVisuallyEmptyBlock(afterBlocks[0])) {
-        while (beforeBlocks.length > 1 && isVisuallyEmptyBlock(beforeBlocks[beforeBlocks.length - 1])) beforeBlocks.pop();
-        afterBlocks = [""];
-      }
-      const nextCaretBlock = active.blockIndex + beforeBlocks.length;
-      pendingCaret.current = {
-        blockIndex: nextCaretBlock,
-        position: 0,
-      };
+      const before = stripEdgeEmptyParagraphs(sliceHtml(block, 0, splitStart), "end");
+      const after = stripEdgeEmptyParagraphs(sliceHtml(block, splitEnd, textLength(block)), "start");
+      pendingCaret.current = { blockIndex: active.blockIndex + 1, position: 0 };
       applyBlocks([
         ...blocksRef.current.slice(0, active.blockIndex),
-        ...beforeBlocks,
-        ...afterBlocks,
+        before,
+        after,
         ...blocksRef.current.slice(active.blockIndex + 1),
       ]);
       return;
