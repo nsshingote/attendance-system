@@ -7,7 +7,7 @@ export const FIRST_PAGE_BODY_HEIGHT_PX = 845;
 export const OTHER_PAGE_BODY_HEIGHT_PX = 971;
 export const A4_CONTENT_WIDTH_PX = 682;
 export const PAGE_LAYOUT_OVERFLOW_TOLERANCE_PX = 8;
-export const FRAGMENT_GAP_PX = 0;
+export const FRAGMENT_GAP_PX = 12;
 
 /** In-viewport but invisible — reliable layout on iOS Safari (unlike far off-screen). */
 export const HIDDEN_PDF_PREVIEW_CONTAINER_STYLE: CSSProperties = {
@@ -32,10 +32,14 @@ const fragmentNeedsSpacing = (
   const isTable = isTableHtml(fragment.text);
   const previousFragment = fragments[fragmentIndex - 1]?.text.trim() ?? "";
   const nextFragment = fragments[fragmentIndex + 1]?.text.trim() ?? "";
-  const adjacentToTable = isTable || isTableHtml(previousFragment) || isTableHtml(nextFragment);
   const hasFollowingContent = fragments.slice(fragmentIndex + 1).some(next => next.text.trim().length > 0);
-  return hasFollowingContent && !adjacentToTable;
+  return hasFollowingContent;
 };
+
+export const fragmentGapPx = (
+  fragments: DynamicTemplatePage["fragments"],
+  fragmentIndex: number,
+) => fragmentNeedsSpacing(fragments, fragmentIndex) ? FRAGMENT_GAP_PX : 0;
 
 const measureRoot = () => {
   const measure = document.createElement("div");
@@ -67,9 +71,7 @@ export const measureFragmentColumnHeight = (fragments: DynamicTemplatePage["frag
   fragments.forEach((fragment, fragmentIndex) => {
     const wrapper = document.createElement("div");
     wrapper.style.margin = "0";
-    if (fragmentNeedsSpacing(fragments, fragmentIndex)) {
-      wrapper.style.marginBottom = `${FRAGMENT_GAP_PX}px`;
-    }
+    wrapper.style.marginBottom = `${fragmentGapPx(fragments, fragmentIndex)}px`;
     wrapper.innerHTML = fragment.text || "";
     measure.appendChild(wrapper);
   });

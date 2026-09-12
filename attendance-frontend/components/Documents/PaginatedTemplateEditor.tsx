@@ -3,7 +3,7 @@
 import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, MutableRefObject, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
-import { FIRST_PAGE_BODY_HEIGHT_PX, OTHER_PAGE_BODY_HEIGHT_PX } from "@/lib/dynamicLetterLayout";
+import { FIRST_PAGE_BODY_HEIGHT_PX, FRAGMENT_GAP_PX, OTHER_PAGE_BODY_HEIGHT_PX } from "@/lib/dynamicLetterLayout";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; commit: () => string; }
@@ -420,8 +420,9 @@ export const paginateDynamicTemplateBlocks = (blocks: string[], geometry?: Dynam
         rowCount = tableFragment.rowCount;
         const height = blockHeight(tableFragment.html, geometry);
         if (page.fragments.length && height > remaining) { pages.push({ fragments: [] }); used = 0; continue; }
+        const gap = page.fragments.length ? FRAGMENT_GAP_PX : 0;
         page.fragments.push({ blockIndex, start: 0, end: textLength(block), text: tableFragment.html });
-        used += height;
+        used += gap + height;
         rowStart = tableFragment.end;
         if (rowStart < rowCount) { pages.push({ fragments: [] }); used = 0; }
       }
@@ -429,24 +430,27 @@ export const paginateDynamicTemplateBlocks = (blocks: string[], geometry?: Dynam
     }
     const blockLength = textLength(block);
     if (!blockLength) {
+      const page = pages[pages.length - 1];
       const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
       const isCaretAfterTable = /^<table\b/i.test(blocks[blockIndex - 1]?.trim());
       const height = isCaretAfterTable ? 0 : blockHeight("", geometry);
-      if (!isCaretAfterTable && used + height > limit) { pages.push({ fragments: [] }); used = 0; }
+      const gap = page.fragments.length ? FRAGMENT_GAP_PX : 0;
+      if (!isCaretAfterTable && used + gap + height > limit) { pages.push({ fragments: [] }); used = 0; }
       const target = pages[pages.length - 1];
       // The empty logical block is rendered as a real editable paragraph below.
       // Keep it in the page even when it has no measurable text height.
       target.fragments.push({ blockIndex, start: 0, end: 0, text: "" });
-      used += height;
+      used += gap + height;
       return;
     }
     let start = 0;
     do {
       const page = pages[pages.length - 1]; const limit = pages.length === 1 ? FIRST_PAGE_CONTENT_HEIGHT : OTHER_PAGE_CONTENT_HEIGHT;
-      const remaining = limit - used;
+      const gap = page.fragments.length ? FRAGMENT_GAP_PX : 0;
+      const remaining = limit - used - gap;
       if (remaining < 23) { pages.push({ fragments: [] }); used = 0; continue; }
       const end = start + fragmentForHeight(sliceHtml(block, start, blockLength), remaining, geometry); const text = sliceHtml(block, start, end);
-      page.fragments.push({ blockIndex, start, end, text }); used += blockHeight(text, geometry); start = end;
+      page.fragments.push({ blockIndex, start, end, text }); used += gap + blockHeight(text, geometry); start = end;
       if (start < blockLength) { pages.push({ fragments: [] }); used = 0; }
     } while (start < blockLength);
   });
@@ -1060,6 +1064,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // does not reset the active fragment mid-keystroke.
     commitDocument(false, false, false);
   };
+  const handleEditorSpacerInput = (event: FormEvent<HTMLDivElement>) => {
+    const html = stripEditorScaffolding(event.currentTarget.innerHTML);
+    if (!html || !textLength(html)) return;
+    applyBlocks([...blocksRef.current, ...splitDynamicTemplateBlocks(html)]);
+  };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     if (pendingCaret.current) return;
     const table = editingTable(event);
@@ -1287,15 +1296,26 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const isTable = /^<table\b/i.test(fragment.text.trim());
               const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
               if (isTable) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} style={{ marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
               }
               if (!fragment.text) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none" }} className={fragmentClass}>
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass}>
                   <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}></p>
                 </div>;
               }
-              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none" }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
             })}
+            {pageIndex === pages.length - 1 && (
+              <div
+                contentEditable
+                suppressContentEditableWarning
+                data-editor-spacer
+                onInput={handleEditorSpacerInput}
+                onKeyDown={event => event.stopPropagation()}
+                className="min-h-[1.625em] w-full outline-none"
+                aria-label="Continue editing before footer"
+              />
+            )}
           </div>
           <footer contentEditable={false} className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400"><p>{LETTER_BRANDING.address}</p><p className="mt-1">Page {pageIndex + 1}</p></footer>
         </section>

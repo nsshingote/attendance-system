@@ -3,6 +3,7 @@
 import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import {
+  FRAGMENT_GAP_PX,
   pageBodyHeightPx,
   mergeSpuriousTrailingPages,
   measurePageBodyOverflow,
@@ -302,7 +303,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" />
                   <div className="min-w-0">
-                    <h2 className="text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</h2>
+                    <p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p>
                     <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">
                       {LETTER_BRANDING.tagline.split(" ").map((word, wordIndex, words) => (
                         <span key={`${word}-${wordIndex}`} className={wordIndex < words.length - 1 ? "mr-1 inline-block" : "inline-block"}>
@@ -320,10 +321,10 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
               </div>
             </header>
           )}
-          {pageIndex === 0 && <h1 className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</h1>}
+          {pageIndex === 0 && <p className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: `${pageBodyHeightPx(pageIndex)}px` }} className="shrink-0 overflow-hidden">
             {page.fragments.map((fragment, fragmentIndex) => {
-              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} style={fragment.text ? undefined : { minHeight: "1.625em" }} className="whitespace-pre-wrap wrap-break-words" dangerouslySetInnerHTML={{ __html: normalizePreviewHtml(fragment.text || "") }} />;
+              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} style={{ ...(fragment.text ? {} : { minHeight: "1.625em" }), marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className="w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto" dangerouslySetInnerHTML={{ __html: normalizePreviewHtml(fragment.text || "") }} />;
             })}
           </div>
           <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
