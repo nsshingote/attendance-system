@@ -282,8 +282,8 @@ def _clean_document_type(value: str):
 
 @router.post("/letter-templates", status_code=201)
 def create_letter_template(payload: LetterTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    name, content, document_type = payload.name.strip(), payload.content.strip(), _clean_document_type(payload.document_type)
-    if not name or not content:
+    name, content, document_type = payload.name.strip(), payload.content, _clean_document_type(payload.document_type)
+    if not name or not content.strip():
         raise HTTPException(status_code=422, detail="Template name and content are required")
     if db.query(LetterTemplate).filter(LetterTemplate.document_type == document_type).first():
         raise HTTPException(status_code=409, detail="A template already uses this document type")
@@ -297,8 +297,8 @@ def update_letter_template(template_id: int, payload: LetterTemplateUpdate, db: 
     item = db.query(LetterTemplate).filter(LetterTemplate.id == template_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Letter template not found")
-    name, content, document_type = payload.name.strip(), payload.content.strip(), _clean_document_type(payload.document_type)
-    if not name or not content:
+    name, content, document_type = payload.name.strip(), payload.content, _clean_document_type(payload.document_type)
+    if not name or not content.strip():
         raise HTTPException(status_code=422, detail="Template name and content are required")
     duplicate = db.query(LetterTemplate).filter(LetterTemplate.document_type == document_type, LetterTemplate.id != template_id).first()
     if duplicate:
