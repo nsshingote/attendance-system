@@ -41,6 +41,28 @@ export const fragmentGapPx = (
   fragmentIndex: number,
 ) => fragmentNeedsSpacing(fragments, fragmentIndex) ? FRAGMENT_GAP_PX : 0;
 
+export const normalizeDynamicTemplateHtml = (html: string) => {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const visit = (node: Node) => {
+    Array.from(node.childNodes).forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE && !child.textContent?.trim()) {
+        child.remove();
+        return;
+      }
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const element = child as HTMLElement;
+        if (/^(P|DIV|H1|H2|H3|H4|H5|H6|UL|OL|BLOCKQUOTE)$/.test(element.nodeName)) {
+          element.style.setProperty("margin", "0");
+        }
+        visit(element);
+      }
+    });
+  };
+  visit(container);
+  return container.innerHTML;
+};
+
 const measureRoot = () => {
   const measure = document.createElement("div");
   measure.style.cssText = [

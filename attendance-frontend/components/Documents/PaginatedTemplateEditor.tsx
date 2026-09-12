@@ -3,7 +3,7 @@
 import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, MutableRefObject, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
-import { FIRST_PAGE_BODY_HEIGHT_PX, FRAGMENT_GAP_PX, OTHER_PAGE_BODY_HEIGHT_PX } from "@/lib/dynamicLetterLayout";
+import { FIRST_PAGE_BODY_HEIGHT_PX, FRAGMENT_GAP_PX, OTHER_PAGE_BODY_HEIGHT_PX, normalizeDynamicTemplateHtml } from "@/lib/dynamicLetterLayout";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; commit: () => string; }
@@ -1296,14 +1296,14 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
               const isTable = /^<table\b/i.test(fragment.text.trim());
               const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
               if (isTable) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} style={{ marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} style={{ marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text) }} />;
               }
               if (!fragment.text) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass}>
                   <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}></p>
                 </div>;
               }
-              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: fragment.text }} />;
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text) }} />;
             })}
             {pageIndex === pages.length - 1 && (
               <div

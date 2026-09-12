@@ -4,6 +4,7 @@ import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
 import {
   FRAGMENT_GAP_PX,
+  normalizeDynamicTemplateHtml,
   pageBodyHeightPx,
   mergeSpuriousTrailingPages,
   measurePageBodyOverflow,
@@ -41,28 +42,6 @@ const sliceHtml = (html: string, start: number, end: number) => {
     if (copied) result.appendChild(copied);
   });
   return result.innerHTML;
-};
-
-const normalizePreviewHtml = (html: string) => {
-  const container = document.createElement("div");
-  container.innerHTML = html;
-  const visit = (node: Node) => {
-    Array.from(node.childNodes).forEach(child => {
-      if (child.nodeType === Node.TEXT_NODE && !child.textContent?.trim()) {
-        child.remove();
-        return;
-      }
-      if (child.nodeType === Node.ELEMENT_NODE) {
-        const element = child as HTMLElement;
-        if (/^(P|DIV|H1|H2|H3|H4|H5|H6|UL|OL|BLOCKQUOTE)$/.test(element.nodeName)) {
-          element.style.setProperty("margin", "0");
-        }
-        visit(element);
-      }
-    });
-  };
-  visit(container);
-  return container.innerHTML;
 };
 
 const resolvedFragment = (sourceFragment: string, sourceBlock: string, resolvedBlock: string, start: number, end: number) => {
@@ -324,7 +303,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
           {pageIndex === 0 && <p className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: `${pageBodyHeightPx(pageIndex)}px` }} className="shrink-0 overflow-hidden">
             {page.fragments.map((fragment, fragmentIndex) => {
-              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} style={{ ...(fragment.text ? {} : { minHeight: "1.625em" }), marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className="w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto" dangerouslySetInnerHTML={{ __html: normalizePreviewHtml(fragment.text || "") }} />;
+              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} style={{ ...(fragment.text ? {} : { minHeight: "1.625em" }), marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className="w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto" dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text || "") }} />;
             })}
           </div>
           <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
