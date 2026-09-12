@@ -6,7 +6,6 @@ import {
   FRAGMENT_GAP_PX,
   normalizeDynamicTemplateHtml,
   pageBodyHeightPx,
-  mergeSpuriousTrailingPages,
   measurePageBodyOverflow,
   nextAnimationFrames,
   waitForElementImages,
@@ -15,62 +14,6 @@ import { A4_PAGINATION_GEOMETRY, paginateDynamicTemplateBlocks, splitDynamicTemp
 
 type DynamicLetterPreviewProps = { title: string; content: string; templateContent?: string; templateLayout?: unknown; layoutValidated?: boolean; companyName?: string; companyAddress?: string; logoUrl?: string };
 
-const sliceHtml = (html: string, start: number, end: number) => {
-  const source = document.createElement("div");
-  source.innerHTML = html;
-  let position = 0;
-  const voidElements = new Set(["AREA", "BASE", "BR", "COL", "EMBED", "HR", "IMG", "INPUT", "LINK", "META", "PARAM", "SOURCE", "TRACK", "WBR"]);
-  const copy = (node: Node): Node | null => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const value = node.textContent || "";
-      const from = Math.max(0, start - position);
-      const to = Math.min(value.length, end - position);
-      position += value.length;
-      return from < to ? document.createTextNode(value.slice(from, to)) : null;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return null;
-    const element = node.cloneNode(false) as HTMLElement;
-    node.childNodes.forEach(child => {
-      const copied = copy(child);
-      if (copied) element.appendChild(copied);
-    });
-    return element.childNodes.length || voidElements.has(node.nodeName) ? element : null;
-  };
-  const result = document.createElement("div");
-  source.childNodes.forEach(node => {
-    const copied = copy(node);
-    if (copied) result.appendChild(copied);
-  });
-  return result.innerHTML;
-};
-
-const resolvedFragment = (sourceFragment: string, sourceBlock: string, resolvedBlock: string, start: number, end: number) => {
-  if (!/^<table\b/i.test(sourceFragment.trim())) {
-    if (start === 0 && end >= sourceBlock.replace(/<[^>]+>/g, "").length) return resolvedBlock;
-    const sourceLength = Math.max(1, sourceBlock.replace(/<[^>]+>/g, "").length);
-    const resolvedLength = resolvedBlock.replace(/<[^>]+>/g, "").length;
-    const resolvedStart = Math.floor((start / sourceLength) * resolvedLength);
-    const resolvedEnd = Math.min(resolvedLength, Math.ceil((end / sourceLength) * resolvedLength));
-    return sliceHtml(resolvedBlock, resolvedStart, resolvedEnd);
-  }
-  const source = document.createElement("div");
-  source.innerHTML = sourceFragment;
-  const sourceTable = source.querySelector("table");
-  const resolved = document.createElement("div");
-  resolved.innerHTML = resolvedBlock;
-  const resolvedTable = resolved.querySelector("table");
-  if (!sourceTable || !resolvedTable) return resolvedBlock;
-  const rowStart = Number(sourceTable.dataset.tableRowStart || 0);
-  const rowEnd = Number(sourceTable.dataset.tableRowEnd || resolvedTable.rows.length);
-  const table = resolvedTable.cloneNode(false) as HTMLTableElement;
-  const body = document.createElement("tbody");
-  Array.from(resolvedTable.rows).slice(rowStart, rowEnd).forEach(row => body.appendChild(row.cloneNode(true)));
-  table.appendChild(body);
-  return table.outerHTML;
-};
-
-const isTableBlock = (block: string) => /^<table\b/i.test(block.trim());
-const isBreakBlock = (block: string) => /^(\[\[dynamic:page-break\]\])$/i.test(block.trim());
 const hasMeaningfulHtml = (html: string) => {
   const container = document.createElement("div");
   container.innerHTML = html;
@@ -87,59 +30,6 @@ const trimTrailingEmptyPages = (pages: DynamicTemplatePage[]) => {
   }
   return trimmed;
 };
-const sameTableStructure = (sourceBlock: string, resolvedBlock: string) => {
-  const source = document.createElement("div");
-  source.innerHTML = sourceBlock;
-  const resolved = document.createElement("div");
-  resolved.innerHTML = resolvedBlock;
-  const sourceRows = Array.from(source.querySelector("table")?.rows ?? []);
-  const resolvedRows = Array.from(resolved.querySelector("table")?.rows ?? []);
-  return sourceRows.length === resolvedRows.length
-    && sourceRows.every((row, index) => row.cells.length === resolvedRows[index]?.cells.length);
-};
-
-const mapResolvedBlocks = (templateBlocks: string[], resolvedBlocks: string[]) => {
-  const sameBlockBoundaries =
-    templateBlocks.length === resolvedBlocks.length &&
-    templateBlocks.every((templateBlock, index) =>
-      isTableBlock(templateBlock) === isTableBlock(resolvedBlocks[index]) &&
-      isBreakBlock(templateBlock) === isBreakBlock(resolvedBlocks[index]),
-    );
-  if (sameBlockBoundaries) {
-    return { blocks: resolvedBlocks, valid: true };
-  }
-
-  const mapped: string[] = [];
-  let resolvedIndex = 0;
-  let valid = true;
-  templateBlocks.forEach(templateBlock => {
-    if (isBreakBlock(templateBlock)) {
-      while (resolvedIndex < resolvedBlocks.length && !isBreakBlock(resolvedBlocks[resolvedIndex])) resolvedIndex += 1;
-      if (resolvedIndex >= resolvedBlocks.length) valid = false;
-      mapped.push(resolvedBlocks[resolvedIndex] || templateBlock);
-      resolvedIndex += 1;
-      return;
-    }
-    if (isTableBlock(templateBlock)) {
-      while (resolvedIndex < resolvedBlocks.length && !isTableBlock(resolvedBlocks[resolvedIndex])) resolvedIndex += 1;
-      if (resolvedIndex >= resolvedBlocks.length) valid = false;
-      const resolvedBlock = resolvedBlocks[resolvedIndex] || templateBlock;
-      if (!sameTableStructure(templateBlock, resolvedBlock)) valid = false;
-      mapped.push(resolvedBlock);
-      resolvedIndex += 1;
-      return;
-    }
-    const parts: string[] = [];
-    while (resolvedIndex < resolvedBlocks.length && !isTableBlock(resolvedBlocks[resolvedIndex]) && !isBreakBlock(resolvedBlocks[resolvedIndex])) {
-      parts.push(resolvedBlocks[resolvedIndex]);
-      resolvedIndex += 1;
-    }
-    if (!parts.length) valid = false;
-    mapped.push(parts.join("\n"));
-  });
-  if (resolvedIndex < resolvedBlocks.length) valid = false;
-  return { blocks: mapped, valid };
-};
 
 const isSavedTemplateLayout = (layout: unknown): layout is DynamicTemplatePage[] => Array.isArray(layout)
   && layout.length > 0
@@ -147,36 +37,14 @@ const isSavedTemplateLayout = (layout: unknown): layout is DynamicTemplatePage[]
     && (page as DynamicTemplatePage).fragments.every(fragment => Number.isInteger(fragment.blockIndex)
       && Number.isInteger(fragment.start) && Number.isInteger(fragment.end) && typeof fragment.text === "string"));
 
-const resolveTemplatePages = (templateContent: string, content: string, savedLayout?: unknown) => {
-  const templateBlocks = splitDynamicTemplateBlocks(templateContent);
-  const hasSavedLayout = isSavedTemplateLayout(savedLayout);
-  // A generated document owns its page boundaries. Do not re-paginate it on a
-  // recipient device, whose font metrics can otherwise turn one saved page
-  // into two. Legacy documents without this snapshot retain the fallback.
-  const templatePages = hasSavedLayout
-    ? savedLayout.map(page => ({ ...page, fragments: page.fragments.map(fragment => ({ ...fragment })) }))
-    : trimTrailingEmptyPages(paginateDynamicTemplateBlocks(templateBlocks, A4_PAGINATION_GEOMETRY));
-  const resolvedMapping = mapResolvedBlocks(templateBlocks, splitDynamicTemplateBlocks(content));
-  const resolvedPages = templatePages.map(page => ({
-    ...page,
-    fragments: page.fragments.map(fragment => ({
-      ...fragment,
-      text: hasSavedLayout
-        ? fragment.text
-        : resolvedFragment(
-          fragment.text,
-          templateBlocks[fragment.blockIndex] || "",
-          resolvedMapping.blocks[fragment.blockIndex] || "",
-          fragment.start,
-          fragment.end,
-        ),
-    })),
-  }));
-  return {
-    savedPages: resolvedPages,
-    exportPages: hasSavedLayout ? resolvedPages : mergeSpuriousTrailingPages(resolvedPages),
-    mappingValid: resolvedMapping.valid,
-  };
+const resolveTemplatePages = (content: string, savedLayout?: unknown) => {
+  if (isSavedTemplateLayout(savedLayout)) {
+    const pages = savedLayout.map(page => ({ ...page, fragments: page.fragments.map(fragment => ({ ...fragment })) }));
+    return { savedPages: pages, exportPages: pages, mappingValid: true };
+  }
+  if (!content) return { savedPages: [] as DynamicTemplatePage[], exportPages: [] as DynamicTemplatePage[], mappingValid: false };
+  const pages = trimTrailingEmptyPages(paginateDynamicTemplateBlocks(splitDynamicTemplateBlocks(content), A4_PAGINATION_GEOMETRY));
+  return { savedPages: pages, exportPages: pages, mappingValid: true };
 };
 
 const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProps>(function DynamicLetterPreview({ title, content, templateContent, templateLayout, layoutValidated = false }, ref) {
@@ -189,8 +57,10 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
   const [layoutStable, setLayoutStable] = useState(false);
 
   const { savedPages, exportPages, mappingValid } = useMemo(() => {
-    if (!templateContent) return { savedPages: [] as DynamicTemplatePage[], exportPages: [] as DynamicTemplatePage[], mappingValid: false };
-    return resolveTemplatePages(templateContent, content, templateLayout);
+    if (isSavedTemplateLayout(templateLayout)) return resolveTemplatePages(content, templateLayout);
+    const visible = content || templateContent || "";
+    if (!visible) return { savedPages: [] as DynamicTemplatePage[], exportPages: [] as DynamicTemplatePage[], mappingValid: false };
+    return resolveTemplatePages(visible);
   }, [content, templateContent, templateLayout]);
 
   useLayoutEffect(() => {

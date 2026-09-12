@@ -3,7 +3,7 @@
 import { ClipboardEvent, FocusEvent, FormEvent, forwardRef, KeyboardEvent, MutableRefObject, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, Link, Table2, Undo2, Redo2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { LETTER_BRANDING } from "@/lib/letterBranding";
-import { FIRST_PAGE_BODY_HEIGHT_PX, FRAGMENT_GAP_PX, OTHER_PAGE_BODY_HEIGHT_PX, normalizeDynamicTemplateHtml } from "@/lib/dynamicLetterLayout";
+import { FIRST_PAGE_BODY_HEIGHT_PX, FRAGMENT_GAP_PX, OTHER_PAGE_BODY_HEIGHT_PX, logicalTextLength, normalizeDynamicTemplateHtml, sliceHtml, textLength } from "@/lib/dynamicLetterLayout";
 import { DYNAMIC_PAGE_BREAK, isDynamicPageBreak } from "@/lib/dynamicTemplateMarkers";
 
 export interface PaginatedTemplateEditorHandle { insertPlaceholder: (token: string) => void; insertPageBreak: () => void; commit: () => string; }
@@ -142,16 +142,6 @@ const canonicalizeHtml = (html: string) => {
 };
 const sameBlocks = (left: string[], right: string[]) =>
   left.length === right.length && left.every((block, index) => canonicalizeHtml(block) === canonicalizeHtml(right[index]));
-const logicalTextLength = (node: Node): number => {
-  if (node.nodeType === Node.TEXT_NODE) return (node.textContent || "").replace(/\u200B/g, "").length;
-  if (node.nodeType === Node.ELEMENT_NODE && (node as Element).nodeName === "BR") return 1;
-  return Array.from(node.childNodes).reduce((length, child) => length + logicalTextLength(child), 0);
-};
-const textLength = (html: string) => {
-  const element = document.createElement("div");
-  element.innerHTML = html;
-  return logicalTextLength(element);
-};
 const textOffsetInContainer = (container: HTMLElement, node: Node, offset: number) => {
   const measure = (current: Node): number => {
     if (current === node) {
@@ -171,37 +161,6 @@ const textOffsetInContainer = (container: HTMLElement, node: Node, offset: numbe
     return total;
   };
   return measure(container);
-};
-const sliceHtml = (html: string, start: number, end: number) => {
-  const source = document.createElement("div");
-  source.innerHTML = html;
-  let position = 0;
-  const copy = (node: Node): Node | null => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const value = node.textContent || "";
-      let logicalPosition = position;
-      let copied = "";
-      for (const character of value) {
-        if (character === "\u200B") continue;
-        if (logicalPosition >= start && logicalPosition < end) copied += character;
-        logicalPosition += 1;
-      }
-      position = logicalPosition;
-      return copied ? document.createTextNode(copied) : null;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return null;
-    if (node.nodeName === "BR") {
-      const included = position >= start && position < end;
-      position += 1;
-      return included ? node.cloneNode(false) : null;
-    }
-    const element = node.cloneNode(false) as HTMLElement;
-    node.childNodes.forEach(child => { const copied = copy(child); if (copied) element.appendChild(copied); });
-    return element.childNodes.length ? element : null;
-  };
-  const result = document.createElement("div");
-  source.childNodes.forEach(node => { const copied = copy(node); if (copied) result.appendChild(copied); });
-  return result.innerHTML;
 };
 const caretOffsetInTextNode = (value: string, logicalOffset: number) => {
   let logical = 0;

@@ -41,13 +41,63 @@ export const fragmentGapPx = (
   fragmentIndex: number,
 ) => fragmentNeedsSpacing(fragments, fragmentIndex) ? FRAGMENT_GAP_PX : 0;
 
+export const logicalTextLength = (node: Node): number => {
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent || "").replace(/\u200B/g, "").length;
+  if (node.nodeType === Node.ELEMENT_NODE && (node as Element).nodeName === "BR") return 1;
+  return Array.from(node.childNodes).reduce((length, child) => length + logicalTextLength(child), 0);
+};
+
+export const textLength = (html: string) => {
+  const element = document.createElement("div");
+  element.innerHTML = html;
+  return logicalTextLength(element);
+};
+
+/** Slice HTML by logical text offsets (BR = 1, ignore zero-width spaces). */
+export const sliceHtml = (html: string, start: number, end: number) => {
+  const source = document.createElement("div");
+  source.innerHTML = html;
+  let position = 0;
+  const copy = (node: Node): Node | null => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const value = node.textContent || "";
+      let logicalPosition = position;
+      let copied = "";
+      for (const character of value) {
+        if (character === "\u200B") continue;
+        if (logicalPosition >= start && logicalPosition < end) copied += character;
+        logicalPosition += 1;
+      }
+      position = logicalPosition;
+      return copied ? document.createTextNode(copied) : null;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (node.nodeName === "BR") {
+      const included = position >= start && position < end;
+      position += 1;
+      return included ? node.cloneNode(false) : null;
+    }
+    const element = node.cloneNode(false) as HTMLElement;
+    node.childNodes.forEach(child => { const copied = copy(child); if (copied) element.appendChild(copied); });
+    return element.childNodes.length ? element : null;
+  };
+  const result = document.createElement("div");
+  source.childNodes.forEach(node => { const copied = copy(node); if (copied) result.appendChild(copied); });
+  return result.innerHTML;
+};
+
 export const normalizeDynamicTemplateHtml = (html: string) => {
   const container = document.createElement("div");
   container.innerHTML = html;
   const visit = (node: Node) => {
     Array.from(node.childNodes).forEach(child => {
       if (child.nodeType === Node.TEXT_NODE && !child.textContent?.trim()) {
-        child.remove();
+        const text = child.textContent ?? "";
+        // Keep word-separating spaces between inline tags. Drop newline/tab
+        // nodes that only exist as inter-block serialization whitespace.
+        if (/[\n\r]/.test(text) || !/[ \u00a0]/.test(text)) {
+          child.remove();
+        }
         return;
       }
       if (child.nodeType === Node.ELEMENT_NODE) {
