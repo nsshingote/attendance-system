@@ -102,7 +102,8 @@ const stripEditorScaffolding = (html: string) => {
   });
   return source.innerHTML;
 };
-export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.map(stripEditorScaffolding).join("\n");
+export const joinDynamicTemplateBlocks = (blocks: string[]) =>
+  blocks.map(block => block === "" ? "<p><br></p>" : stripEditorScaffolding(block)).join("\n");
 export type DynamicTemplateFragment = { blockIndex: number; start: number; end: number; text: string };
 export type DynamicTemplatePage = { fragments: DynamicTemplateFragment[]; manualBreakBefore?: number };
 
