@@ -100,15 +100,6 @@ const stripEditorScaffolding = (html: string) => {
   source.querySelectorAll<HTMLElement>("p").forEach(paragraph => {
     paragraph.style.setProperty("margin", "0");
   });
-  const onlyChild = source.children.length === 1 ? source.firstElementChild : null;
-  if (
-    onlyChild &&
-    /^(P|DIV)$/i.test(onlyChild.nodeName) &&
-    !onlyChild.textContent?.trim() &&
-    Array.from(onlyChild.children).every(child => child.nodeName === "BR")
-  ) {
-    return "";
-  }
   return source.innerHTML;
 };
 export const joinDynamicTemplateBlocks = (blocks: string[]) => blocks.map(stripEditorScaffolding).join("\n");
