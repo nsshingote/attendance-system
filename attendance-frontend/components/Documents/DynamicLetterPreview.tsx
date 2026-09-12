@@ -118,6 +118,16 @@ const sameTableStructure = (sourceBlock: string, resolvedBlock: string) => {
 };
 
 const mapResolvedBlocks = (templateBlocks: string[], resolvedBlocks: string[]) => {
+  const sameBlockBoundaries =
+    templateBlocks.length === resolvedBlocks.length &&
+    templateBlocks.every((templateBlock, index) =>
+      isTableBlock(templateBlock) === isTableBlock(resolvedBlocks[index]) &&
+      isBreakBlock(templateBlock) === isBreakBlock(resolvedBlocks[index]),
+    );
+  if (sameBlockBoundaries) {
+    return { blocks: resolvedBlocks, valid: true };
+  }
+
   const mapped: string[] = [];
   let resolvedIndex = 0;
   let valid = true;
