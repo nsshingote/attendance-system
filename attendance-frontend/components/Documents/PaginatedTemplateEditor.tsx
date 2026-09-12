@@ -728,7 +728,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     if (render && restoreCaret) {
       pendingCaret.current = { blockIndex: active.blockIndex, position: active.start + insertedLength };
     }
-    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...splitDynamicTemplateBlocks(nextValue), ...blocksRef.current.slice(active.blockIndex + 1)], render, notifyParent);
+    // Live typing must replace the current block only. Splitting a fragment
+    // that already contains the new letter into extra blocks (without a
+    // re-render) duplicates those blocks on the next keystroke.
+    const committedBlocks = render ? splitDynamicTemplateBlocks(nextValue) : [nextValue];
+    applyBlocks([...blocksRef.current.slice(0, active.blockIndex), ...committedBlocks, ...blocksRef.current.slice(active.blockIndex + 1)], render, notifyParent);
     // Native typing keeps this DOM fragment mounted between input events. Its
     // data-fragment-end came from the pre-input render, so keep the in-memory
     // boundary in sync with the serialized fragment before the next key.
@@ -1010,6 +1014,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     event.stopPropagation();
   };
   const updateDocument = (event?: FormEvent<HTMLDivElement>) => {
+    if (event?.target instanceof HTMLElement && event.target.closest("[data-editor-spacer]")) return;
     if (isTableEdit(event)) {
       tableEditPending.current = true;
       return;
@@ -1023,10 +1028,21 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     // does not reset the active fragment mid-keystroke.
     commitDocument(false, false, false);
   };
-  const handleEditorSpacerInput = (event: FormEvent<HTMLDivElement>) => {
-    const html = stripEditorScaffolding(event.currentTarget.innerHTML);
-    if (!html || !textLength(html)) return;
-    applyBlocks([...blocksRef.current, ...splitDynamicTemplateBlocks(html)]);
+  const focusTrailingEditableLine = () => {
+    const lastIndex = blocksRef.current.length - 1;
+    const last = blocksRef.current[lastIndex];
+    const canReuseLastEmpty = last !== undefined
+      && !isDynamicPageBreak(last)
+      && !/^<table\b/i.test(last.trim())
+      && textLength(last) === 0;
+    if (canReuseLastEmpty) {
+      pendingCaret.current = { blockIndex: lastIndex, position: 0 };
+      const fragment = editor.current?.querySelector<HTMLElement>(`[data-block-index="${lastIndex}"]`);
+      if (fragment) restoreCaretInFragment(fragment, 0, { blockIndex: lastIndex, position: 0 }, activeSelection, pendingCaret);
+      return;
+    }
+    pendingCaret.current = { blockIndex: blocksRef.current.length, position: 0 };
+    applyBlocks([...blocksRef.current, ""]);
   };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     if (pendingCaret.current) return;
@@ -1072,6 +1088,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     }
     event.preventDefault();
     if (event.key === "Enter") {
+      event.nativeEvent.stopImmediatePropagation?.();
       const selection = window.getSelection();
       let splitStart = active.start;
       let splitEnd = active.end;
@@ -1098,8 +1115,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       // Keep each line in its own logical block. Keeping the synthetic line
       // break inside one paginated fragment caused the browser to restore the
       // caret above the previous line after a table.
+      const isVisuallyEmptyBlock = (html: string) => {
+        const source = document.createElement("div");
+        source.innerHTML = html;
+        return !source.textContent?.replace(/\u200B/g, "").trim();
+      };
       const beforeBlocks = before ? splitDynamicTemplateBlocks(before) : [""];
-      const afterBlocks = after ? splitDynamicTemplateBlocks(after) : [""];
+      let afterBlocks = after ? splitDynamicTemplateBlocks(after) : [""];
+      if (afterBlocks.length === 1 && isVisuallyEmptyBlock(afterBlocks[0])) {
+        while (beforeBlocks.length > 1 && isVisuallyEmptyBlock(beforeBlocks[beforeBlocks.length - 1])) beforeBlocks.pop();
+        afterBlocks = [""];
+      }
       const nextCaretBlock = active.blockIndex + beforeBlocks.length;
       pendingCaret.current = {
         blockIndex: nextCaretBlock,
@@ -1244,7 +1270,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, redoBlocks)}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={false} tabIndex={0} role="group" aria-label={title} onBeforeInput={updateActiveSelection} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none [&_table_td]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)] [&_table_th]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)]">
+    <div ref={editor} contentEditable={false} tabIndex={0} role="group" aria-label={title} onBeforeInput={event => {
+      updateActiveSelection();
+      const inputType = (event.nativeEvent as InputEvent).inputType;
+      if (inputType === "insertParagraph" || inputType === "insertLineBreak") event.preventDefault();
+    }} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none [&_table_td]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)] [&_table_th]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)]">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section style={{ width: "794px", minWidth: "794px", maxWidth: "none", height: "1120px", minHeight: "1120px", maxHeight: "1120px", fontFamily: 'Georgia, "Times New Roman", Times, serif' }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 text-sm leading-relaxed text-slate-900 shadow-md">
@@ -1266,12 +1296,12 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
             })}
             {pageIndex === pages.length - 1 && (
               <div
-                contentEditable
-                suppressContentEditableWarning
                 data-editor-spacer
-                onInput={handleEditorSpacerInput}
-                onKeyDown={event => event.stopPropagation()}
-                className="min-h-[1.625em] w-full outline-none"
+                onMouseDown={event => {
+                  event.preventDefault();
+                  focusTrailingEditableLine();
+                }}
+                className="min-h-[1.625em] w-full cursor-text"
                 aria-label="Continue editing before footer"
               />
             )}
