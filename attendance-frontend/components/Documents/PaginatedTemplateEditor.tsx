@@ -1284,16 +1284,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
           <div style={{ height: `${pageIndex === 0 ? FIRST_PAGE_BODY_HEIGHT_PX : OTHER_PAGE_BODY_HEIGHT_PX}px` }} className="shrink-0 overflow-hidden">
             {page.fragments.map((fragment, fragmentIndex) => {
               const isTable = /^<table\b/i.test(fragment.text.trim());
+              const nextIsTable = /^<table\b/i.test(page.fragments[fragmentIndex + 1]?.text.trim() ?? "");
               const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
               if (isTable) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} style={{ marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text) }} />;
               }
               if (!fragment.text) {
-                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass}>
+                return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: nextIsTable ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass}>
                   <p data-template-editable-block="true" style={{ margin: 0, minHeight: "1.625em" }}></p>
                 </div>;
               }
-              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text) }} />;
+              return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={true} tabIndex={-1} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} onKeyDown={handleEditableFragmentKeyDown} style={{ outline: "none", marginBottom: nextIsTable ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text) }} />;
             })}
             {pageIndex === pages.length - 1 && (
               <div

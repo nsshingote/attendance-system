@@ -173,7 +173,9 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
           {pageIndex === 0 && <p className="mb-4 mt-4 text-center font-sans text-lg font-bold uppercase tracking-wide">{title}</p>}
           <div ref={element => { bodyRefs.current[pageIndex] = element; }} style={{ height: `${pageBodyHeightPx(pageIndex)}px` }} className="shrink-0 overflow-hidden">
             {page.fragments.map((fragment, fragmentIndex) => {
-              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} style={{ ...(fragment.text ? {} : { minHeight: "1.625em" }), marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className="w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto" dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text || "") }} />;
+              const nextIsTable = /^<table\b/i.test(page.fragments[fragmentIndex + 1]?.text.trim() ?? "");
+              const isTable = /^<table\b/i.test(fragment.text.trim());
+              return <div key={`${fragment.blockIndex}-${fragment.start}-${fragmentIndex}`} style={{ ...(fragment.text ? {} : { minHeight: "1.625em" }), marginBottom: isTable ? (page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined) : (nextIsTable ? `${FRAGMENT_GAP_PX}px` : undefined) }} className="w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto" dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text || "") }} />;
             })}
           </div>
           <footer className="mt-auto border-t border-ink-200 pt-2 text-center font-sans text-[10px] text-ink-400">
