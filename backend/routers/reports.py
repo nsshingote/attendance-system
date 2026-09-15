@@ -592,9 +592,17 @@ def get_all_reports(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_user)
 ):
     """Admin gets all reports from daily_report_data table."""
+    team_member_ids = require_team_permission(db, current_user, "reports.team_view")
+    if current_user.role == "team_leader":
+        team_member_ids = list(dict.fromkeys([current_user.id, *team_member_ids]))
+        if user_id is not None and user_id not in set(team_member_ids):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
+        if employee_ids and not set(employee_ids).issubset(set(team_member_ids)):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
+        employee_ids = employee_ids or team_member_ids
     
     # Join once up front so every selected filter is applied to the same result
     # set.  In particular, do not silently ignore an unknown department ID.

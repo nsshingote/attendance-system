@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 
 from auth import get_current_user, require_roles, require_admin
-from team_scope import require_team_member_access
+from team_scope import require_team_member_access, require_team_permission
 from database import get_db
 from models import (
     Attendance,
@@ -876,9 +876,17 @@ def get_all_attendance(
     employee_ids: Optional[List[int]] = Query(None),
     department_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_user)
 ):
     """Get attendance for all employees (admin only)"""
+    team_member_ids = require_team_permission(db, current_user, "attendance.team_view")
+    if current_user.role == "team_leader":
+        team_member_ids = list(dict.fromkeys([current_user.id, *team_member_ids]))
+        if employee_ids:
+            if not set(employee_ids).issubset(set(team_member_ids)):
+                raise HTTPException(status_code=403, detail="Employee is outside your active team")
+        else:
+            employee_ids = team_member_ids
     query = db.query(
         Attendance,
         User.name,
@@ -984,13 +992,20 @@ def attendance_calendar(
     all-employees calendar by passing user_id=-1.
     """
     is_admin_user = current_user.role in ("admin", "superadmin")
+    is_team_leader = current_user.role == "team_leader"
     aggregated_all = (user_id == -1 or bool(employee_ids)) and is_admin_user
     target_user_id = None
 
     if aggregated_all:
         target_user_id = None
     else:
-        target_user_id = user_id if (user_id and is_admin_user) else current_user.id
+        if user_id and is_admin_user:
+            target_user_id = user_id
+        elif user_id and is_team_leader:
+            require_team_member_access(db, current_user, user_id, "attendance.team_view")
+            target_user_id = user_id
+        else:
+            target_user_id = current_user.id
 
     if target_user_id is not None:
         user = db.query(User).filter(User.id == target_user_id).first()

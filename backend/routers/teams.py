@@ -52,15 +52,6 @@ def _replace_members(team: Team, member_ids: list[int]) -> None:
     team.members.extend(TeamMember(employee_id=employee_id) for employee_id in member_ids)
 
 
-def _promote_team_leader(db: Session, leader_id: int | None) -> None:
-    if leader_id is None:
-        return
-    leader = db.query(User).filter(User.id == leader_id).first()
-    if leader is None:
-        raise HTTPException(status_code=404, detail="Team Leader not found")
-    leader.role = "team_leader"
-
-
 @router.get("/", response_model=List[TeamOut])
 def list_teams(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     return [_team_response(team) for team in db.query(Team).order_by(Team.name).all()]
@@ -71,7 +62,12 @@ def list_eligible_team_leaders(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    return db.query(User).filter(User.status == "active").order_by(User.name).all()
+    return (
+        db.query(User)
+        .filter(User.status == "active", User.role == "team_leader")
+        .order_by(User.name)
+        .all()
+    )
 
 
 @router.get("/{team_id}", response_model=TeamOut)
@@ -88,7 +84,7 @@ def create_team(payload: TeamCreate, db: Session = Depends(get_db), current_user
     if not name:
         raise HTTPException(status_code=422, detail="Team name is required")
     _validate_team_inputs(db, payload.department_id, payload.team_leader_id, payload.member_ids)
-    _promote_team_leader(db, payload.team_leader_id)
+
     team = Team(name=name, department_id=payload.department_id, status=payload.status)
     assign_team_leader(db, team, payload.team_leader_id)
     _replace_members(team, payload.member_ids)
@@ -118,11 +114,17 @@ def update_team(
         data["name"] = data["name"].strip()
         if not data["name"]:
             raise HTTPException(status_code=422, detail="Team name is required")
+        duplicate = (
+            db.query(Team.id)
+            .filter(Team.name == data["name"], Team.id != team_id)
+            .first()
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="A team with this name already exists")
     leader_id = data.get("team_leader_id", team.team_leader_id)
     department_id = data.get("department_id", team.department_id)
     current_member_ids = [member.employee_id for member in team.members]
     _validate_team_inputs(db, department_id, leader_id, member_ids if member_ids is not None else current_member_ids)
-    _promote_team_leader(db, leader_id)
     if "team_leader_id" in data:
         assign_team_leader(db, team, data.pop("team_leader_id"))
     for field, value in data.items():

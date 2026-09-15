@@ -367,6 +367,8 @@ def list_my_documents(db: Session = Depends(get_db), current_user: User = Depend
 def list_employee_documents(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role == "user" and current_user.id != employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user.role == "team_leader" and current_user.id != employee_id:
+        require_team_member_access(db, current_user, employee_id, "employees.team_view")
     return [_document_dict(item) for item in db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee_id).order_by(EmployeeDocument.created_at.desc()).all()]
 
 
@@ -401,6 +403,8 @@ def list_my_personal_documents(db: Session = Depends(get_db), current_user: User
 def list_employee_personal_documents(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role == "user" and current_user.id != employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user.role == "team_leader" and current_user.id != employee_id:
+        require_team_member_access(db, current_user, employee_id, "employees.team_view")
     return [
         {
             "id": item.id,

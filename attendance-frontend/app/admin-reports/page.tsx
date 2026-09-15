@@ -18,6 +18,7 @@ import Badge from "@/components/Common/Badge";
 import MonthSelector from "@/components/Calendar/MonthSelector";
 import ExpandableText from "@/components/Common/ExpandableText";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import { getSession } from "@/lib/auth";
 
 interface UserOption {
   id: number;
@@ -73,6 +74,8 @@ interface AdminReportsPageProps {
 }
 
 export function AdminReportsContent({ compact = false }: AdminReportsPageProps) {
+  const session = getSession();
+  const teamLeader = session?.role === "team_leader";
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -93,7 +96,7 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
     Promise.all([
       api.get<UserOption[]>("/users/"),
       api.get<DepartmentOption[]>("/reports/departments"),
-      api.get<PastSubmissionRequest[]>("/reports/past-submission-requests"),
+      teamLeader ? Promise.resolve({ data: [] as PastSubmissionRequest[] }) : api.get<PastSubmissionRequest[]>("/reports/past-submission-requests"),
     ])
       .then(([usersRes, departmentsRes, requestsRes]) => {
         // A duplicate option ID makes React reuse the wrong option and can
@@ -103,7 +106,7 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
         setPastSubmissionRequests(requestsRes.data || []);
       })
       .catch(() => toast.error("Failed to load report filters"));
-  }, []);
+  }, [teamLeader]);
 
   const fetchReports = async () => {
     const requestId = ++latestRequestId.current;
@@ -411,7 +414,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
 
 export default function AdminReportsPage(props: AdminReportsPageProps) {
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
       <AdminReportsContent {...props} />
     </AppShell>
   );

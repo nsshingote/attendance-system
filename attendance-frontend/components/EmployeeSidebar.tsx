@@ -36,7 +36,8 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
   const teamItems = session?.role === "team_leader"
     ? [
         hasPermission(permissions, "attendance.team_view") && { href: "/attendance", label: "Team Attendance", icon: CalendarCheck },
-        hasPermission(permissions, "reports.team_view") && { href: "/reports", label: "Team Reports", icon: FileBarChart },
+        hasPermission(permissions, "reports.team_view") && { href: "/admin-reports", label: "Team Reports", icon: FileBarChart },
+        hasPermission(permissions, "reports.team_view") && { href: "/reports", label: "Team Monthly Summary", icon: FileBarChart },
         hasPermission(permissions, "leave.team_view") && { href: "/leave", label: "Team Leave", icon: Plane },
         hasPermission(permissions, "corrections.team_view") && { href: "/corrections", label: "Team Corrections", icon: ClipboardEdit },
         hasPermission(permissions, "employees.team_view") && { href: "/team-employees", label: "Team Employees", icon: Users },
@@ -50,7 +51,9 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
       <div className="flex h-16 items-center justify-between border-b border-ink-200 px-5">
         <div className="flex items-center gap-2">
           <img src="/logo.jpg" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
-          <span className="text-sm font-semibold text-ink-900">My Workspace</span>
+          <span className="text-sm font-semibold text-ink-900">
+            {session?.role === "team_leader" ? "Team Leader" : "My Workspace"}
+          </span>
         </div>
         {/* Close button - only on mobile */}
         {isMobile && onClose && (

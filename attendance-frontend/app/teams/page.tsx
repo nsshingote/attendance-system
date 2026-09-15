@@ -126,7 +126,7 @@ export default function TeamsPage() {
               <option value="">Select Team Leader</option>{leaders.map((leader) => <option key={leader.id} value={leader.id}>{leader.name}</option>)}
               {leaders.length === 0 && <option value="" disabled>No active users found</option>}
             </select>
-            <p className="mt-1 text-xs text-ink-500">Selecting a user here will assign them the Team Leader role.</p>
+            <p className="mt-1 text-xs text-ink-500">Only users already assigned the Team Leader role appear here.</p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-ink-700">Assign Team Members</label>

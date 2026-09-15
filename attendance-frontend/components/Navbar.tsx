@@ -39,7 +39,13 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
   };
 
   const roleLabel =
-    session?.role === "superadmin" ? "Super Admin" : session?.role === "admin" ? "Admin" : "Employee";
+    session?.role === "superadmin"
+      ? "Super Admin"
+      : session?.role === "admin"
+        ? "Admin"
+        : session?.role === "team_leader"
+          ? "Team Leader"
+          : "Employee";
   const photoUrl = session?.userId ? getProfilePhotoUrl(session.userId, photoVersion) : "";
 
   const renderAvatar = () => (

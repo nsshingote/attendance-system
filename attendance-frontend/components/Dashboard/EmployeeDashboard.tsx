@@ -109,6 +109,9 @@ import Badge from "@/components/Common/Badge";
 import CheckInButton from "@/components/Attendance/CheckInButton";
 import CheckOutButton from "@/components/Attendance/CheckOutButton";
 import StatCard from "./StatCard";
+import TodayAttendanceTable from "./TodayAttendanceTable";
+import { getSession } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface EmployeeSnapshot {
   check_in: string | null;
@@ -119,6 +122,9 @@ interface EmployeeSnapshot {
 }
 
 export default function EmployeeDashboard() {
+  const session = getSession();
+  const teamLeader = session?.role === "team_leader";
+  const { permissions } = usePermissions();
   const [snapshot, setSnapshot] = useState<EmployeeSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -183,6 +189,7 @@ export default function EmployeeDashboard() {
           <StatCard label="Pending Leave Requests" value={snapshot.pending_leave_requests} icon={Plane} tone="amber" />
           <StatCard label="Pending Corrections" value={snapshot.pending_corrections} icon={ClipboardEdit} tone="amber" />
         </div>
+        {teamLeader && hasPermission(permissions, "attendance.team_view") && <TodayAttendanceTable />}
       </div>
     </div>
   );
