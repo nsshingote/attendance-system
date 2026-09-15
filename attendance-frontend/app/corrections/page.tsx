@@ -17,40 +17,50 @@ import Modal from "@/components/Common/Modal";
 import CorrectionForm from "@/components/Corrections/Correctionform";
 import CorrectionTable, { CorrectionRow } from "@/components/Corrections/CorrectionTable";
 import EmployeeMultiSelect, { EmployeeOption } from "@/components/Common/EmployeeMultiSelect";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 export function CorrectionsContent() {
   const session = getSession();
   const admin = isAdmin(session?.role);
+  const { permissions } = usePermissions();
+  const teamView = session?.role === "team_leader" && hasPermission(permissions, "corrections.team_view");
+  const canDecide = session?.role === "team_leader"
+    ? hasPermission(permissions, "corrections.approve")
+    : admin;
 
   const [mine, setMine] = useState<CorrectionRow[]>([]);
   const [all, setAll] = useState<CorrectionRow[]>([]);
-  const [tab, setTab] = useState<"mine" | "all">(admin ? "all" : "mine");
+  const [tab, setTab] = useState<"mine" | "all">(admin || teamView ? "all" : "mine");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
-    if (admin) {
+    if (admin || teamView) {
       api.get<EmployeeOption[]>("/users/").then(({ data }) => setEmployees(data)).catch(() => toast.error("Failed to load employees"));
     }
-  }, [admin]);
+  }, [admin, teamView]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const requests: Promise<any>[] = [api.get<CorrectionRow[]>("/corrections/me")];
       if (admin) requests.push(api.get<CorrectionRow[]>("/corrections/"));
+      if (teamView) {
+        requests.push(...selectedEmployeeIds.map((userId) => api.get<CorrectionRow[]>(`/corrections/user/${userId}`)));
+      }
 
       const results = await Promise.all(requests);
       setMine(results[0].data);
       if (admin) setAll(results[1].data.filter((row: CorrectionRow) => selectedEmployeeIds.length === 0 || selectedEmployeeIds.includes(row.requested_by)));
+      if (teamView) setAll(results.slice(1).flatMap((result) => result.data || []));
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [admin, selectedEmployeeIds]);
+  }, [admin, teamView, selectedEmployeeIds]);
 
   useEffect(() => {
     fetchData();
@@ -75,7 +85,7 @@ export function CorrectionsContent() {
           <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {admin && <EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} />}
+          {(admin || teamView) && <EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} />}
           <button
             onClick={() => setFormOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
@@ -86,7 +96,7 @@ export function CorrectionsContent() {
         </div>
       </div>
 
-      {admin && (
+      {(admin || teamView) && (
         <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
           <button
             onClick={() => setTab("all")}
@@ -109,7 +119,7 @@ export function CorrectionsContent() {
       ) : (
         <CorrectionTable
           corrections={tab === "all" ? all : mine}
-          canDecide={admin && tab === "all"}
+          canDecide={canDecide && tab === "all"}
           onDecide={handleDecide}
         />
       )}

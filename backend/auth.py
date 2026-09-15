@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import get_db
-from models import User
+from models import Permission, RolePermission, User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -86,6 +86,39 @@ def require_roles(*allowed_roles: str):
         return current_user
 
     return role_checker
+
+
+def has_permission(current_user: User, permission_key: str, db: Session) -> bool:
+    """Return whether the user's role has the named database-backed permission."""
+    if not permission_key.strip():
+        return False
+    return (
+        db.query(RolePermission.id)
+        .join(Permission, Permission.id == RolePermission.permission_id)
+        .filter(
+            RolePermission.role == current_user.role,
+            Permission.key == permission_key,
+        )
+        .first()
+        is not None
+    )
+
+
+def require_permission(permission_key: str):
+    """Dependency factory for future permission-protected endpoints."""
+
+    def permission_checker(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if not has_permission(current_user, permission_key, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action",
+            )
+        return current_user
+
+    return permission_checker
 
 
 # Common shortcuts

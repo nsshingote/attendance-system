@@ -5,11 +5,20 @@ import { Pencil, Save, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import api, { getErrorMessage } from "@/lib/api";
+import { getSession } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 type Employee = { id: number; name: string; role: string; designation: string };
 type Note = { id: number; positive_note?: string; negative_note?: string; created_at: string };
 
 export default function KundliPage() {
+  const session = getSession();
+  const { permissions } = usePermissions();
+  const teamLeader = session?.role === "team_leader";
+  const canView = !teamLeader || hasPermission(permissions, "kundli.team_view");
+  const canCreate = !teamLeader || hasPermission(permissions, "kundli.create");
+  const canEdit = !teamLeader || hasPermission(permissions, "kundli.edit");
+  const canDelete = !teamLeader || hasPermission(permissions, "kundli.delete");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
@@ -19,6 +28,7 @@ export default function KundliPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!canView) return;
     api.get("/users/")
       .then(({ data }) => {
         const list = data.filter((item: Employee) => item.role === "user");
@@ -26,14 +36,14 @@ export default function KundliPage() {
         if (list[0]) setEmployeeId(String(list[0].id));
       })
       .catch((e) => toast.error(getErrorMessage(e)));
-  }, []);
+  }, [canView]);
 
   useEffect(() => {
-    if (!employeeId) return;
+    if (!employeeId || !canView) return;
     api.get(`/employee-documents/kundli/${employeeId}`)
       .then(({ data }) => setNotes(data))
       .catch((e) => toast.error(getErrorMessage(e)));
-  }, [employeeId]);
+  }, [employeeId, canView]);
 
   const employee = employees.find((item) => String(item.id) === employeeId);
 
@@ -56,7 +66,7 @@ export default function KundliPage() {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
           <h1 className="text-xl font-semibold">Kundli</h1>
@@ -66,7 +76,8 @@ export default function KundliPage() {
         <label className="block max-w-sm text-sm font-medium">
           Select Employee
           <select value={employeeId} onChange={(e) => { setEmployeeId(e.target.value); setPositive(""); setNegative(""); }} className="mt-1 block w-full rounded-lg border-ink-200">
-            <option value="">Select employee</option>
+            {!canView && <option value="">No permission</option>}
+            {canView && <option value="">Select employee</option>}
             {employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
@@ -97,8 +108,8 @@ export default function KundliPage() {
                         <td className="max-w-xs wrap-break-words px-4 py-3 text-ink-700">{note.negative_note || "—"}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
-                            <button onClick={() => { setEditingId(note.id); setPositive(note.positive_note || ""); setNegative(note.negative_note || ""); }} className="inline-flex items-center gap-1 text-brand-700"><Pencil size={14} /> Edit</button>
-                            <button onClick={async () => { if (!window.confirm("Delete this Kundli note?")) return; try { await api.delete(`/employee-documents/kundli/${note.id}`); setNotes(notes.filter((item) => item.id !== note.id)); toast.success("Kundli note deleted"); } catch (e) { toast.error(getErrorMessage(e)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Delete</button>
+                            {canEdit && <button onClick={() => { setEditingId(note.id); setPositive(note.positive_note || ""); setNegative(note.negative_note || ""); }} className="inline-flex items-center gap-1 text-brand-700"><Pencil size={14} /> Edit</button>}
+                            {canDelete && <button onClick={async () => { if (!window.confirm("Delete this Kundli note?")) return; try { await api.delete(`/employee-documents/kundli/${note.id}`); setNotes(notes.filter((item) => item.id !== note.id)); toast.success("Kundli note deleted"); } catch (e) { toast.error(getErrorMessage(e)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Delete</button>}
                           </div>
                         </td>
                       </tr>
@@ -117,7 +128,7 @@ export default function KundliPage() {
                   Negative Note
                   <textarea value={negative} onChange={(e) => setNegative(e.target.value)} maxLength={500} placeholder="Write message here..." className="mt-1 block min-h-28 w-full rounded-lg border-ink-200 text-ink-900" />
                 </label>
-                <button onClick={save} disabled={saving} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"><Save size={16} /> Save Note</button>
+                {canCreate && <button onClick={save} disabled={saving} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"><Save size={16} /> Save Note</button>}
               </div>
             </div>
           </section>

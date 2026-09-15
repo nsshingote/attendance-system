@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     mobile VARCHAR(15) UNIQUE NOT NULL,
     email VARCHAR(100) UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('superadmin', 'admin', 'user') NOT NULL DEFAULT 'user',
+    role ENUM('superadmin', 'admin', 'team_leader', 'user') NOT NULL DEFAULT 'user',
     attendance_mode ENUM('office', 'onsite') NOT NULL DEFAULT 'office',
     department VARCHAR(100) NOT NULL,
     designation VARCHAR(100) NOT NULL,
@@ -38,6 +38,30 @@ CREATE TABLE IF NOT EXISTS users (
     last_leave_accrual_date DATE,
     paid_leave_available INT DEFAULT 1,
     carried_leave INT DEFAULT 0
+);
+
+-- ============================================================
+-- 2. PERMISSIONS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS permissions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    `key` VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(150) NOT NULL,
+    module VARCHAR(80) NOT NULL,
+    action VARCHAR(80) NOT NULL,
+    description VARCHAR(255) NULL
+);
+
+-- ============================================================
+-- 3. ROLE PERMISSIONS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS role_permissions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    role VARCHAR(40) NOT NULL,
+    permission_id INT NOT NULL,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_role_permissions_role_permission (role, permission_id),
+    INDEX ix_role_permissions_role (role)
 );
 
 -- ============================================================
@@ -380,7 +404,35 @@ CREATE TABLE IF NOT EXISTS user_departments (
 );
 
 -- ============================================================
--- 22. DYNAMIC REPORT TYPES TABLE (Admin can add/remove)
+-- 22. TEAMS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS teams (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    department_id INT NULL,
+    team_leader_id INT NULL,
+    status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
+    FOREIGN KEY (team_leader_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ============================================================
+-- 23. TEAM MEMBERS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS team_members (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    team_id INT NOT NULL,
+    employee_id INT NOT NULL,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_team_members_team_employee (team_id, employee_id)
+);
+
+-- ============================================================
+-- 24. DYNAMIC REPORT TYPES TABLE (Admin can add/remove)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS dynamic_report_types (
     id INT PRIMARY KEY AUTO_INCREMENT,

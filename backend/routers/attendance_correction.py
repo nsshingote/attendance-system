@@ -14,6 +14,7 @@ from schemas import (
     CorrectionOut, CorrectionCreate, CorrectionDecision
 )
 from auth import get_current_user, require_roles
+from team_scope import require_team_member_access
 from utils.attendance_status import determine_attendance_status_for_date
 from utils.logger import log_activity
 
@@ -182,9 +183,10 @@ def get_pending_corrections(
 def get_user_corrections(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Admin gets corrections for a specific user."""
+    require_team_member_access(db, current_user, user_id, "corrections.team_view")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -207,7 +209,7 @@ def decide_correction(
     correction_id: int,
     payload: CorrectionDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Admin approves or rejects a correction request."""
     correction = (
@@ -219,6 +221,7 @@ def decide_correction(
     
     if not correction:
         raise HTTPException(status_code=404, detail="Correction request not found")
+    require_team_member_access(db, current_user, correction.requested_by, "corrections.approve")
     
     if correction.status != "Pending":
         raise HTTPException(

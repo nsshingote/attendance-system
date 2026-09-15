@@ -20,7 +20,7 @@ class User(Base):
     mobile = Column(String(15), nullable=False, unique=True)
     email = Column(String(100), unique=True, nullable=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum("superadmin", "admin", "user", name="user_role"), nullable=False, default="user")
+    role = Column(Enum("superadmin", "admin", "team_leader", "user", name="user_role"), nullable=False, default="user")
     attendance_mode = Column(Enum("office", "onsite", name="attendance_mode"), nullable=False, default="office", server_default="office")
     department = Column(String(100), nullable=False)
     designation = Column(String(100), nullable=False)
@@ -62,6 +62,61 @@ class User(Base):
     personal_documents = relationship("EmployeePersonalDocument", back_populates="employee", foreign_keys="EmployeePersonalDocument.employee_id")
     personal_document_requests = relationship("PersonalDocumentChangeRequest", back_populates="employee", foreign_keys="PersonalDocumentChangeRequest.employee_id")
     profile_edit_requests = relationship("EmployeeProfileEditRequest", back_populates="employee", foreign_keys="EmployeeProfileEditRequest.employee_id")
+    led_teams = relationship("Team", back_populates="team_leader", foreign_keys="Team.team_leader_id")
+    team_memberships = relationship("TeamMember", back_populates="employee", foreign_keys="TeamMember.employee_id")
+
+
+class Permission(Base):
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    key = Column(String(100), nullable=False, unique=True)
+    name = Column(String(150), nullable=False)
+    module = Column(String(80), nullable=False)
+    action = Column(String(80), nullable=False)
+    description = Column(String(255), nullable=True)
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    role = Column(String(40), nullable=False, index=True)
+    permission_id = Column(Integer, ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False)
+
+    permission = relationship("Permission")
+    __table_args__ = (UniqueConstraint("role", "permission_id", name="uq_role_permissions_role_permission"),)
+
+
+class Team(Base):
+    __tablename__ = "teams"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    team_leader_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(Enum("active", "inactive", name="team_status"), nullable=False, default="active")
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(DateTime, nullable=True, onupdate=func.now())
+
+    department = relationship("Department", back_populates="teams")
+    team_leader = relationship("User", back_populates="led_teams", foreign_keys=[team_leader_id])
+    members = relationship("TeamMember", back_populates="team", cascade="all, delete-orphan")
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+    __table_args__ = (
+        UniqueConstraint("team_id", "employee_id", name="uq_team_members_team_employee"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    assigned_at = Column(TIMESTAMP, server_default=func.now())
+
+    team = relationship("Team", back_populates="members")
+    employee = relationship("User", back_populates="team_memberships", foreign_keys=[employee_id])
 
 
 class SalarySlip(Base):
@@ -600,6 +655,7 @@ class Department(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     creator = relationship("User", foreign_keys=[created_by])
+    teams = relationship("Team", back_populates="department")
 
 
 class DynamicReportType(Base):

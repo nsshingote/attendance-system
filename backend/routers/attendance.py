@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 
 from auth import get_current_user, require_roles, require_admin
+from team_scope import require_team_member_access
 from database import get_db
 from models import (
     Attendance,
@@ -800,9 +801,10 @@ def user_attendance(
     year: Optional[int] = None,
     date_value: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(get_current_user),
 ):
     """Admin gets attendance for a specific user."""
+    require_team_member_access(db, current_user, user_id, "attendance.team_view")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1120,6 +1122,7 @@ def monthly_summary(
 ):
     if current_user.role == "user" and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
+    require_team_member_access(db, current_user, user_id, "attendance.team_view")
 
     if from_date and to_date:
         if from_date > to_date:

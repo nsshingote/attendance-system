@@ -24,6 +24,7 @@ from schemas import (
     LeaveEncashmentDecision, LeaveCategoryOverride, LeaveAllocationOverride
 )
 from auth import get_current_user, require_roles
+from team_scope import require_team_member_access
 from utils.leave_calculator import (
     get_remaining_leave,
     paid_leave_available_this_month,
@@ -425,9 +426,10 @@ def get_user_leave_requests(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Admin gets leave requests for a specific user with optional month filter."""
+    require_team_member_access(db, current_user, user_id, "leave.team_view")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -520,7 +522,7 @@ def decide_leave(
     leave_id: int,
     payload: LeaveDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Admin approves or rejects a leave request."""
     if payload.status not in ("Approved", "Rejected"):
@@ -540,6 +542,7 @@ def decide_leave(
     target_user = db.query(User).filter(User.id == leave_request.user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
+    require_team_member_access(db, current_user, target_user.id, "leave.approve")
 
     leave_request.status = payload.status
     leave_request.approved_by = current_user.id
@@ -1017,8 +1020,6 @@ def override_leave_allocations(
 
     log_activity(db, current_user.id, f"Overrode allocations for leave #{leave_id}")
     return leave_request
-
-
 
 
 

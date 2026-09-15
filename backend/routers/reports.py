@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
 from auth import require_admin, get_current_user, require_roles
+from team_scope import require_team_permission
 from database import get_db
 from models import (
     Attendance, User, LeaveRequest, LeaveEncashmentRequest,
@@ -300,8 +301,9 @@ def attendance_report(
     department_id: Optional[int] = Query(None),
     department: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
+    team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     # Compute start (first day) and end (first day of next month) to cover entire month
     start_date = date(year, month, 1)
     if month == 12:
@@ -313,6 +315,8 @@ def attendance_report(
         Attendance.attendance_date >= start_date,
         Attendance.attendance_date < end_date,
     )
+    if current_user.role == "team_leader":
+        query = query.filter(Attendance.user_id.in_(team_member_ids))
     if department_id is not None:
         query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
             UserDepartment.department_id == department_id
@@ -354,20 +358,23 @@ def export_attendance_csv(
     year: int,
     month: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
+    team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     start_date = date(year, month, 1)
     if month == 12:
         end_date = date(year + 1, 1, 1)
     else:
         end_date = date(year, month + 1, 1)
 
-    records = (
+    records_query = (
         db.query(Attendance)
         .join(User)
         .filter(Attendance.attendance_date >= start_date, Attendance.attendance_date < end_date)
-        .all()
     )
+    if current_user.role == "team_leader":
+        records_query = records_query.filter(Attendance.user_id.in_(team_member_ids))
+    records = records_query.all()
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -413,7 +420,7 @@ def employee_wise_summary(
     year: int,
     month: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """
     One row per active employee, covering the given month:
@@ -421,7 +428,11 @@ def employee_wise_summary(
     current Carry Forward balance, and whether they have any pending or
     approved Encashment request on record.
     """
-    users = db.query(User).filter(User.status == "active", User.role != "superadmin").all()
+    team_member_ids = require_team_permission(db, current_user, "reports.team_view")
+    users_query = db.query(User).filter(User.status == "active", User.role != "superadmin")
+    if current_user.role == "team_leader":
+        users_query = users_query.filter(User.id.in_(team_member_ids))
+    users = users_query.all()
     results = []
 
     start_date = date(year, month, 1)

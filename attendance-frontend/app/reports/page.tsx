@@ -16,6 +16,8 @@ import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import MonthSelector from "@/components/Calendar/MonthSelector";
+import { getSession } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface EmployeeSummaryRow {
   user_id: number;
@@ -50,6 +52,9 @@ interface LeaveSummaryRow {
 }
 
 export default function ReportsPage() {
+  const session = getSession();
+  const { permissions } = usePermissions();
+  const teamReports = session?.role === "team_leader" && hasPermission(permissions, "reports.team_view");
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -62,10 +67,10 @@ export default function ReportsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [empRes, leaveRes] = await Promise.all([
-        api.get<EmployeeSummaryRow[]>("/reports/employee-summary", { params: { year, month } }),
-        api.get<LeaveSummaryRow[]>("/reports/leave-summary", { params: { year, month } }),
-      ]);
+      const empRes = await api.get<EmployeeSummaryRow[]>("/reports/employee-summary", { params: { year, month } });
+      const leaveRes = !teamReports
+        ? await api.get<LeaveSummaryRow[]>("/reports/leave-summary", { params: { year, month } })
+        : { data: [] as LeaveSummaryRow[] };
       setEmployeeSummary(empRes.data);
       setLeaveSummary(leaveRes.data);
     } catch (error) {
@@ -73,7 +78,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, teamReports]);
 
   useEffect(() => {
     fetchData();
@@ -254,7 +259,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
       <div className="space-y-6">
         <div className="rounded-1rem border border-ink-200 bg-white p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -264,7 +269,7 @@ export default function ReportsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
-              <button
+              {!teamReports && <><button
                 onClick={handleDownloadCSV}
                 className="flex min-h-11 items-center gap-2 rounded-2xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
               >
@@ -282,6 +287,7 @@ export default function ReportsPage() {
               >
                 <FileText size={16} /> PDF
               </button>
+              </>}
             </div>
           </div>
         </div>
@@ -294,12 +300,13 @@ export default function ReportsPage() {
             >
               Attendance Summary
             </button>
-            <button
+            {!teamReports && <button
               onClick={() => setTab("leave")}
               className={`rounded-2xl px-4 py-2 text-sm font-medium ${tab === "leave" ? "bg-brand-500 text-white" : "text-ink-600 hover:bg-ink-50"}`}
             >
               Leave Summary
             </button>
+            }
           </div>
         </div>
 

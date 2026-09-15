@@ -390,6 +390,7 @@ import UserCalendar from "@/components/Users/UserCalender";
 import AttendanceTable, { AttendanceRecord } from "@/components/Attendance/AttendanceTable";
 import CorrectionForm from "@/components/Corrections/Correctionform";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface UserOption {
   id: number;
@@ -463,6 +464,8 @@ export default function AttendancePage() {
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
   const admin = isAdmin(session?.role);
+  const { permissions } = usePermissions();
+  const teamView = session?.role === "team_leader" && hasPermission(permissions, "attendance.team_view");
 
   const normalizeOverrideStatus = (status: string) => {
     return status;
@@ -529,12 +532,12 @@ export default function AttendancePage() {
   };
 
   useEffect(() => {
-    if (!admin) return;
+    if (!admin && !teamView) return;
 
     api.get<UserOption[]>('/users/')
       .then(({ data }) => setUsers(data))
       .catch(() => {});
-  }, [admin]);
+  }, [admin, teamView]);
 
   useEffect(() => {
     if (!admin) return;
@@ -583,12 +586,17 @@ export default function AttendancePage() {
         params.to_date = toDate;
       }
 
-      const attendanceUrl = admin ? "/attendance/all" : "/attendance/me";
+      const teamUserId = !admin && teamView && selectedUserIds.length === 1 ? selectedUserIds[0] : null;
+      const attendanceUrl = admin
+        ? "/attendance/all"
+        : teamUserId
+          ? `/attendance/user/${teamUserId}`
+          : "/attendance/me";
       if (admin && selectedUserIds.length) params.employee_ids = selectedUserIds;
       if (admin && selectedDepartmentId) params.department_id = selectedDepartmentId;
-      const summaryUserId = selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId;
+      const summaryUserId = teamUserId || (selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId);
 
-      const recordsRequest = !admin && fromDate && toDate
+      const recordsRequest = !admin && !teamUserId && fromDate && toDate
         ? Promise.all(
             getMonthsInRange(fromDate, toDate).map(({ year: rangeYear, month: rangeMonth }) =>
               api.get<PageAttendanceRecord[]>(attendanceUrl, {
@@ -639,7 +647,7 @@ setSummary(
     } finally {
       setLoading(false);
     }
-  }, [selectedUserIds, selectedDepartmentId, year, month, admin, session?.userId, fromDate, toDate]);
+  }, [selectedUserIds, selectedDepartmentId, year, month, admin, teamView, session?.userId, fromDate, toDate]);
 
   useEffect(() => {
     fetchData();
@@ -687,7 +695,7 @@ setSummary(
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {admin && (
+              {(admin || teamView) && (
                 <>
                   <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} />
                   <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">

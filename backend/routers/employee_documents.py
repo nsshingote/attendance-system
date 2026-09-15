@@ -11,6 +11,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin
+from team_scope import require_team_member_access
 from config import settings
 from database import get_db
 from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
@@ -206,13 +207,15 @@ def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user
 
 
 @router.get("/kundli/{employee_id}")
-def get_kundli_notes(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def get_kundli_notes(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    require_team_member_access(db, current_user, employee_id, "kundli.team_view")
     return [{"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
             for note in db.query(KundliNote).filter(KundliNote.employee_id == employee_id).order_by(KundliNote.created_at.desc()).all()]
 
 
 @router.post("/kundli", status_code=201)
-def create_kundli_note(payload: KundliNoteCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def create_kundli_note(payload: KundliNoteCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    require_team_member_access(db, current_user, payload.employee_id, "kundli.create")
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
@@ -228,9 +231,10 @@ def create_kundli_note(payload: KundliNoteCreate, db: Session = Depends(get_db),
 
 
 @router.put("/kundli/{note_id}")
-def update_kundli_note(note_id: int, payload: KundliNoteCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def update_kundli_note(note_id: int, payload: KundliNoteCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     note = db.query(KundliNote).filter(KundliNote.id == note_id).first()
     if not note: raise HTTPException(status_code=404, detail="Kundli note not found")
+    require_team_member_access(db, current_user, note.employee_id, "kundli.edit")
     positive, negative = (payload.positive_note or "").strip() or None, (payload.negative_note or "").strip() or None
     if not positive and not negative: raise HTTPException(status_code=422, detail="Write a positive or negative note")
     note.positive_note, note.negative_note = positive, negative
@@ -239,9 +243,10 @@ def update_kundli_note(note_id: int, payload: KundliNoteCreate, db: Session = De
 
 
 @router.delete("/kundli/{note_id}")
-def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     note = db.query(KundliNote).filter(KundliNote.id == note_id).first()
     if not note: raise HTTPException(status_code=404, detail="Kundli note not found")
+    require_team_member_access(db, current_user, note.employee_id, "kundli.delete")
     employee_name = note.employee.name
     db.delete(note); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'")); db.commit()
     return {"message": "Kundli note deleted"}

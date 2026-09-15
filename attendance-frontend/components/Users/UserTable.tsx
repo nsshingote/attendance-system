@@ -30,6 +30,7 @@ interface UserTableProps {
   onEdit: (user: UserRow) => void;
   onResetDevice: (user: UserRow) => void;
   onToggleStatus: (user: UserRow) => void;
+  readOnly?: boolean;
 }
 
 export default function UserTable({
@@ -37,6 +38,7 @@ export default function UserTable({
   onEdit,
   onResetDevice,
   onToggleStatus,
+  readOnly = false,
 }: UserTableProps) {
   const [photoVersion, setPhotoVersion] = useState(Date.now());
 
@@ -105,20 +107,22 @@ export default function UserTable({
                 <td className="px-3 py-3 capitalize text-ink-700 sm:px-4">{u.role}</td>
 
                 <td className="px-3 py-3 sm:px-4">
-                  <button
-                    onClick={() => onToggleStatus(u)}
-                    className="cursor-pointer rounded-full transition-opacity hover:opacity-70"
-                    title={u.status === "active" ? "Click to deactivate" : "Click to activate"}
-                  >
-                    <Badge status={u.status} />
-                  </button>
+                  {readOnly ? <Badge status={u.status} /> : (
+                    <button
+                      onClick={() => onToggleStatus(u)}
+                      className="cursor-pointer rounded-full transition-opacity hover:opacity-70"
+                      title={u.status === "active" ? "Click to deactivate" : "Click to activate"}
+                    >
+                      <Badge status={u.status} />
+                    </button>
+                  )}
                 </td>
 
                 <td className="px-3 py-3 whitespace-nowrap sm:px-3">
                   <div className="flex min-w-130px items-center justify-end gap-1">
                     <Link href={`/users/${u.id}`} className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800" aria-label="View user" title="View"><Eye size={15} /></Link>
-                    <button onClick={() => onEdit(u)} className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800" aria-label="Edit user" title="Edit"><Pencil size={15} /></button>
-                    <button onClick={() => onResetDevice(u)} className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800" aria-label="Reset device" title="Reset Device"><SmartphoneNfc size={15} /></button>
+                    {!readOnly && <button onClick={() => onEdit(u)} className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800" aria-label="Edit user" title="Edit"><Pencil size={15} /></button>}
+                    {!readOnly && <button onClick={() => onResetDevice(u)} className="shrink-0 rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-800" aria-label="Reset device" title="Reset Device"><SmartphoneNfc size={15} /></button>}
                   </div>
                 </td>
               </tr>

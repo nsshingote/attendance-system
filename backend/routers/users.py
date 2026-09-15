@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, hash_password, require_admin, require_superadmin
+from team_scope import require_team_member_access, require_team_permission
 from config import settings
 from database import get_db
 from models import (
@@ -46,9 +47,12 @@ def list_users(
     department: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
+    team_member_ids = require_team_permission(db, current_user, "employees.team_view")
     query = db.query(User)
+    if current_user.role == "team_leader":
+        query = query.filter(User.id.in_(team_member_ids))
     if search:
         like = f"%{search}%"
         query = query.filter((User.name.like(like)) | (User.email.like(like)) | (User.mobile.like(like)))
@@ -215,6 +219,8 @@ def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = D
     # Employees may only view their own profile; Admin/SuperAdmin can view any.
     if current_user.role == "user" and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to view this user")
+    if current_user.role == "team_leader" and current_user.id != user_id:
+        require_team_member_access(db, current_user, user_id, "employees.team_view")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
