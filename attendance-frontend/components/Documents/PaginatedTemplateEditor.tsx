@@ -1193,9 +1193,17 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     toolbarSelection.current = selection.getRangeAt(0).cloneRange();
   };
   const format = (command: string, value?: string) => {
-    editor.current?.focus();
     const selection = window.getSelection();
     const range = toolbarSelection.current;
+    const rangeElement = range
+      ? (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? range.commonAncestorContainer as Element
+        : range.commonAncestorContainer.parentElement)?.closest<HTMLElement>("[data-template-fragment]")
+      : null;
+    const activeFragment = editor.current?.querySelector<HTMLElement>(
+      `[data-block-index="${activeSelection.current.blockIndex}"][data-fragment-start="${activeSelection.current.fragmentStart}"]`,
+    );
+    (rangeElement ?? activeFragment ?? editor.current)?.focus({ preventScroll: true });
     if (selection && range) {
       selection.removeAllRanges();
       selection.addRange(range);
@@ -1287,7 +1295,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Redo", <Redo2 size={16} />, redoBlocks)}
       <button type="button" onClick={insertPageBreak} className="ml-auto rounded border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700">Insert Page Break</button>
     </div>
-    <div ref={editor} contentEditable={false} tabIndex={0} role="group" aria-label={title} onBeforeInput={event => {
+    <div ref={editor} tabIndex={0} role="group" aria-label={title} onBeforeInput={event => {
       updateActiveSelection();
       const inputType = (event.nativeEvent as InputEvent).inputType;
       if (inputType === "insertParagraph" || inputType === "insertLineBreak") event.preventDefault();
