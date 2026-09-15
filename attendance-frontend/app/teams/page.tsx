@@ -27,6 +27,7 @@ const emptyForm: TeamForm = { name: "", department_id: "", team_leader_id: "", m
 export default function TeamsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [leaders, setLeaders] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -35,13 +36,15 @@ export default function TeamsPage() {
 
   const load = async () => {
     try {
-      const [teamResponse, userResponse, departmentResponse] = await Promise.all([
+      const [teamResponse, userResponse, leaderResponse, departmentResponse] = await Promise.all([
         api.get<Team[]>("/teams/"),
         api.get<User[]>("/users/"),
+        api.get<User[]>("/teams/eligible-leaders"),
         api.get<Department[]>("/reports/departments"),
       ]);
       setTeams(teamResponse.data);
       setUsers(userResponse.data);
+      setLeaders(leaderResponse.data);
       setDepartments(departmentResponse.data);
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -94,7 +97,6 @@ export default function TeamsPage() {
     }));
   };
 
-  const leaders = users.filter((user) => user.role === "team_leader");
   const memberOptions = users.filter((user) => user.role === "user" || user.role === "team_leader");
   const departmentNames = Array.from(new Set(memberOptions.map((user) => user.department).filter(Boolean))).sort();
   const toggleDepartment = (department: string) => {
@@ -122,7 +124,9 @@ export default function TeamsPage() {
             <label className="mb-1 block text-sm font-medium text-ink-700">Assign Team Leader</label>
             <select value={form.team_leader_id} onChange={(e) => setForm({ ...form, team_leader_id: e.target.value })} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
               <option value="">Select Team Leader</option>{leaders.map((leader) => <option key={leader.id} value={leader.id}>{leader.name}</option>)}
+              {leaders.length === 0 && <option value="" disabled>No active users found</option>}
             </select>
+            <p className="mt-1 text-xs text-ink-500">Selecting a user here will assign them the Team Leader role.</p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-ink-700">Assign Team Members</label>
