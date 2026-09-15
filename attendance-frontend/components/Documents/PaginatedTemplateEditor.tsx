@@ -450,6 +450,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
   const enterLocked = useRef(false);
   const ignoreNextInput = useRef(false);
   const editor = useRef<HTMLDivElement | null>(null);
+  const toolbarSelection = useRef<Range | null>(null);
   const lastInternalValue = useRef<string | null>(null);
   useEffect(() => {
     const next = splitDynamicTemplateBlocks(value);
@@ -1186,8 +1187,20 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     event.preventDefault(); updateActiveSelection(); replaceActiveSelection(event.clipboardData.getData("text/plain"));
   };
 
+  const captureToolbarSelection = () => {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount || !editor.current?.contains(selection.anchorNode)) return;
+    toolbarSelection.current = selection.getRangeAt(0).cloneRange();
+  };
   const format = (command: string, value?: string) => {
     editor.current?.focus();
+    const selection = window.getSelection();
+    const range = toolbarSelection.current;
+    if (selection && range) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    toolbarSelection.current = null;
     runEditorCommand(command, value);
     updateDocument();
   };
@@ -1253,8 +1266,11 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       {toolbarButton("Bold", <Bold size={16} />, () => format("bold"))}
       {toolbarButton("Italic", <Italic size={16} />, () => format("italic"))}
       {toolbarButton("Underline", <Underline size={16} />, () => format("underline"))}
-      <select aria-label="Font size" title="Font size" defaultValue="3" onChange={event => format("fontSize", event.target.value)} className="h-8 rounded border-0 bg-transparent px-1 text-xs text-ink-700">
-        <option value="2">Small</option><option value="3">Normal</option><option value="4">Large</option><option value="5">Title</option>
+      <select aria-label="Font family" title="Font family" defaultValue="Georgia" onMouseDown={captureToolbarSelection} onChange={event => format("fontName", event.target.value)} className="h-8 max-w-28 rounded border-0 bg-transparent px-1 text-xs text-ink-700">
+        <option value="Georgia">Georgia</option><option value="Arial">Arial</option><option value="Calibri">Calibri</option><option value="Times New Roman">Times New Roman</option><option value="Verdana">Verdana</option><option value="Courier New">Courier New</option>
+      </select>
+      <select aria-label="Font size" title="Font size" defaultValue="3" onMouseDown={captureToolbarSelection} onChange={event => format("fontSize", event.target.value)} className="h-8 rounded border-0 bg-transparent px-1 text-xs text-ink-700">
+        <option value="1">10 px</option><option value="2">13 px</option><option value="3">16 px</option><option value="4">18 px</option><option value="5">24 px</option><option value="6">32 px</option><option value="7">48 px</option>
       </select>
       <select aria-label="Paragraph style" title="Paragraph style" defaultValue="p" onChange={event => format("formatBlock", event.target.value)} className="h-8 rounded border-0 bg-transparent px-1 text-xs text-ink-700">
         <option value="p">Paragraph</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option>

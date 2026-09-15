@@ -102,6 +102,16 @@ textarea {
   min-height: auto;
 }
 
+.number-input-no-spinner {
+  appearance: textfield;
+}
+
+.number-input-no-spinner::-webkit-inner-spin-button,
+.number-input-no-spinner::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
 .overflow-x-auto {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
