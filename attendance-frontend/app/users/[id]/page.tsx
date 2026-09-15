@@ -6,9 +6,11 @@ import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
+import Badge from "@/components/Common/Badge";
 import UserSummary from "@/components/Users/UserSummary";
 import UserCalendar from "@/components/Users/UserCalender";
 import UserAttendanceChart from "@/components/Users/AttendanceChart";
+import AttendanceTable, { type AttendanceRecord } from "@/components/Attendance/AttendanceTable";
 import MonthSelector from "@/components/Calendar/MonthSelector";
 import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLetterGenerator";
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
@@ -52,6 +54,33 @@ interface AttendanceSummary {
   WFH: number;
   Leave: number;
   "Total Hours": number;
+}
+
+interface LeaveRow {
+  id: number;
+  from_date: string;
+  to_date: string;
+  total_days: number | null;
+  reason: string | null;
+  status: string;
+  leave_category: string;
+  allocation_summary?: string;
+  allocations?: { allocation_date: string; leave_category: string }[];
+}
+
+interface WfhRow {
+  id: number;
+  attendance_date: string;
+  reason: string | null;
+  status: string;
+}
+
+interface HalfDayRow {
+  id: number;
+  attendance_date: string;
+  slot: string;
+  reason: string | null;
+  status: string;
 }
 
 type SelectedCalendarDay = {
@@ -107,6 +136,17 @@ const personalDocLabels: Record<string, string> = {
   other: "Other",
 };
 
+function countLeaveDays(rows: LeaveRow[], categories: string[]) {
+  return rows
+    .filter((row) => row.status === "Approved")
+    .reduce((total, row) => {
+      if (row.allocations?.length) {
+        return total + row.allocations.filter((allocation) => categories.includes(allocation.leave_category)).length;
+      }
+      return total + (categories.includes(row.leave_category) ? row.total_days || 0 : 0);
+    }, 0);
+}
+
 export default function UserDetailPage() {
   const teamLeader = getSession()?.role === "team_leader";
   const params = useParams();
@@ -128,7 +168,15 @@ export default function UserDetailPage() {
   const [selectedOverrideStatus, setSelectedOverrideStatus] = useState("Present");
   const [savingSelectedOverride, setSavingSelectedOverride] = useState(false);
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<"Attendance" | "Personal Info" | "Documents">("Attendance");
+  const [activeTab, setActiveTab] = useState<"Attendance" | "Leave / WFH / Half Day" | "Personal Info" | "Documents">("Attendance");
+  const [attendanceView, setAttendanceView] = useState<"Calendar" | "Table">("Calendar");
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [attendanceTableLoading, setAttendanceTableLoading] = useState(false);
+  const [leaveRows, setLeaveRows] = useState<LeaveRow[]>([]);
+  const [wfhRows, setWfhRows] = useState<WfhRow[]>([]);
+  const [halfDayRows, setHalfDayRows] = useState<HalfDayRow[]>([]);
+  const [leaveFilter, setLeaveFilter] = useState<"All" | "Leave" | "WFH" | "Half Day">("All");
+  const [leaveDataLoading, setLeaveDataLoading] = useState(false);
   const [personalDocs, setPersonalDocs] = useState<PersonalDocument[]>([]);
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
   const [selectedGeneratedDocument, setSelectedGeneratedDocument] = useState<GeneratedDocument | null>(null);
@@ -204,6 +252,39 @@ export default function UserDetailPage() {
       toast.error(getErrorMessage(error));
     } finally {
       setAttendanceLoading(false);
+    }
+  };
+
+  const loadAttendanceTable = async () => {
+    if (!userId) return;
+    setAttendanceTableLoading(true);
+    try {
+      const { data } = await api.get<AttendanceRecord[]>(`/attendance/user/${userId}`, { params: { year, month } });
+      setAttendanceRecords(data);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setAttendanceTableLoading(false);
+    }
+  };
+
+  const loadLeaveData = async () => {
+    if (!userId) return;
+    setLeaveDataLoading(true);
+    try {
+      const params = { year, month };
+      const [leaveResponse, wfhResponse, halfDayResponse] = await Promise.all([
+        api.get<LeaveRow[]>(`/leave/user/${userId}`, { params }),
+        api.get<WfhRow[]>(`/attendance/wfh/user/${userId}`, { params }),
+        api.get<HalfDayRow[]>(`/attendance/half-day-requests/user/${userId}`, { params }),
+      ]);
+      setLeaveRows(leaveResponse.data);
+      setWfhRows(wfhResponse.data);
+      setHalfDayRows(halfDayResponse.data);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setLeaveDataLoading(false);
     }
   };
 
@@ -301,6 +382,11 @@ export default function UserDetailPage() {
   }, [userId, year, month]);
 
   useEffect(() => {
+    if (activeTab === "Attendance" && attendanceView === "Table") loadAttendanceTable();
+    if (activeTab === "Leave / WFH / Half Day") loadLeaveData();
+  }, [activeTab, attendanceView, userId, year, month]);
+
+  useEffect(() => {
     const handleProfileUpdate = () => {
       loadUserData();
       loadDocumentData();
@@ -392,8 +478,8 @@ export default function UserDetailPage() {
       <div className="space-y-6">
         <UserSummary user={user} />
 
-        <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-1">
-          {(["Attendance", "Personal Info", "Documents"] as const).map((tab) => (
+        <div className="flex flex-wrap rounded-lg border border-ink-200 bg-white p-1">
+          {(["Attendance", "Leave / WFH / Half Day", "Personal Info", "Documents"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -406,6 +492,22 @@ export default function UserDetailPage() {
 
         {activeTab === "Attendance" && (
           <div className="grid grid-cols-1 gap-6">
+            <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-1">
+              {(["Calendar", "Table"] as const).map((view) => (
+                <button
+                  key={view}
+                  onClick={() => setAttendanceView(view)}
+                  className={`rounded-md px-4 py-2 text-sm font-medium ${attendanceView === view ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+                >
+                  {view}
+                </button>
+              ))}
+            </div>
+            {attendanceView === "Table" && (
+              attendanceTableLoading ? <Loading /> : (
+                <AttendanceTable records={attendanceRecords} />
+              )
+            )}
             <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-6">
               <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -444,7 +546,7 @@ export default function UserDetailPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            {attendanceView === "Calendar" && <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card xl:col-span-1">
                 <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-ink-900">Attendance Calendar</h3></div>
                 <div className="w-full">
@@ -459,7 +561,54 @@ export default function UserDetailPage() {
                   />
                 </div>
               </div>
+            </div>}
+          </div>
+        )}
+
+        {activeTab === "Leave / WFH / Half Day" && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                ["Paid Leave", countLeaveDays(leaveRows, ["Paid", "Carried", "Privilege"])],
+                ["LWP / Unpaid", countLeaveDays(leaveRows, ["Unpaid"])],
+                ["Half Day", halfDayRows.filter((row) => row.status === "Approved").length],
+                ["WFH", wfhRows.filter((row) => row.status === "Approved").length],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-xl border border-ink-200 bg-white p-4 shadow-card">
+                  <p className="text-xs text-ink-500">{label}</p>
+                  <p className="mt-1 text-2xl font-semibold text-ink-900">{value}</p>
+                </div>
+              ))}
             </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-ink-900">Leave / WFH / Half Day</h2>
+              <select value={leaveFilter} onChange={(event) => setLeaveFilter(event.target.value as typeof leaveFilter)} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
+                <option>All</option>
+                <option>Leave</option>
+                <option>WFH</option>
+                <option>Half Day</option>
+              </select>
+            </div>
+            {leaveDataLoading ? <Loading /> : (
+              <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead><tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase text-ink-500">
+                    <th className="px-4 py-3">Type</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Category / Period</th><th className="px-4 py-3">Reason</th><th className="px-4 py-3">Status</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-ink-100">
+                    {(leaveFilter === "All" || leaveFilter === "Leave") && leaveRows.map((row) => (
+                      <tr key={`leave-${row.id}`}><td className="px-4 py-3">Leave</td><td className="px-4 py-3">{row.from_date} to {row.to_date} ({row.total_days ?? "—"} days)</td><td className="px-4 py-3">{row.allocation_summary || row.leave_category}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                    ))}
+                    {(leaveFilter === "All" || leaveFilter === "WFH") && wfhRows.map((row) => (
+                      <tr key={`wfh-${row.id}`}><td className="px-4 py-3">WFH</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">Work From Home</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                    ))}
+                    {(leaveFilter === "All" || leaveFilter === "Half Day") && halfDayRows.map((row) => (
+                      <tr key={`half-day-${row.id}`}><td className="px-4 py-3">Half Day</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">{row.slot}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

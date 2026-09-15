@@ -29,6 +29,7 @@ import { Mail } from "lucide-react";
 import { isMobile } from "react-device-detect";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession, isAdmin } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface NotificationEmailOption {
   id: number;
@@ -67,6 +68,8 @@ interface LeaveFormProps {
 export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   const session = getSession();
   const admin = isAdmin(session?.role);
+  const { permissions } = usePermissions();
+  const canApplyForTeamMember = session?.role === "team_leader" && hasPermission(permissions, "leave.approve");
 
   const [emailOptions, setEmailOptions] = useState<NotificationEmailOption[]>([]);
   const [recipientLoadError, setRecipientLoadError] = useState<string | null>(null);
@@ -125,13 +128,13 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
   useEffect(() => {
     loadRecipientEmails();
 
-    if (admin) {
+    if (admin || canApplyForTeamMember) {
       api
         .get<UserOption[]>("/users/")
         .then(({ data }) => setUsers(data))
         .catch(() => {});
     }
-  }, [admin, loadRecipientEmails]);
+  }, [admin, canApplyForTeamMember, loadRecipientEmails]);
 
   useEffect(() => {
     fetchBalance();
@@ -229,7 +232,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
 
   return (
     <form className="space-y-4">
-      {admin && (
+      {(admin || canApplyForTeamMember) && (
         <div>
           <label className="mb-1.5 block text-sm font-medium text-ink-700">Apply For</label>
           <select

@@ -248,7 +248,9 @@ def apply_leave(
     target_user_id = payload.user_id if payload.user_id else current_user.id
     
     # Validate: non-admin can only apply for themselves
-    if current_user.role not in ["superadmin", "admin"] and target_user_id != current_user.id:
+    if current_user.role == "team_leader" and target_user_id != current_user.id:
+        require_team_member_access(db, current_user, target_user_id, "leave.approve")
+    elif current_user.role not in ["superadmin", "admin"] and target_user_id != current_user.id:
         raise HTTPException(
             status_code=403,
             detail="You can only apply for leave for yourself"
@@ -429,7 +431,8 @@ def get_user_leave_requests(
     current_user: User = Depends(get_current_user)
 ):
     """Admin gets leave requests for a specific user with optional month filter."""
-    require_team_member_access(db, current_user, user_id, "leave.team_view")
+    if current_user.id != user_id:
+        require_team_member_access(db, current_user, user_id, "leave.team_view")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1020,8 +1023,6 @@ def override_leave_allocations(
 
     log_activity(db, current_user.id, f"Overrode allocations for leave #{leave_id}")
     return leave_request
-
-
 
 
 

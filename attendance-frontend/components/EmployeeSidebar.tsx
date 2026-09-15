@@ -35,16 +35,19 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
   const { permissions } = usePermissions();
   const teamItems = session?.role === "team_leader"
     ? [
-        hasPermission(permissions, "attendance.team_view") && { href: "/attendance", label: "Team Attendance", icon: CalendarCheck },
         hasPermission(permissions, "reports.team_view") && { href: "/admin-reports", label: "Team Reports", icon: FileBarChart },
         hasPermission(permissions, "reports.team_view") && { href: "/reports", label: "Team Monthly Summary", icon: FileBarChart },
-        hasPermission(permissions, "leave.team_view") && { href: "/leave", label: "Team Leave", icon: Plane },
         hasPermission(permissions, "corrections.team_view") && { href: "/corrections", label: "Team Corrections", icon: ClipboardEdit },
         hasPermission(permissions, "employees.team_view") && { href: "/team-employees", label: "Team Employees", icon: Users },
         hasPermission(permissions, "kundli.team_view") && { href: "/kundli", label: "Team Kundli", icon: NotebookPen },
       ].filter(Boolean) as typeof EMPLOYEE_NAV_ITEMS
     : [];
-  const navItems = [...EMPLOYEE_NAV_ITEMS, ...teamItems];
+  const navItems = [...EMPLOYEE_NAV_ITEMS, ...teamItems].map((item) => {
+    if (session?.role !== "team_leader") return item;
+    if (item.href === "/attendance") return { ...item, label: "Attendance" };
+    if (item.href === "/leave") return { ...item, label: "Leave" };
+    return item;
+  });
 
   return (
     <aside className="flex h-full w-full lg:w-60 flex-col border-r border-ink-200 bg-white">

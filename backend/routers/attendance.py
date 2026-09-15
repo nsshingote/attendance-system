@@ -804,7 +804,8 @@ def user_attendance(
     current_user: User = Depends(get_current_user),
 ):
     """Admin gets attendance for a specific user."""
-    require_team_member_access(db, current_user, user_id, "attendance.team_view")
+    if current_user.id != user_id:
+        require_team_member_access(db, current_user, user_id, "attendance.team_view")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1790,12 +1791,14 @@ def get_user_half_day_requests(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Admin gets half day requests for a specific user with month filter."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if current_user.id != user_id:
+        require_team_member_access(db, current_user, user_id, "leave.team_view")
     
     query = db.query(HalfDayRequestModel).options(joinedload(HalfDayRequestModel.user)).filter(HalfDayRequestModel.user_id == user_id)
     if month and year:
@@ -2099,12 +2102,14 @@ def get_user_wfh_requests(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(get_current_user),
 ):
     """Admin gets WFH requests for a specific user."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if current_user.id != user_id:
+        require_team_member_access(db, current_user, user_id, "leave.team_view")
 
     query = db.query(WFHRequestModel).options(joinedload(WFHRequestModel.user)).filter(WFHRequestModel.user_id == user_id)
     if month and year:
