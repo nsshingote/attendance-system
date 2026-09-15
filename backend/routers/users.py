@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, hash_password, require_admin, require_superadmin
-from team_scope import require_team_member_access, require_team_permission
+from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
 from config import settings
 from database import get_db
 from models import (
@@ -156,9 +156,15 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
 
 
 @router.get("/profile-edit-requests")
-def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     profile_query = db.query(EmployeeProfileEditRequest)
     document_query = db.query(PersonalDocumentChangeRequest)
+    if current_user.role == "team_leader":
+        team_ids = [current_user.id, *require_team_permission(db, current_user, "employees.team_view")]
+        profile_query = profile_query.filter(EmployeeProfileEditRequest.employee_id.in_(team_ids))
+        document_query = document_query.filter(PersonalDocumentChangeRequest.employee_id.in_(team_ids))
+    elif current_user.role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     if status:
         profile_query = profile_query.filter(EmployeeProfileEditRequest.status == status)
         document_query = document_query.filter(PersonalDocumentChangeRequest.status == status)

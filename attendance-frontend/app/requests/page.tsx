@@ -16,7 +16,7 @@ export default function RequestsPage() {
   const [active, setActive] = useState<(typeof tabs)[number]["key"]>("corrections");
 
   return (
-    <AppShell>
+    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
       <div className="space-y-5">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Requests</h1>

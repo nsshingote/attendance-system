@@ -14,7 +14,7 @@ from schemas import (
     CorrectionOut, CorrectionCreate, CorrectionDecision
 )
 from auth import get_current_user, require_roles
-from team_scope import require_team_member_access
+from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
 from utils.attendance_status import determine_attendance_status_for_date
 from utils.logger import log_activity
 
@@ -30,10 +30,16 @@ def get_all_corrections(
     status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
     date_value: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Admin gets all correction requests."""
     query = db.query(AttendanceCorrection).options(joinedload(AttendanceCorrection.requester))
+    if current_user.role == "team_leader":
+        team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+        require_team_permission(db, current_user, "corrections.team_view")
+        query = query.filter(AttendanceCorrection.requested_by.in_(team_ids))
+    elif current_user.role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     if status:
         query = query.filter(AttendanceCorrection.status == status)
     if date_value is not None:

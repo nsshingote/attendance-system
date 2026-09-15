@@ -96,7 +96,7 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
     Promise.all([
       api.get<UserOption[]>("/users/"),
       api.get<DepartmentOption[]>("/reports/departments"),
-      teamLeader ? Promise.resolve({ data: [] as PastSubmissionRequest[] }) : api.get<PastSubmissionRequest[]>("/reports/past-submission-requests"),
+      api.get<PastSubmissionRequest[]>("/reports/past-submission-requests"),
     ])
       .then(([usersRes, departmentsRes, requestsRes]) => {
         // A duplicate option ID makes React reuse the wrong option and can
@@ -289,7 +289,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
               pastSubmissionRequests.filter((request) => selectedUserIds.length === 0 || selectedUserIds.includes(request.user_id)).map((request) => (
                   <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
                     <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
-                    {request.status === "Pending" ? <span className="flex gap-2"><button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button><button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button></span> : <strong>{request.status}</strong>}
+                    {request.status === "Pending" && !teamLeader ? <span className="flex gap-2"><button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button><button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button></span> : <strong>{request.status}</strong>}
                   </div>
                 ))
             ) : (

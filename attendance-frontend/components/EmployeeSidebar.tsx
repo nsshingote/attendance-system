@@ -37,7 +37,7 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
     ? [
         hasPermission(permissions, "reports.team_view") && { href: "/admin-reports", label: "Team Reports", icon: FileBarChart },
         hasPermission(permissions, "reports.team_view") && { href: "/reports", label: "Team Monthly Summary", icon: FileBarChart },
-        hasPermission(permissions, "corrections.team_view") && { href: "/corrections", label: "Team Corrections", icon: ClipboardEdit },
+        (hasPermission(permissions, "corrections.team_view") || hasPermission(permissions, "reports.team_view") || hasPermission(permissions, "employees.team_view")) && { href: "/requests", label: "Requests", icon: ClipboardEdit },
         hasPermission(permissions, "employees.team_view") && { href: "/team-employees", label: "Team Employees", icon: Users },
         hasPermission(permissions, "kundli.team_view") && { href: "/kundli", label: "Team Kundli", icon: NotebookPen },
       ].filter(Boolean) as typeof EMPLOYEE_NAV_ITEMS

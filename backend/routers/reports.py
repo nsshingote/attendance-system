@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
 from auth import require_admin, get_current_user, require_roles
-from team_scope import require_team_permission
+from team_scope import require_team_permission, get_team_member_ids
 from database import get_db
 from models import (
     Attendance, User, LeaveRequest, LeaveEncashmentRequest,
@@ -1111,9 +1111,16 @@ def request_past_report_submission(
 
 @router.get("/past-submission-requests")
 def list_past_report_submission_requests(
-    db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "superadmin"))
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    rows = db.query(PastReportSubmissionRequest).order_by(PastReportSubmissionRequest.requested_at.desc()).all()
+    query = db.query(PastReportSubmissionRequest)
+    if current_user.role == "team_leader":
+        team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+        require_team_permission(db, current_user, "reports.team_view")
+        query = query.filter(PastReportSubmissionRequest.user_id.in_(team_ids))
+    elif current_user.role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
+    rows = query.order_by(PastReportSubmissionRequest.requested_at.desc()).all()
     return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]
 
 

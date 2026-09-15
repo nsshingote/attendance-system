@@ -46,15 +46,14 @@ export function CorrectionsContent() {
     setLoading(true);
     try {
       const requests: Promise<any>[] = [api.get<CorrectionRow[]>("/corrections/me")];
-      if (admin) requests.push(api.get<CorrectionRow[]>("/corrections/"));
+      if (admin || teamView) requests.push(api.get<CorrectionRow[]>("/corrections/"));
       if (teamView) {
         requests.push(...selectedEmployeeIds.map((userId) => api.get<CorrectionRow[]>(`/corrections/user/${userId}`)));
       }
 
       const results = await Promise.all(requests);
       setMine(results[0].data);
-      if (admin) setAll(results[1].data.filter((row: CorrectionRow) => selectedEmployeeIds.length === 0 || selectedEmployeeIds.includes(row.requested_by)));
-      if (teamView) setAll(results.slice(1).flatMap((result) => result.data || []));
+      if (admin || teamView) setAll(results[1].data.filter((row: CorrectionRow) => selectedEmployeeIds.length === 0 || selectedEmployeeIds.includes(row.requested_by)));
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
