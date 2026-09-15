@@ -7,6 +7,7 @@ import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
+import LeaveSummary from "@/components/Leave/LeaveSummary";
 import UserSummary from "@/components/Users/UserSummary";
 import UserCalendar from "@/components/Users/UserCalender";
 import UserAttendanceChart from "@/components/Users/AttendanceChart";
@@ -54,6 +55,15 @@ interface AttendanceSummary {
   WFH: number;
   Leave: number;
   "Total Hours": number;
+}
+
+interface LeaveBalance {
+  user_id: number;
+  user_name: string;
+  paid_leave_available_this_month: number;
+  carried_leave: number;
+  leave_encashed: number;
+  total_leave_balance: number;
 }
 
 interface LeaveRow {
@@ -175,6 +185,7 @@ export default function UserDetailPage() {
   const [leaveRows, setLeaveRows] = useState<LeaveRow[]>([]);
   const [wfhRows, setWfhRows] = useState<WfhRow[]>([]);
   const [halfDayRows, setHalfDayRows] = useState<HalfDayRow[]>([]);
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
   const [leaveFilter, setLeaveFilter] = useState<"All" | "Leave" | "WFH" | "Half Day">("All");
   const [leaveDataLoading, setLeaveDataLoading] = useState(false);
   const [personalDocs, setPersonalDocs] = useState<PersonalDocument[]>([]);
@@ -273,12 +284,14 @@ export default function UserDetailPage() {
     setLeaveDataLoading(true);
     try {
       const params = { year, month };
-      const [leaveResponse, wfhResponse, halfDayResponse] = await Promise.all([
+      const [leaveResponse, balanceResponse, wfhResponse, halfDayResponse] = await Promise.all([
         api.get<LeaveRow[]>(`/leave/user/${userId}`, { params }),
+        api.get<LeaveBalance>(`/leave/balance/${userId}`),
         api.get<WfhRow[]>(`/attendance/wfh/user/${userId}`, { params }),
         api.get<HalfDayRow[]>(`/attendance/half-day-requests/user/${userId}`, { params }),
       ]);
       setLeaveRows(leaveResponse.data);
+      setLeaveBalance(balanceResponse.data);
       setWfhRows(wfhResponse.data);
       setHalfDayRows(halfDayResponse.data);
     } catch (error) {
@@ -492,16 +505,28 @@ export default function UserDetailPage() {
 
         {activeTab === "Attendance" && (
           <div className="grid grid-cols-1 gap-6">
-            <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-1">
-              {(["Calendar", "Table"] as const).map((view) => (
-                <button
-                  key={view}
-                  onClick={() => setAttendanceView(view)}
-                  className={`rounded-md px-4 py-2 text-sm font-medium ${attendanceView === view ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"}`}
-                >
-                  {view}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-1">
+                {(["Calendar", "Table"] as const).map((view) => (
+                  <button
+                    key={view}
+                    onClick={() => setAttendanceView(view)}
+                    className={`rounded-md px-4 py-2 text-sm font-medium ${attendanceView === view ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+                  >
+                    {view}
+                  </button>
+                ))}
+              </div>
+              <MonthSelector
+                year={year}
+                month={month}
+                onChange={(selectedYear, selectedMonth) => {
+                  setYear(selectedYear);
+                  setMonth(selectedMonth);
+                  setSelectedDate("");
+                  setSelectedDay(null);
+                }}
+              />
             </div>
             {attendanceView === "Table" && (
               attendanceTableLoading ? <Loading /> : (
@@ -512,16 +537,6 @@ export default function UserDetailPage() {
               <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-card">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <h3 className="text-sm font-semibold text-ink-900">Attendance Breakdown</h3>
-                  <MonthSelector
-                    year={year}
-                    month={month}
-                    onChange={(y, m) => {
-                      setYear(y);
-                      setMonth(m);
-                      setSelectedDate("");
-                      setSelectedDay(null);
-                    }}
-                  />
                 </div>
                 <UserAttendanceChart key={calendarRefreshKey} userId={user.id} year={year} month={month} />
               </div>
@@ -567,27 +582,44 @@ export default function UserDetailPage() {
 
         {activeTab === "Leave / WFH / Half Day" && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {[
-                ["Paid Leave", countLeaveDays(leaveRows, ["Paid", "Carried", "Privilege"])],
-                ["LWP / Unpaid", countLeaveDays(leaveRows, ["Unpaid"])],
-                ["Half Day", halfDayRows.filter((row) => row.status === "Approved").length],
-                ["WFH", wfhRows.filter((row) => row.status === "Approved").length],
-              ].map(([label, value]) => (
-                <div key={String(label)} className="rounded-xl border border-ink-200 bg-white p-4 shadow-card">
-                  <p className="text-xs text-ink-500">{label}</p>
-                  <p className="mt-1 text-2xl font-semibold text-ink-900">{value}</p>
-                </div>
-              ))}
-            </div>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-ink-900">Leave / WFH / Half Day</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-sm font-semibold text-ink-900">Leave / WFH / Half Day</h2>
+                <MonthSelector
+                  year={year}
+                  month={month}
+                  onChange={(selectedYear, selectedMonth) => {
+                    setYear(selectedYear);
+                    setMonth(selectedMonth);
+                  }}
+                />
+              </div>
               <select value={leaveFilter} onChange={(event) => setLeaveFilter(event.target.value as typeof leaveFilter)} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm">
                 <option>All</option>
                 <option>Leave</option>
                 <option>WFH</option>
                 <option>Half Day</option>
               </select>
+            </div>
+            {leaveBalance && (
+              <LeaveSummary
+                paidLeaveAvailableThisMonth={leaveBalance.paid_leave_available_this_month}
+                carriedLeave={leaveBalance.carried_leave}
+                leaveEncashed={leaveBalance.leave_encashed}
+                totalLeaveBalance={leaveBalance.total_leave_balance}
+                privilegeLeaveThisMonth={countLeaveDays(leaveRows, ["Privilege"])}
+              />
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                ["Half Day", halfDayRows.filter((row) => row.status === "Approved").length],
+                ["WFH", wfhRows.filter((row) => row.status === "Approved").length],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-xl border border-ink-200 bg-white p-4 text-center shadow-card">
+                  <p className="text-2xl font-semibold text-ink-900">{value}</p>
+                  <p className="mt-1 text-xs text-ink-500">{label}</p>
+                </div>
+              ))}
             </div>
             {leaveDataLoading ? <Loading /> : (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">

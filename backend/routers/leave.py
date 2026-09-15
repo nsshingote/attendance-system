@@ -659,7 +659,9 @@ def get_leave_balance(
     current_user: User = Depends(get_current_user)
 ):
     """Get leave balance for a user."""
-    if current_user.role not in ["admin", "superadmin"] and user_id != current_user.id:
+    if current_user.role == "team_leader" and user_id != current_user.id:
+        require_team_member_access(db, current_user, user_id, "leave.team_view")
+    elif current_user.role not in ["admin", "superadmin"] and user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to view this user's balance")
     
     user = db.query(User).filter(User.id == user_id).first()
@@ -1023,6 +1025,5 @@ def override_leave_allocations(
 
     log_activity(db, current_user.id, f"Overrode allocations for leave #{leave_id}")
     return leave_request
-
 
 
