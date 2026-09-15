@@ -8,7 +8,13 @@ from fastapi import HTTPException
 from database import Base, SessionLocal, engine
 from auth import has_permission, require_permission, require_roles
 from models import Permission, RolePermission, User
-from routers.permissions import get_my_permissions
+from routers.permissions import (
+    RolePermissionUpdate,
+    get_my_permissions,
+    get_team_leader_permissions,
+    list_permissions,
+    update_team_leader_permissions,
+)
 
 
 def setup_module(module):
@@ -102,4 +108,61 @@ def test_permissions_me_returns_only_role_permissions():
     permissions = get_my_permissions(db=db, current_user=user)
     assert "team.allowed" in permissions
     assert "team.denied" not in permissions
+    db.close()
+
+
+def test_admin_can_manage_team_leader_permissions_and_dashboard_stays_enabled():
+    db = SessionLocal()
+    admin = create_user(db, "admin")
+    dashboard = Permission(key="dashboard.view", name="Dashboard", module="dashboard", action="view")
+    attendance = Permission(key="attendance.team_view", name="Team attendance", module="attendance", action="team_view")
+    db.add_all([dashboard, attendance])
+    db.commit()
+    db.add(RolePermission(role="admin", permission_id=attendance.id))
+    db.commit()
+
+    all_permissions = list_permissions(db=db)
+    assert {item["key"] for item in all_permissions} >= {"dashboard.view", "attendance.team_view"}
+
+    updated = update_team_leader_permissions(
+        RolePermissionUpdate(permission_ids=[attendance.id]),
+        db=db,
+    )
+    assert set(updated["permission_ids"]) == {dashboard.id, attendance.id}
+    assert set(get_team_leader_permissions(db=db)) == {dashboard.id, attendance.id}
+    assert db.query(RolePermission).filter(
+        RolePermission.role == "admin",
+        RolePermission.permission_id == attendance.id,
+    ).count() == 1
+    assert require_roles("admin")(current_user=admin) is admin
+    db.close()
+
+
+def test_permission_update_rejects_invalid_ids_and_keys():
+    db = SessionLocal()
+    dashboard = db.query(Permission).filter(Permission.key == "dashboard.view").first()
+    if dashboard is None:
+        dashboard = Permission(key="dashboard.view", name="Dashboard", module="dashboard", action="view")
+        db.add(dashboard)
+        db.commit()
+
+    with pytest.raises(HTTPException) as invalid_id:
+        update_team_leader_permissions(RolePermissionUpdate(permission_ids=[999999]), db=db)
+    assert invalid_id.value.status_code == 422
+
+    with pytest.raises(HTTPException) as invalid_key:
+        update_team_leader_permissions(
+            RolePermissionUpdate(permission_keys=["not.a.real.permission"]),
+            db=db,
+        )
+    assert invalid_key.value.status_code == 422
+    db.close()
+
+
+def test_non_admin_is_rejected_by_admin_guard():
+    db = SessionLocal()
+    employee = create_user(db, "user")
+    with pytest.raises(HTTPException) as error:
+        require_roles("admin", "superadmin")(current_user=employee)
+    assert error.value.status_code == 403
     db.close()

@@ -1152,3 +1152,40 @@ class ResourceDetailOut(ORMBase):
     updated_at: Optional[datetime] = None
     department_ids: List[int] = []
     employee_ids: List[int] = []
+
+
+class TeamMemberOut(ORMBase):
+    id: int
+    name: str
+    role: str
+    department: str
+    designation: str
+    status: str
+
+
+class TeamOut(ORMBase):
+    id: int
+    name: str
+    department_id: Optional[int] = None
+    team_leader_id: Optional[int] = None
+    status: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    team_leader: Optional[UserOut] = None
+    members: List[TeamMemberOut] = []
+
+
+class TeamCreate(BaseModel):
+    name: str
+    department_id: Optional[int] = None
+    team_leader_id: Optional[int] = None
+    member_ids: List[int] = []
+    status: Literal["active", "inactive"] = "active"
+
+
+class TeamUpdate(BaseModel):
+    name: Optional[str] = None
+    department_id: Optional[int] = None
+    team_leader_id: Optional[int] = None
+    member_ids: Optional[List[int]] = None
+    status: Optional[Literal["active", "inactive"]] = None

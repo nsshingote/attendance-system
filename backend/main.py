@@ -34,6 +34,7 @@ from routers import (
     employee_documents,
     resources,
     permissions,
+    teams,
 )
 
 # Create tables if they don't exist yet (safe no-op if schema.sql already applied)
@@ -156,6 +157,7 @@ app.include_router(activity_logs.router, prefix="/activity-logs", tags=["Activit
 app.include_router(employee_documents.router, prefix="/employee-documents", tags=["Employee Documents"])
 app.include_router(resources.router, prefix="/resources", tags=["Resources"])
 app.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
+app.include_router(teams.router, prefix="/teams", tags=["Teams"])
 
 
 @app.get("/")
