@@ -529,7 +529,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
   const loadMyPastRequests = async () => {
     try {
-      const res = await api.get("/reports/past-submission-requests/mine");
+      const res = await api.get("/reports/past-submission-requests");
       setMyPastRequests(res.data || []);
     } catch {
       // Non-fatal: the existing request form is still available.

@@ -152,6 +152,10 @@ export default function TodayAttendanceTable() {
       .finally(() => setLoading(false));
   }, []);
 
+  const showAttendanceReasons = rows.some(
+    (row) => (row.attendance_mode || "office").toLowerCase() !== "onsite"
+  );
+
   return (
     <div className="rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="border-b border-ink-200 px-5 py-4">
@@ -180,8 +184,7 @@ export default function TodayAttendanceTable() {
                 <col style={{ width: "9%" }} />
                 <col style={{ width: "10%" }} />
                 <col style={{ width: "9%" }} />
-                <col style={{ width: "17%" }} />
-                <col style={{ width: "17%" }} />
+                {showAttendanceReasons && <><col style={{ width: "17%" }} /><col style={{ width: "17%" }} /></>}
                 <col style={{ width: "8%" }} />
               </colgroup>
               <thead>
@@ -192,8 +195,7 @@ export default function TodayAttendanceTable() {
                   <th className="px-4 py-3 font-medium">Check Out</th>
                   <th className="px-4 py-3 font-medium">Hours Worked</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Late Entry Reason</th>
-                  <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Early Logout Reason</th>
+                  {showAttendanceReasons && <><th className="whitespace-normal px-4 py-3 font-medium leading-tight">Late Entry Reason</th><th className="whitespace-normal px-4 py-3 font-medium leading-tight">Early Logout Reason</th></>}
                   <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Report</th>
                   <th className="whitespace-normal px-4 py-3 font-medium leading-tight">Location</th>
                 </tr>
@@ -222,12 +224,16 @@ export default function TodayAttendanceTable() {
                       <td className="px-4 py-3">
                         <Badge status={r.status} />
                       </td>
-                      <td className="max-w-160px min-w-0 wrap-break-word whitespace-normal px-4 py-3 text-xs leading-5 text-ink-500">
-                        <ExpandableText text={lateReason} limit={42} />
-                      </td>
-                      <td className="max-w-160px min-w-0 wrap-break-word whitespace-normal px-4 py-3 text-xs leading-5 text-ink-500">
-                        <ExpandableText text={earlyReason} limit={42} />
-                      </td>
+                      {showAttendanceReasons && (
+                        <>
+                          <td className="max-w-160px min-w-0 wrap-break-word whitespace-normal px-4 py-3 text-xs leading-5 text-ink-500">
+                            {r.attendance_mode?.toLowerCase() === "onsite" ? "—" : <ExpandableText text={lateReason} limit={42} />}
+                          </td>
+                          <td className="max-w-160px min-w-0 wrap-break-word whitespace-normal px-4 py-3 text-xs leading-5 text-ink-500">
+                            {r.attendance_mode?.toLowerCase() === "onsite" ? "—" : <ExpandableText text={earlyReason} limit={42} />}
+                          </td>
+                        </>
+                      )}
                       <td className="px-4 py-3 text-xs font-medium">
                         <span className={isSubmitted ? "text-green-600" : "text-red-500"}>
                           {reportStatus}
@@ -279,7 +285,7 @@ export default function TodayAttendanceTable() {
                       </div>
                     </div>
                   )}
-                  {(lateReason || earlyReason || remark) && (
+                  {showAttendanceReasons && r.attendance_mode?.toLowerCase() !== "onsite" && (lateReason || earlyReason || remark) && (
                     <div className="mt-2 rounded-md bg-ink-50 px-2 py-2 text-[11px] text-ink-600">
                       {lateReason && <p><span className="font-semibold text-ink-700">Late:</span> <ExpandableText text={lateReason} limit={42} /></p>}
                       {earlyReason && <p><span className="font-semibold text-ink-700">Early:</span> <ExpandableText text={earlyReason} limit={42} /></p>}

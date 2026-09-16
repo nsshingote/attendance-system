@@ -793,9 +793,9 @@ def my_attendance(
         results.append({
             "id": attendance.id,
             "user_id": attendance.user_id,
-            "user_name": user.name,
-            "department": user.department,
-            "attendance_mode": user.attendance_mode,
+            "user_name": current_user.name,
+            "department": current_user.department,
+            "attendance_mode": current_user.attendance_mode,
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
@@ -866,6 +866,8 @@ def user_attendance(
         results.append({
             "id": attendance.id,
             "user_id": attendance.user_id,
+            "user_name": user.name,
+            "department": user.department,
             "attendance_mode": user.attendance_mode,
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
