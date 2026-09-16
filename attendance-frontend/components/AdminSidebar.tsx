@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import {
   LayoutDashboard,
@@ -32,6 +33,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
+import { fetchNotifications } from "@/lib/notifications";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -66,6 +68,13 @@ interface AdminSidebarProps {
 export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
   const session = getSession();
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+
+  useEffect(() => {
+    fetchNotifications(0, 100).then((data) => {
+      setPendingLeaveCount(data.items.filter((item) => !item.is_read && item.notification_type === "leave.submitted").length);
+    }).catch(() => {});
+  }, []);
 
   const sidebarContent = (
     <>
@@ -102,6 +111,11 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
             >
               <Icon size={17} strokeWidth={active ? 2.4 : 2} />
               {label}
+              {href === "/leave" && pendingLeaveCount > 0 && (
+                <span className="ml-auto min-w-5 rounded-full bg-brand-600 px-1.5 text-center text-[10px] font-bold leading-5 text-white">
+                  {pendingLeaveCount > 99 ? "99+" : pendingLeaveCount}
+                </span>
+              )}
             </Link>
           );
         })}

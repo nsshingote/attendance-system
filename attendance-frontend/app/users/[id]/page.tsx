@@ -127,6 +127,18 @@ type GeneratedDocument = {
   sent_at?: string | null;
 };
 
+type DailyReportRow = {
+  id: number;
+  attendance_date: string;
+  department_name?: string | null;
+  type_name?: string | null;
+  subtype_name?: string | null;
+  quantity?: number | null;
+  duration?: number | null;
+  description?: string | null;
+  submitted_at?: string | null;
+};
+
 const defaultAttendanceSummary: AttendanceSummary = {
   Present: 0,
   Late: 0,
@@ -178,7 +190,7 @@ export default function UserDetailPage() {
   const [selectedOverrideStatus, setSelectedOverrideStatus] = useState("Present");
   const [savingSelectedOverride, setSavingSelectedOverride] = useState(false);
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<"Attendance" | "Leave / WFH / Half Day" | "Personal Info" | "Documents">("Attendance");
+  const [activeTab, setActiveTab] = useState<"Attendance" | "Leave / WFH / Half Day" | "Reports" | "Personal Info" | "Documents">("Attendance");
   const [attendanceView, setAttendanceView] = useState<"Calendar" | "Table">("Calendar");
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [attendanceTableLoading, setAttendanceTableLoading] = useState(false);
@@ -190,6 +202,7 @@ export default function UserDetailPage() {
   const [leaveDataLoading, setLeaveDataLoading] = useState(false);
   const [personalDocs, setPersonalDocs] = useState<PersonalDocument[]>([]);
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
+  const [dailyReports, setDailyReports] = useState<DailyReportRow[]>([]);
   const [selectedGeneratedDocument, setSelectedGeneratedDocument] = useState<GeneratedDocument | null>(null);
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<GeneratedDocument | null>(null);
   const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
@@ -397,6 +410,11 @@ export default function UserDetailPage() {
   useEffect(() => {
     if (activeTab === "Attendance" && attendanceView === "Table") loadAttendanceTable();
     if (activeTab === "Leave / WFH / Half Day") loadLeaveData();
+    if (activeTab === "Reports") {
+      api.get<DailyReportRow[]>("/reports/history", { params: { user_id: userId } })
+        .then(({ data }) => setDailyReports(data || []))
+        .catch(() => setDailyReports([]));
+    }
   }, [activeTab, attendanceView, userId, year, month]);
 
   useEffect(() => {
@@ -492,7 +510,7 @@ export default function UserDetailPage() {
         <UserSummary user={user} />
 
         <div className="flex flex-wrap rounded-lg border border-ink-200 bg-white p-1">
-          {(["Attendance", "Leave / WFH / Half Day", "Personal Info", "Documents"] as const).map((tab) => (
+          {(["Attendance", "Leave / WFH / Half Day", "Reports", "Personal Info", "Documents"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -636,6 +654,41 @@ export default function UserDetailPage() {
                     ))}
                     {(leaveFilter === "All" || leaveFilter === "Half Day") && halfDayRows.map((row) => (
                       <tr key={`half-day-${row.id}`}><td className="px-4 py-3">Half Day</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">{row.slot}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "Reports" && (
+          <div className="rounded-xl border border-ink-200 bg-white shadow-card">
+            <div className="border-b border-ink-200 px-5 py-4">
+              <h2 className="font-semibold text-ink-900">Daily Reports</h2>
+              <p className="text-sm text-ink-500">Submitted daily reports for this employee.</p>
+            </div>
+            {dailyReports.length === 0 ? (
+              <p className="px-5 py-10 text-center text-sm text-ink-500">No daily reports found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-ink-50 text-left text-xs uppercase text-ink-500">
+                    <tr>
+                      <th className="px-5 py-3">Date</th>
+                      <th className="px-5 py-3">Department</th>
+                      <th className="px-5 py-3">Report</th>
+                      <th className="px-5 py-3">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyReports.map((report) => (
+                      <tr key={report.id} className="border-t border-ink-100">
+                        <td className="px-5 py-3">{report.attendance_date}</td>
+                        <td className="px-5 py-3">{report.department_name || "-"}</td>
+                        <td className="px-5 py-3">{[report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-"}</td>
+                        <td className="px-5 py-3">{report.description || report.quantity || report.duration || "-"}</td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>

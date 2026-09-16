@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
 from auth import require_admin, get_current_user, require_roles
-from team_scope import require_team_permission, get_team_member_ids
+from team_scope import require_team_permission, require_team_member_access, get_team_member_ids
 from database import get_db
 from models import (
     Attendance, User, LeaveRequest, LeaveEncashmentRequest,
@@ -1025,13 +1025,19 @@ def get_report_history(
     month: Optional[int] = Query(None, ge=1, le=12),
     date_value: Optional[date] = Query(None),
     department_id: Optional[int] = Query(None),
+    user_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get user's report history with optional month/date filters."""
-    query = db.query(DailyReportData).filter(
-        DailyReportData.user_id == current_user.id
-    )
+    target_user_id = current_user.id
+    if user_id is not None and user_id != current_user.id:
+        if current_user.role in ("admin", "superadmin"):
+            target_user_id = user_id
+        else:
+            require_team_member_access(db, current_user, user_id, "reports.team_view")
+            target_user_id = user_id
+    query = db.query(DailyReportData).filter(DailyReportData.user_id == target_user_id)
 
     if date_value is not None:
         query = query.filter(DailyReportData.attendance_date == date_value)

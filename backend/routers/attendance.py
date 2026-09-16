@@ -460,6 +460,9 @@ def _determine_attendance_status_for_record(
         return "On Leave"
     if not record.check_in:
         return "Absent"
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if _is_onsite_user(user) and not getattr(record, "manual_override", False):
+        return "Present"
     if not record.check_out:
         return calculate_status(record.check_in, db)
     if calculate_half_day(record.check_in, record.check_out, db):
@@ -1713,6 +1716,8 @@ def request_half_day(
     current_user: User = Depends(get_current_user),
 ):
     """Employee requests a half day — creates a Pending request."""
+    if _is_onsite_user(current_user):
+        raise HTTPException(status_code=400, detail="Half day requests are not available for onsite employees.")
     if payload.slot not in HALF_DAY_SLOTS:
         raise HTTPException(status_code=400, detail="Slot must be 'morning' or 'afternoon'")
 
@@ -2033,6 +2038,8 @@ def request_wfh(
     Remote attendance is allowed from any network only after admin approval
     for the requested date.
     """
+    if _is_onsite_user(current_user):
+        raise HTTPException(status_code=400, detail="WFH requests are not available for onsite employees.")
     ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if payload.attendance_date < ist_today:
         raise HTTPException(status_code=400, detail="Cannot request WFH for a past date.")

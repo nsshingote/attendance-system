@@ -74,6 +74,7 @@ interface WFHRequestRow {
 interface UserOption {
   id: number;
   name: string;
+  attendance_mode?: string | null;
 }
 
 function countPrivilegeLeaveDays(requests: LeaveRow[], year: number, month: number) {
@@ -150,9 +151,11 @@ export default function LeavePage() {
   const [allocationModalLeaveId, setAllocationModalLeaveId] = useState<number | null>(null);
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
   const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string }[]>([]);
+  const [attendanceMode, setAttendanceMode] = useState("office");
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
+  const isOnsite = attendanceMode.toLowerCase() === "onsite";
 
   // Fetch users for admin dropdown
   useEffect(() => {
@@ -163,6 +166,13 @@ export default function LeavePage() {
         .catch(() => toast.error("Failed to load users"));
     }
   }, [admin, teamView]);
+
+  useEffect(() => {
+    if (!session || admin || teamView) return;
+    api.get<{ attendance_mode?: string | null }>("/users/me")
+      .then(({ data }) => setAttendanceMode(data.attendance_mode || "office"))
+      .catch(() => {});
+  }, [session, admin, teamView]);
 
   const fetchAll = useCallback(async () => {
     if (!session) return;
@@ -802,18 +812,22 @@ export default function LeavePage() {
           >
             Leave
           </button>
-          <button
-            onClick={() => setNewRequestType("halfday")}
-            className={`flex-1 rounded-md px-3.5 py-1.5 font-medium ${newRequestType === "halfday" ? "bg-white shadow-sm text-ink-900" : "text-ink-500"}`}
-          >
-            Half Day
-          </button>
-          <button
-            onClick={() => setNewRequestType("wfh")}
-            className={`flex-1 rounded-md px-3.5 py-1.5 font-medium ${newRequestType === "wfh" ? "bg-white shadow-sm text-ink-900" : "text-ink-500"}`}
-          >
-            WFH
-          </button>
+          {!isOnsite && (
+            <>
+              <button
+                onClick={() => setNewRequestType("halfday")}
+                className={`flex-1 rounded-md px-3.5 py-1.5 font-medium ${newRequestType === "halfday" ? "bg-white shadow-sm text-ink-900" : "text-ink-500"}`}
+              >
+                Half Day
+              </button>
+              <button
+                onClick={() => setNewRequestType("wfh")}
+                className={`flex-1 rounded-md px-3.5 py-1.5 font-medium ${newRequestType === "wfh" ? "bg-white shadow-sm text-ink-900" : "text-ink-500"}`}
+              >
+                WFH
+              </button>
+            </>
+          )}
         </div>
 
         {newRequestType === "leave" ? (
