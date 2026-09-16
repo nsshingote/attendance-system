@@ -318,6 +318,7 @@ class AttendanceOut(ORMBase):
     user_id: int
     user_name: Optional[str] = None
     department: Optional[str] = None
+    attendance_mode: Optional[str] = None
     attendance_date: date
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
@@ -592,6 +593,7 @@ class DeviceRequestDecision(BaseModel):
 class DeviceRequestOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     device_token: Optional[str] = None
     device_name: Optional[str] = None
     browser_name: Optional[str] = None

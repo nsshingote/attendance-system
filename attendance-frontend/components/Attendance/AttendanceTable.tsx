@@ -24,6 +24,7 @@ export interface AttendanceRecord {
   has_report?: boolean;
   user_name?: string;
   department?: string;
+  attendance_mode?: string | null;
   is_working_sunday?: boolean;
   check_in_latitude?: number | null;
   check_in_longitude?: number | null;
@@ -148,13 +149,18 @@ export default function AttendanceTable({
     );
   }
 
+  const showAttendanceReasons = records.some(
+    (record) => (record.attendance_mode || "office").toLowerCase() !== "onsite"
+  );
+
   return (
     <div className="w-full max-w-full max-h-150 overflow-x-auto overflow-y-auto rounded-lg border border-ink-200 bg-white touch-auto">
       <table className="w-full max-w-none table-fixed text-left text-xs" style={{ minWidth: "1050px" }}>
         <colgroup>
           {showEmployeeName && <col className="w-[13%]" />}
           <col className="w-[10%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[8%]" /><col className="w-[9%]" />
-          <col className="w-[16%]" /><col className="w-[16%]" /><col className="w-[6%]" />
+          {showAttendanceReasons && <><col className="w-[16%]" /><col className="w-[16%]" /></>}
+          <col className="w-[6%]" />
           <col className="w-[8%]" />{(showRequestCorrection || showAdminActions) && <col className="w-[8%]" />}
         </colgroup>
         <thead>
@@ -167,8 +173,7 @@ export default function AttendanceTable({
             <th className="px-2 py-2 font-medium">Out</th>
             <th className="px-2 py-2 font-medium">Hours</th>
             <th className="px-2 py-2 font-medium">Status</th>
-            <th className="px-2 py-2 font-medium">Late</th>
-            <th className="px-2 py-2 font-medium">Early</th>
+            {showAttendanceReasons && <><th className="px-2 py-2 font-medium">Late</th><th className="px-2 py-2 font-medium">Early</th></>}
             <th className="px-2 py-2 font-medium">Report</th>
             <th className="px-2 py-2 font-medium">Location</th>
             {(showRequestCorrection || showAdminActions) && <th className="px-2 py-2 font-medium">Action</th>}
@@ -203,12 +208,20 @@ export default function AttendanceTable({
                 <td className="px-2 py-2 whitespace-nowrap">
                   <Badge status={r.status} />
                 </td>
-                <td className="wrap-break-word whitespace-normal px-2 py-2 text-[10px] leading-5 text-ink-500"><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={42} /><span className="hidden">
-                  {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
-                </span></td>
-                <td className="wrap-break-word whitespace-normal px-2 py-2 text-[10px] leading-5 text-ink-500"><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={42} /><span className="hidden">
-                  {earlyReason || (!lateReason ? remark : "") || "—"}
-                </span></td>
+                {showAttendanceReasons && (
+                  <>
+                    <td className="wrap-break-word whitespace-normal px-2 py-2 text-[10px] leading-5 text-ink-500">
+                      {r.attendance_mode?.toLowerCase() === "onsite" ? "—" : <><ExpandableText text={lateReason || (r.status !== "Late" && !earlyReason ? remark : "")} limit={42} /><span className="hidden">
+                        {lateReason || (r.status !== "Late" && !earlyReason ? remark : "") || "—"}
+                      </span></>}
+                    </td>
+                    <td className="wrap-break-word whitespace-normal px-2 py-2 text-[10px] leading-5 text-ink-500">
+                      {r.attendance_mode?.toLowerCase() === "onsite" ? "—" : <><ExpandableText text={earlyReason || (!lateReason ? remark : "")} limit={42} /><span className="hidden">
+                        {earlyReason || (!lateReason ? remark : "") || "—"}
+                      </span></>}
+                    </td>
+                  </>
+                )}
                 <td className="px-2 py-2 text-center text-xs font-medium whitespace-nowrap">
                   <span className={reportStatus === "✅" ? "text-green-600" : "text-red-500"}>
                     {reportStatus}

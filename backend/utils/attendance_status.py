@@ -31,6 +31,10 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     Determine attendance status for a user on a specific date.
     Returns: 'Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'WFH', or 'On Leave'
     """
+    user = db.query(User).filter(User.id == user_id).first()
+    if user and user.date_of_joining and target_date < user.date_of_joining:
+        return "Not Started"
+
     # A manual admin override is the final status, including on a date that
     # also has WFH, holiday, or leave workflow data.
     # Historical data may contain more than one row for a date.  A manual
@@ -81,7 +85,6 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     if attendance and attendance.status == "On Leave":
         return "On Leave"
 
-    user = db.query(User).filter(User.id == user_id).first()
     if user and (getattr(user, "attendance_mode", None) or "office").lower() == "onsite" and attendance and attendance.check_in:
         return "Present"
 

@@ -775,7 +775,7 @@ setSummary(
               records={filteredRecords}
               showRequestCorrection={!admin || (selectedUserIds.length === 1 && selectedUserIds[0] === session?.userId)}
               onRequestCorrection={setCorrectionModal}
-              showEmployeeName={admin}
+              showEmployeeName={admin || teamView}
               showAdminActions={admin}
               onManualOverride={(record) => {
                 setManualOverrideModal(record);

@@ -25,10 +25,23 @@ def list_device_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    query = db.query(DeviceRequest)
+    query = db.query(DeviceRequest, User.name).join(User, User.id == DeviceRequest.user_id)
     if status_filter:
         query = query.filter(DeviceRequest.status == status_filter)
-    return query.order_by(DeviceRequest.requested_at.desc()).all()
+    return [
+        {
+            "id": request.id,
+            "user_id": request.user_id,
+            "user_name": user_name,
+            "device_token": request.device_token,
+            "device_name": request.device_name,
+            "browser_name": request.browser_name,
+            "status": request.status,
+            "requested_at": request.requested_at,
+            "approved_by": request.approved_by,
+        }
+        for request, user_name in query.order_by(DeviceRequest.requested_at.desc()).all()
+    ]
 
 
 @router.put("/{request_id}", response_model=DeviceRequestOut)

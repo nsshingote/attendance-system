@@ -450,6 +450,11 @@ def employee_wise_summary(
             )
             .all()
         )
+        if user.date_of_joining:
+            raw_records = [
+                record for record in raw_records
+                if record.attendance_date >= user.date_of_joining
+            ]
         # Legacy duplicate rows must not inflate monthly totals. Count exactly
         # one record per date; a manual override is always the final status.
         records_by_date = {}

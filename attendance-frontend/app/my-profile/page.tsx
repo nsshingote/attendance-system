@@ -134,16 +134,16 @@ export default function MyProfilePage() {
 
   useEffect(() => {
     Promise.all([
-      api.get("/users/me"),
+      api.get<User>("/users/me"),
       api.get<CompanyBranding>("/settings/branding"),
-      api.get("/employee-documents/salary-slips/mine"),
-      api.get("/employee-documents/documents/mine"),
-      api.get("/employee-documents/personal-documents/mine"),
+      api.get<Slip[]>("/employee-documents/salary-slips/mine"),
+      api.get<GeneratedDocument[]>("/employee-documents/documents/mine"),
+      api.get<PersonalDocument[]>("/employee-documents/personal-documents/mine"),
       api.get<PersonalDocumentRequest[]>("/employee-documents/personal-document-requests/mine"),
-      api.get("/users/me/profile-edit-requests"),
+      api.get<ProfileEditRequest[]>("/users/me/profile-edit-requests"),
     ])
       .then(([me, branding, salary, employeeDocuments, personalDocs, documentRequests, requests]) => {
-        const userData = me.data as User;
+        const userData = me.data;
         setProfile(userData);
         setPhotoUrl(getProfilePhotoUrl(userData.id, Date.now()));
         setCompanyBranding(branding.data);

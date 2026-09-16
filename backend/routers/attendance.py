@@ -368,6 +368,22 @@ def _mark_absent_records_for_date_range(
     if not all_dates:
         return
 
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    users_by_id = {user.id: user for user in users}
+    pre_joining_absences = db.query(Attendance).filter(
+        Attendance.user_id.in_(user_ids),
+        Attendance.attendance_date.in_(all_dates),
+        Attendance.status == "Absent",
+        Attendance.check_in.is_(None),
+        Attendance.check_out.is_(None),
+    ).all()
+    for record in pre_joining_absences:
+        user = users_by_id.get(record.user_id)
+        if user and user.date_of_joining and record.attendance_date < user.date_of_joining:
+            db.delete(record)
+    if pre_joining_absences:
+        db.commit()
+
     holiday_dates = _load_holiday_dates(db, set(all_dates))
     approved_wfh_keys = _load_approved_wfh_keys_for_users(db, user_ids, set(all_dates))
     approved_leave_keys = _load_approved_leave_keys_for_users(db, user_ids, all_dates[0], all_dates[-1])
@@ -397,7 +413,10 @@ def _mark_absent_records_for_date_range(
 
     new_records = []
     for user_id in user_ids:
+        user = users_by_id.get(user_id)
         for target_date in all_dates:
+            if user and user.date_of_joining and target_date < user.date_of_joining:
+                continue
             if (user_id, target_date) in existing_pairs:
                 continue
             if target_date in holiday_dates:
@@ -774,6 +793,9 @@ def my_attendance(
         results.append({
             "id": attendance.id,
             "user_id": attendance.user_id,
+            "user_name": user.name,
+            "department": user.department,
+            "attendance_mode": user.attendance_mode,
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
@@ -844,6 +866,7 @@ def user_attendance(
         results.append({
             "id": attendance.id,
             "user_id": attendance.user_id,
+            "attendance_mode": user.attendance_mode,
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
@@ -891,7 +914,8 @@ def get_all_attendance(
     query = db.query(
         Attendance,
         User.name,
-        User.department
+        User.department,
+        User.attendance_mode,
     ).join(User, Attendance.user_id == User.id)
 
     target_start = None
@@ -933,20 +957,20 @@ def get_all_attendance(
     query = query.order_by(Attendance.attendance_date, User.name)
     
     results = query.all()
-    user_ids = {attendance.user_id for attendance, _, _ in results}
-    attendance_dates = {attendance.attendance_date for attendance, _, _ in results}
+    user_ids = {attendance.user_id for attendance, _, _, _ in results}
+    attendance_dates = {attendance.attendance_date for attendance, _, _, _ in results}
     report_keys = _load_report_keys_for_users(db, user_ids, attendance_dates)
     approved_wfh_keys = _load_approved_wfh_keys_for_users(db, user_ids, attendance_dates)
     holiday_dates = _load_holiday_dates(db, attendance_dates)
 
     working_sunday_keys = _load_working_sunday_keys_for_users(db, user_ids, attendance_dates)
     manual_leave_categories = _load_manual_override_leave_categories(
-        db, {attendance.id for attendance, _, _ in results}
+        db, {attendance.id for attendance, _, _, _ in results}
     )
 
     # Format the response with user details
     formatted_results = []
-    for attendance, user_name, department in results:
+    for attendance, user_name, department, attendance_mode in results:
         has_report = (attendance.user_id, attendance.attendance_date) in report_keys
 
         formatted_results.append({
@@ -954,6 +978,7 @@ def get_all_attendance(
             "user_id": attendance.user_id,
             "user_name": user_name,
             "department": department,
+            "attendance_mode": attendance_mode,
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
@@ -1136,9 +1161,8 @@ def monthly_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role == "user" and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    require_team_member_access(db, current_user, user_id, "attendance.team_view")
+    if current_user.id != user_id:
+        require_team_member_access(db, current_user, user_id, "attendance.team_view")
 
     if from_date and to_date:
         if from_date > to_date:

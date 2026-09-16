@@ -53,7 +53,7 @@ interface LeaveSummaryRow {
 
 export default function ReportsPage() {
   const session = getSession();
-  const { permissions } = usePermissions();
+  const { permissions, loading: permissionsLoading } = usePermissions();
   const teamReports = session?.role === "team_leader" && hasPermission(permissions, "reports.team_view");
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -65,6 +65,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
+    if (permissionsLoading) return;
     setLoading(true);
     try {
       const empRes = await api.get<EmployeeSummaryRow[]>("/reports/employee-summary", { params: { year, month } });
@@ -78,7 +79,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month, teamReports]);
+  }, [year, month, teamReports, permissionsLoading]);
 
   useEffect(() => {
     fetchData();
