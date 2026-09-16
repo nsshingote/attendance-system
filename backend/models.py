@@ -64,6 +64,12 @@ class User(Base):
     profile_edit_requests = relationship("EmployeeProfileEditRequest", back_populates="employee", foreign_keys="EmployeeProfileEditRequest.employee_id")
     led_teams = relationship("Team", back_populates="team_leader", foreign_keys="Team.team_leader_id")
     team_memberships = relationship("TeamMember", back_populates="employee", foreign_keys="TeamMember.employee_id")
+    notifications = relationship(
+        "Notification",
+        back_populates="recipient",
+        foreign_keys="Notification.recipient_user_id",
+        cascade="all, delete-orphan",
+    )
 
 
 class Permission(Base):
@@ -561,6 +567,27 @@ class ActivityLog(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", back_populates="activity_logs")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    recipient_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    notification_type = Column(String(100), nullable=False)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    route = Column(String(500), nullable=True)
+    entity_type = Column(String(100), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    is_read = Column(Boolean, nullable=False, default=False, server_default="0", index=True)
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False, index=True)
+
+    recipient = relationship("User", back_populates="notifications", foreign_keys=[recipient_user_id])
+    actor = relationship("User", foreign_keys=[actor_user_id])
 
 
 class Feedback(Base):

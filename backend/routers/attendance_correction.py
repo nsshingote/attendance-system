@@ -17,6 +17,7 @@ from auth import get_current_user, require_roles
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
 from utils.attendance_status import determine_attendance_status_for_date
 from utils.logger import log_activity
+from services.notifications import create_notification, get_approver_user_ids
 
 router = APIRouter()
 
@@ -131,6 +132,23 @@ def request_correction(
     )
     correction.requester = target_user
     db.add(correction)
+    for approver_id in get_approver_user_ids(
+        db,
+        employee_id=target_user_id,
+        permission_key="corrections.approve",
+        actor_user_id=current_user.id,
+    ):
+        create_notification(
+            db,
+            recipient_user_id=approver_id,
+            actor_user_id=current_user.id,
+            notification_type="attendance_correction.submitted",
+            title="New attendance correction request",
+            message=f"{target_user.name} submitted an attendance correction request.",
+            route="/corrections",
+            entity_type="attendance_correction",
+            entity_id=correction.id,
+        )
     db.commit()
     db.refresh(correction)
     
@@ -270,6 +288,18 @@ def decide_correction(
             db.commit()
             db.refresh(attendance)
     
+    if correction.requested_by != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=correction.requested_by,
+            actor_user_id=current_user.id,
+            notification_type=f"attendance_correction.{payload.status.lower()}",
+            title=f"Attendance correction {payload.status.lower()}",
+            message=f"Your attendance correction request was {payload.status.lower()}.",
+            route="/corrections",
+            entity_type="attendance_correction",
+            entity_id=correction.id,
+        )
     db.commit()
     db.refresh(correction)
     

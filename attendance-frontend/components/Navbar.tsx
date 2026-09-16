@@ -12,6 +12,7 @@ import { LogOut, User as UserIcon, Menu } from "lucide-react";
 import toast from "react-hot-toast";
 import { getSession, clearSession } from "@/lib/auth";
 import api, { getProfilePhotoUrl } from "@/lib/api";
+import NotificationBell from "@/components/Notifications/NotificationBell";
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -94,6 +95,8 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         </div>
 
         <div className="flex sm:hidden items-center gap-1.5">{renderAvatar()}</div>
+
+        <NotificationBell />
 
         <button
           onClick={handleLogout}

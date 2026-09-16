@@ -17,6 +17,7 @@ from database import get_db
 from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
 from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate
 from utils.email_service import send_email
+from services.notifications import create_notification, get_admin_user_ids
 
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "personal_documents"
@@ -174,6 +175,18 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
             item.sent_at = datetime.utcnow()
             db.commit()
             db.refresh(item)
+    if item.status == "Sent" and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type="salary_slip.available",
+            title="Salary slip available",
+            message=f"Your salary slip for {item.month}/{item.year} is now available.",
+            route="/my-profile",
+            entity_type="salary_slip",
+            entity_id=item.id,
+        )
     db.add(ActivityLog(user_id=current_user.id, activity=f"Created salary slip for '{employee.name}'"))
     db.commit()
     return _salary_slip_dict(item)
@@ -193,6 +206,18 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
         period = datetime(payload.year, payload.month, 1).strftime("%B %Y")
         if send_email([employee.email], f"Salary slip for {period}", f"<p>Hi {employee.name},</p><p>Your updated salary slip for <b>{period}</b> is available in My Profile.</p>"):
             item.status, item.sent_at = "Sent", datetime.utcnow()
+    if item.status == "Sent" and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type="salary_slip.available",
+            title="Salary slip available",
+            message=f"Your updated salary slip for {item.month}/{item.year} is now available.",
+            route="/my-profile",
+            entity_type="salary_slip",
+            entity_id=item.id,
+        )
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated salary slip for '{employee.name}'")); db.commit(); db.refresh(item)
     return _salary_slip_dict(item)
 
@@ -347,6 +372,18 @@ def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(
     db.add(item); db.commit(); db.refresh(item)
     if payload.send and employee.email:
         send_email([employee.email], template.name, f"<p>Hi {employee.name},</p><p>Your <b>{template.name}</b> is available in My Profile → Documents.</p>")
+    if payload.send and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type="employee_document.available",
+            title="Employee document available",
+            message=f"Your {template.name} is now available in My Profile.",
+            route="/my-profile",
+            entity_type="employee_document",
+            entity_id=item.id,
+        )
     db.add(ActivityLog(user_id=current_user.id, activity=f"{'Sent' if payload.send else 'Generated'} {template.name} for '{employee.name}'")); db.commit()
     return _document_dict(item)
 
@@ -559,7 +596,20 @@ async def request_personal_document_replace(
         pending_file_path=str(stored_path).replace("\\", "/"), pending_mime_type=file.content_type,
         pending_file_size=len(file_bytes),
     )
-    db.add(request); db.commit(); db.refresh(request)
+    db.add(request)
+    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+        create_notification(
+            db,
+            recipient_user_id=admin_id,
+            actor_user_id=current_user.id,
+            notification_type="employee_document.submitted",
+            title="New personal document replacement request",
+            message=f"{current_user.name} submitted a document replacement request.",
+            route="/employee-documents",
+            entity_type="personal_document_request",
+            entity_id=request.id,
+        )
+    db.commit(); db.refresh(request)
     return _personal_document_request_dict(request)
 
 
@@ -571,7 +621,20 @@ def request_personal_document_delete(document_id: int, db: Session = Depends(get
     if db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.document_id == document_id, PersonalDocumentChangeRequest.status == "Pending").first():
         raise HTTPException(status_code=409, detail="A change request is already pending for this document")
     request = PersonalDocumentChangeRequest(employee_id=current_user.id, document_id=document_id, request_type="delete")
-    db.add(request); db.commit(); db.refresh(request)
+    db.add(request)
+    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+        create_notification(
+            db,
+            recipient_user_id=admin_id,
+            actor_user_id=current_user.id,
+            notification_type="employee_document.submitted",
+            title="New personal document deletion request",
+            message=f"{current_user.name} submitted a document deletion request.",
+            route="/employee-documents",
+            entity_type="personal_document_request",
+            entity_id=request.id,
+        )
+    db.commit(); db.refresh(request)
     return _personal_document_request_dict(request)
 
 
@@ -613,6 +676,18 @@ def decide_personal_document_request(request_id: int, payload: PersonalDocumentR
         pending_path.unlink()
     request.status, request.decided_by, request.decided_at = payload.status, current_user.id, datetime.utcnow()
     db.add(ActivityLog(user_id=current_user.id, activity=f"{payload.status} personal document {request.request_type} request for '{request.employee.name}'"))
+    if request.employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=request.employee.id,
+            actor_user_id=current_user.id,
+            notification_type=f"employee_document.{payload.status.lower()}",
+            title=f"Personal document request {payload.status.lower()}",
+            message=f"Your personal document {request.request_type} request was {payload.status.lower()}.",
+            route="/my-profile",
+            entity_type="personal_document_request",
+            entity_id=request.id,
+        )
     db.commit()
     return _personal_document_request_dict(request)
 
@@ -657,6 +732,18 @@ def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db
     db.refresh(item)
     if payload.send and employee.email:
         send_email([employee.email], "Your Offer / Appointment Letter", f"<p>Hi {employee.name},</p><p>Your Offer / Appointment Letter is available in My Profile → Documents.</p>")
+    if payload.send and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type="employee_document.available",
+            title="Offer letter available",
+            message="Your Offer Letter is now available in My Profile.",
+            route="/my-profile",
+            entity_type="employee_document",
+            entity_id=item.id,
+        )
     db.add(ActivityLog(user_id=current_user.id, activity=f"{'Sent' if payload.send else 'Saved draft'} offer letter for '{employee.name}'"))
     db.commit()
     return _document_dict(item)
@@ -681,6 +768,18 @@ def create_appointment_letter(payload: AppointmentLetterCreate, db: Session = De
     db.refresh(item)
     if payload.send and employee.email:
         send_email([employee.email], "Your Appointment Letter", f"<p>Hi {employee.name},</p><p>Your Appointment Letter is available in My Profile → Documents.</p>")
+    if payload.send and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type="employee_document.available",
+            title="Appointment letter available",
+            message="Your Appointment Letter is now available in My Profile.",
+            route="/my-profile",
+            entity_type="employee_document",
+            entity_id=item.id,
+        )
     db.add(ActivityLog(user_id=current_user.id, activity=f"{'Sent' if payload.send else 'Saved draft'} appointment letter for '{employee.name}'"))
     db.commit()
     return _document_dict(item)

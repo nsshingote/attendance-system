@@ -25,6 +25,7 @@ from schemas import (
 )
 from auth import get_current_user, require_roles
 from team_scope import require_team_member_access
+from services.notifications import create_notification, get_approver_user_ids
 from utils.leave_calculator import (
     get_remaining_leave,
     paid_leave_available_this_month,
@@ -360,6 +361,37 @@ def apply_leave(
         # sandwich rule) so any inserted Sundays are also marked in attendance.
         mark_leave_in_attendance(db, target_user_id, leave_request.from_date, leave_request.to_date)
 
+    if leave_request.status == "Pending":
+        for approver_id in get_approver_user_ids(
+            db,
+            employee_id=target_user_id,
+            permission_key="leave.approve",
+            actor_user_id=current_user.id,
+        ):
+            create_notification(
+                db,
+                recipient_user_id=approver_id,
+                actor_user_id=current_user.id,
+                notification_type="leave.submitted",
+                title="New leave request",
+                message=f"{target_user.name} submitted leave from {leave_request.from_date} to {leave_request.to_date}.",
+                route="/leave",
+                entity_type="leave_request",
+                entity_id=leave_request.id,
+            )
+    elif target_user.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=target_user.id,
+            actor_user_id=current_user.id,
+            notification_type="leave.approved",
+            title="Leave request approved",
+            message=f"Your leave from {leave_request.from_date} to {leave_request.to_date} was approved.",
+            route="/leave",
+            entity_type="leave_request",
+            entity_id=leave_request.id,
+        )
+
     db.commit()
     db.refresh(leave_request)
     
@@ -636,6 +668,18 @@ def decide_leave(
         # Mark attendance as "On Leave" for the approved leave days
         mark_leave_in_attendance(db, leave_request.user_id, leave_request.from_date, leave_request.to_date)
 
+    if target_user.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=target_user.id,
+            actor_user_id=current_user.id,
+            notification_type=f"leave.{payload.status.lower()}",
+            title=f"Leave request {payload.status.lower()}",
+            message=f"Your leave from {leave_request.from_date} to {leave_request.to_date} was {payload.status.lower()}.",
+            route="/leave",
+            entity_type="leave_request",
+            entity_id=leave_request.id,
+        )
     db.commit()
     db.refresh(leave_request)
     
@@ -1025,5 +1069,3 @@ def override_leave_allocations(
 
     log_activity(db, current_user.id, f"Overrode allocations for leave #{leave_id}")
     return leave_request
-
-

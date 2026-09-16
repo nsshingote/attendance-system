@@ -15,6 +15,7 @@ from auth import require_admin
 from database import get_db
 from models import DeviceRequest, User, ActivityLog
 from schemas import DeviceRequestDecision, DeviceRequestOut
+from services.notifications import create_notification
 
 router = APIRouter()
 
@@ -62,6 +63,19 @@ def decide_device_request(
 
     device_request.status = payload.status
     device_request.approved_by = current_user.id
+    employee = db.query(User).filter(User.id == device_request.user_id).first()
+    if employee and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type=f"device.{payload.status.lower()}",
+            title=f"Device request {payload.status.lower()}",
+            message=f"Your device registration request was {payload.status.lower()}.",
+            route="/device-requests",
+            entity_type="device_request",
+            entity_id=device_request.id,
+        )
 
     if payload.status == "Approved":
         user = db.query(User).filter(User.id == device_request.user_id).first()

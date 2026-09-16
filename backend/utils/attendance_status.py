@@ -5,7 +5,7 @@ Helper functions for determining attendance status.
 
 from datetime import date, datetime, time
 from sqlalchemy.orm import Session
-from models import Attendance, CompanySettings, Holiday, User, WFHRequest, WorkingSunday
+from models import Attendance, CompanySettings, Holiday, LeaveRequest, User, WFHRequest, WorkingSunday
 
 
 def get_default_office_times(db: Session):
@@ -98,6 +98,14 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                     return "Weekly Off"
             else:
                 return "Weekly Off"
+        approved_leave = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status == "Approved",
+            LeaveRequest.from_date <= target_date,
+            LeaveRequest.to_date >= target_date,
+        ).first()
+        if approved_leave:
+            return "On Leave"
         return "Absent"
     
     # Get company settings
@@ -180,7 +188,7 @@ def update_summary_counts(summary: dict, status: str) -> None:
     Counting rules:
     - Late = Present + Late (both counters)
     - WFH = Present + WFH (both counters)
-    - Extra Working Day = Present + Extra Working Day (both counters)
+    - Extra Working Day = Extra Working Day only
     - Half Day = Present + Half Day (already correct)
     - On Leave = Leave + Absent (only for non-overridden leaves)
     - Present = Present only
@@ -199,7 +207,6 @@ def update_summary_counts(summary: dict, status: str) -> None:
         summary["Present"] += 1
     elif status == "Extra Working Day":
         summary["Extra Working Day"] += 1
-        summary["Present"] += 1
     elif status == "On Leave":
         summary["Leave"] += 1
         summary["Absent"] += 1

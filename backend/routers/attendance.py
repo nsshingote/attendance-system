@@ -60,6 +60,7 @@ from utils.leave_calculator import (
     has_other_approved_or_pending_paid_leave_this_month,
 )
 from utils.email_service import send_wfh_decision_notification
+from services.notifications import create_notification, get_approver_user_ids
 from utils.calender import build_month_calendar
 from utils.date_helpers import iso_with_offset
 
@@ -2076,6 +2077,24 @@ def request_wfh(
             activity=f"Requested WFH for {payload.attendance_date}",
         )
     )
+    for approver_id in get_approver_user_ids(
+        db,
+        employee_id=current_user.id,
+        permission_key="leave.approve",
+        actor_user_id=current_user.id,
+        include_team_leaders=False,
+    ):
+        create_notification(
+            db,
+            recipient_user_id=approver_id,
+            actor_user_id=current_user.id,
+            notification_type="wfh.submitted",
+            title="New WFH request",
+            message=f"{current_user.name} submitted a WFH request for {wfh_request.attendance_date}.",
+            route="/attendance",
+            entity_type="wfh_request",
+            entity_id=wfh_request.id,
+        )
     db.commit()
     db.refresh(wfh_request)
     return wfh_request
@@ -2185,10 +2204,22 @@ def decide_wfh(
     wfh_request.status = payload.status
     wfh_request.approved_by = current_user.id
     wfh_request.approved_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+    employee = db.query(User).filter(User.id == wfh_request.user_id).first()
+    if employee and employee.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=employee.id,
+            actor_user_id=current_user.id,
+            notification_type=f"wfh.{payload.status.lower()}",
+            title=f"WFH request {payload.status.lower()}",
+            message=f"Your WFH request for {wfh_request.attendance_date} was {payload.status.lower()}.",
+            route="/attendance",
+            entity_type="wfh_request",
+            entity_id=wfh_request.id,
+        )
     db.commit()
     db.refresh(wfh_request)
 
-    employee = db.query(User).filter(User.id == wfh_request.user_id).first()
     if employee and employee.email:
         send_wfh_decision_notification(
             employee.email,
@@ -2263,6 +2294,18 @@ def admin_request_wfh_for_user(
             activity=f"Auto-approved WFH for {target_user.name} on {payload.attendance_date}",
         )
     )
+    if target_user.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=target_user.id,
+            actor_user_id=current_user.id,
+            notification_type="wfh.approved",
+            title="WFH request approved",
+            message=f"Your WFH request for {wfh_request.attendance_date} was approved.",
+            route="/attendance",
+            entity_type="wfh_request",
+            entity_id=wfh_request.id,
+        )
     db.commit()
     db.refresh(wfh_request)
 

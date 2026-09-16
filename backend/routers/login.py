@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Cookie, status
 from sqlalchemy.orm import Session
 
 from auth import verify_password, create_access_token, get_current_user
+from services.notifications import create_notification, get_admin_user_ids
 from config import settings
 from database import get_db
 from models import User, DeviceRequest, ActivityLog, RefreshToken
@@ -71,6 +72,18 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
             status="Pending",
         )
         db.add(new_request)
+        for admin_id in get_admin_user_ids(db, actor_user_id=user.id):
+            create_notification(
+                db,
+                recipient_user_id=admin_id,
+                actor_user_id=user.id,
+                notification_type="device.submitted",
+                title="New device approval request",
+                message=f"{user.name} requested approval for a new device.",
+                route="/device-requests",
+                entity_type="device_request",
+                entity_id=new_request.id,
+            )
         db.commit()
 
     raise HTTPException(

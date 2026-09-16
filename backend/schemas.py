@@ -17,6 +17,28 @@ class ORMBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class NotificationOut(ORMBase):
+    id: int
+    recipient_user_id: int
+    actor_user_id: Optional[int] = None
+    notification_type: str
+    title: str
+    message: str
+    route: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    metadata: Optional[dict] = None
+    is_read: bool
+    read_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class NotificationListOut(BaseModel):
+    items: List[NotificationOut]
+    total: int
+    unread_count: int
+
+
 class FeedbackCreate(BaseModel):
     feedback_type: str
     description: str
