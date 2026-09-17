@@ -16,6 +16,11 @@ type Entry = {
   expires_at: string;
 };
 
+function formatStoredUtc(value: string, includeTime = true) {
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
+  return new Date(normalized).toLocaleString([], includeTime ? undefined : { dateStyle: "short" });
+}
+
 export default function RecycleBinPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +50,7 @@ export default function RecycleBinPage() {
             <div className="divide-y divide-ink-100">{entries.map((entry) => (
               <div key={entry.id} className="flex items-center justify-between gap-4 p-4">
                 <div><p className="font-medium text-ink-900">{entry.label}</p>
-                  <p className="text-xs text-ink-500">{entry.table_name} · deleted {new Date(entry.deleted_at).toLocaleString()} · expires {new Date(entry.expires_at).toLocaleDateString()}</p></div>
+                  <p className="text-xs text-ink-500">{entry.table_name} · deleted {formatStoredUtc(entry.deleted_at)} · expires {formatStoredUtc(entry.expires_at, false)}</p></div>
                 <div className="flex gap-2"><button onClick={() => restore(entry.id)} className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700"><RotateCcw size={15} /></button>
                   <button onClick={() => destroy(entry.id)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"><Trash2 size={15} /></button></div>
               </div>

@@ -1,14 +1,56 @@
 """Recycle-bin operations shared by the API and startup cleanup."""
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from models import Base, RecycleBinEntry
+from models import Base, LeaveRequestAllocation, RecycleBinEntry
+
+
+def archive_object(
+    db: Session,
+    obj,
+    *,
+    deleted_by: int | None = None,
+    extra_values: dict | None = None,
+) -> None:
+    """Archive one explicitly selected ORM object before deleting it."""
+    mapper = obj.__mapper__
+    primary_key = mapper.primary_key[0]
+    record_id = getattr(obj, primary_key.name, None)
+    if record_id is None:
+        return
+    values = {
+        column.name: _serialize_value(getattr(obj, column.name))
+        for column in mapper.columns
+    }
+    if extra_values:
+        values.update(extra_values)
+    label = next(
+        (str(values[key]) for key in ("name", "title", "holiday_name", "file_name", "document_type", "description")
+         if values.get(key)),
+        f"{mapper.local_table.name} #{record_id}",
+    )
+    db.add(RecycleBinEntry(
+        table_name=mapper.local_table.name,
+        record_id=record_id,
+        record_label=label[:255],
+        snapshot=json.dumps(values, default=str),
+        deleted_by=deleted_by,
+        expires_at=datetime.utcnow().replace(microsecond=0) + timedelta(days=30),
+    ))
+
+
+def _serialize_value(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
 
 
 def purge_expired(db: Session) -> int:
@@ -58,6 +100,7 @@ def restore(db: Session, entry_id: int):
     if db.get(model, entry.record_id) is not None:
         raise HTTPException(status_code=409, detail="A record with this ID already exists")
     raw = json.loads(entry.snapshot)
+    allocations = raw.pop("__allocations", [])
     values = {}
     for column in inspect(model).columns:
         if column.name not in raw:
@@ -72,7 +115,16 @@ def restore(db: Session, entry_id: int):
                 value = Decimal(value)
         values[column.name] = value
     db.info["skip_recycle"] = True
-    db.add(model(**values))
+    restored = model(**values)
+    db.add(restored)
+    db.flush()
+    if entry.table_name == "leave_requests":
+        for allocation in allocations:
+            db.add(LeaveRequestAllocation(
+                leave_request_id=entry.record_id,
+                allocation_date=date.fromisoformat(allocation["allocation_date"]),
+                leave_category=allocation["leave_category"],
+            ))
     db.delete(entry)
     db.commit()
     db.info.pop("skip_recycle", None)

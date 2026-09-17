@@ -26,6 +26,7 @@ from schemas import (
 from auth import get_current_user, require_roles
 from team_scope import require_team_member_access
 from services.notifications import create_notification, get_approver_user_ids
+from services.recycle_bin import archive_object
 from utils.leave_calculator import (
     get_remaining_leave,
     paid_leave_available_this_month,
@@ -431,9 +432,30 @@ def delete_pending_leave(
         raise HTTPException(status_code=403, detail="You can only delete your own leave request")
     if leave_request.status != "Pending":
         raise HTTPException(status_code=400, detail="Only pending leave requests can be deleted")
+    # A manual attendance override may point to this request through a
+    # cascading foreign key. Deleting the request must not delete attendance.
+    leave_request.manual_override_attendance_id = None
+    # Allocations are internal children of the leave request; only the
+    # user-selected leave request belongs in the Recycle Bin.
+    archive_object(
+        db,
+        leave_request,
+        deleted_by=current_user.id,
+        extra_values={
+            "__allocations": [
+                {
+                    "allocation_date": allocation.allocation_date.isoformat(),
+                    "leave_category": allocation.leave_category,
+                }
+                for allocation in leave_request.allocations
+            ]
+        },
+    )
+    db.info["skip_recycle"] = True
     db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted pending leave request #{leave_id}"))
     db.delete(leave_request)
     db.commit()
+    db.info.pop("skip_recycle", None)
     return {"message": "Leave request deleted"}
 
 
