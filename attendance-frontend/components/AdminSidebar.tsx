@@ -30,6 +30,7 @@ import {
   FolderOpen,
   NotebookPen,
   BookOpen,
+  Trash2,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import api from "@/lib/api";
@@ -56,6 +57,7 @@ const NAV_ITEMS = [
   { href: "/activity-logs", label: "Activity Logs", icon: History },
   { href: "/feedback", label: "Feedback", icon: MessageSquare },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/recycle-bin", label: "Recycle Bin", icon: Trash2 },
 ];
 
 interface AdminSidebarProps {

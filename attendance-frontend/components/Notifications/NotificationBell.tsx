@@ -70,6 +70,15 @@ export default function NotificationBell() {
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
+  useEffect(() => {
+    const clearReadNotifications = () => {
+      setItems([]);
+      setUnreadCount(0);
+    };
+    window.addEventListener("notifications:read-all", clearReadNotifications);
+    return () => window.removeEventListener("notifications:read-all", clearReadNotifications);
+  }, []);
+
   const handleRead = async (item: NotificationItem) => {
     if (!item.is_read) {
       try {

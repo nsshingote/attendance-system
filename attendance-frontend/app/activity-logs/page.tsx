@@ -46,7 +46,7 @@ export default function ActivityLogsPage() {
     try {
       const { data } = await api.get<ActivityLog[]>("/activity-logs/", {
         params: {
-          limit: 200,
+          limit: 5000,
           employee_ids: selectedUserIds.length ? selectedUserIds : undefined,
         },
         paramsSerializer: { indexes: null },

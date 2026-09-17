@@ -7,7 +7,11 @@ from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Time, TIMESTAMP,
     ForeignKey, Enum, SmallInteger, func, Boolean, DECIMAL, UniqueConstraint
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Session
+from sqlalchemy import event
+import json
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from database import Base
 
@@ -888,3 +892,57 @@ class ResourceEmployeeAccess(Base):
 
     resource = relationship("Resource", back_populates="employee_access")
     employee = relationship("User")
+
+
+class RecycleBinEntry(Base):
+    """A restorable snapshot of a row removed by an explicit API delete."""
+    __tablename__ = "recycle_bin_entries"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    table_name = Column(String(120), nullable=False, index=True)
+    record_id = Column(Integer, nullable=False, index=True)
+    record_label = Column(String(255), nullable=True)
+    snapshot = Column(Text, nullable=False)
+    deleted_by = Column(Integer, nullable=True)
+    deleted_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
+def _recycle_value(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+@event.listens_for(Session, "before_flush")
+def _snapshot_explicit_deletes(session, flush_context, instances):
+    """Capture ORM deletes centrally, including delete routes added in future."""
+    if session.info.get("skip_recycle"):
+        return
+    existing = {(entry.table_name, entry.record_id) for entry in session.new
+                if isinstance(entry, RecycleBinEntry)}
+    for obj in list(session.deleted):
+        if isinstance(obj, RecycleBinEntry) or obj.__class__.__name__ in {
+            "RefreshToken", "PasswordResetToken", "Notification",
+        }:
+            continue
+        mapper = obj.__mapper__
+        pk = mapper.primary_key[0]
+        record_id = getattr(obj, pk.name, None)
+        if record_id is None or (mapper.local_table.name, record_id) in existing:
+            continue
+        values = {column.name: _recycle_value(getattr(obj, column.name))
+                  for column in mapper.columns}
+        label = next((str(values[key]) for key in ("name", "title", "holiday_name", "file_name", "document_type", "description")
+                      if values.get(key)), f"{mapper.local_table.name} #{record_id}")
+        session.add(RecycleBinEntry(
+            table_name=mapper.local_table.name,
+            record_id=record_id,
+            record_label=label[:255],
+            snapshot=json.dumps(values, default=str),
+            deleted_by=session.info.get("recycle_actor_id"),
+            expires_at=datetime.utcnow().replace(microsecond=0) + timedelta(days=30),
+        ))
+        existing.add((mapper.local_table.name, record_id))

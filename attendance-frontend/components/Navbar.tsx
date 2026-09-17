@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, Menu } from "lucide-react";
+import { LogOut, User as UserIcon, Menu, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 import { getSession, clearSession } from "@/lib/auth";
 import api, { getProfilePhotoUrl } from "@/lib/api";
@@ -95,6 +95,17 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         </div>
 
         <div className="flex sm:hidden items-center gap-1.5">{renderAvatar()}</div>
+
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm font-medium text-ink-600 hover:bg-ink-50 sm:px-3"
+          aria-label="Refresh page"
+          title="Refresh page"
+        >
+          <RefreshCw size={15} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
 
         <NotificationBell />
 

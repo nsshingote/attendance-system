@@ -45,7 +45,7 @@ def list_activity_logs(
         query = query.filter(ActivityLog.user_id.in_(employee_ids))
     elif user_id:
         query = query.filter(ActivityLog.user_id == user_id)
-    logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 500)).all()
+    logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 5000)).all()
     users_by_id = {user.id: user.name for user in db.query(User).all()}
 
     employee_names_by_activity_id = {

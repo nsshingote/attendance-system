@@ -431,21 +431,16 @@ def delete_resource(
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
 
-    # Delete file
-    file_path = get_resource_file_path(resource)
-    if file_path.exists():
-        try:
-            file_path.unlink()
-        except Exception as e:
-            logger.error(f"Error deleting file: {e}")
-
-    # Delete access records and resource
-    db.query(ResourceDepartmentAccess).filter(
+    # Keep the upload while the resource is restorable. Archive access rows too
+    # so a restore can recover the complete relationship set.
+    for access in db.query(ResourceDepartmentAccess).filter(
         ResourceDepartmentAccess.resource_id == resource_id
-    ).delete()
-    db.query(ResourceEmployeeAccess).filter(
+    ).all():
+        db.delete(access)
+    for access in db.query(ResourceEmployeeAccess).filter(
         ResourceEmployeeAccess.resource_id == resource_id
-    ).delete()
+    ).all():
+        db.delete(access)
     db.delete(resource)
     db.commit()
 

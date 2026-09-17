@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus, Check, X, Trash2, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Check, X, Trash2, RefreshCw, Calendar as CalendarIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
 import { useSession, isAdmin } from "@/lib/auth";
@@ -263,6 +263,12 @@ export default function LeavePage() {
     fetchAll();
   }, [fetchAll]);
 
+  useEffect(() => {
+    const refreshOnFocus = () => { fetchAll(); };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, [fetchAll]);
+
   const handleDecide = async (
     id: number,
     status: "Approved" | "Rejected"
@@ -448,6 +454,16 @@ export default function LeavePage() {
                 }}
               />
             )}
+            <button
+              type="button"
+              onClick={fetchAll}
+              disabled={loading}
+              className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-50"
+              aria-label="Refresh leave requests"
+            >
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+              Refresh
+            </button>
             {(isEmployee || admin) && (
               <button
                 onClick={() => {

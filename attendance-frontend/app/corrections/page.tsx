@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import { isAdmin, getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
@@ -65,6 +65,12 @@ export function CorrectionsContent() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    const refreshOnFocus = () => { fetchData(); };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, [fetchData]);
+
   const handleDecide = async (id: number, status: "Approved" | "Rejected") => {
     try {
       // FIXED: Added /decide to the URL
@@ -85,6 +91,16 @@ export function CorrectionsContent() {
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {(admin || teamView) && <EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} />}
+          <button
+            type="button"
+            onClick={fetchData}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-50"
+            aria-label="Refresh correction requests"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
           <button
             onClick={() => setFormOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"

@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 
 from config import settings
-from database import Base, engine
+from database import Base, engine, SessionLocal
 
 # Routers
 from routers import (
@@ -36,10 +36,20 @@ from routers import (
     permissions,
     teams,
     notifications,
+    recycle_bin,
 )
+from services.recycle_bin import purge_expired
 
 # Create tables if they don't exist yet (safe no-op if schema.sql already applied)
 Base.metadata.create_all(bind=engine)
+try:
+    _startup_db = SessionLocal()
+    purge_expired(_startup_db)
+finally:
+    try:
+        _startup_db.close()
+    except NameError:
+        pass
 
 app = FastAPI(
     title="Employee Attendance Management System",
@@ -160,6 +170,7 @@ app.include_router(resources.router, prefix="/resources", tags=["Resources"])
 app.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
 app.include_router(teams.router, prefix="/teams", tags=["Teams"])
 app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+app.include_router(recycle_bin.router, prefix="/recycle-bin", tags=["Recycle Bin"])
 
 
 @app.get("/")

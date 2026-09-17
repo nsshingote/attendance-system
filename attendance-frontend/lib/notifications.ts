@@ -34,6 +34,9 @@ export async function markNotificationRead(id: number): Promise<NotificationItem
 
 export async function markAllNotificationsRead(): Promise<number> {
   const response = await api.patch<{ updated: number }>("/notifications/read-all");
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("notifications:read-all"));
+  }
   return response.data.updated;
 }
 

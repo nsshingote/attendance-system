@@ -16,6 +16,7 @@ venv/
 *.sql
 !database/schema.sql
 !database/migrations/*.sql
+!backend/migrations/*.sql
 
 # Node
 node_modules/
