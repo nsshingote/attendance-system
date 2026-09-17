@@ -16,7 +16,7 @@ from typing import Optional, List
 from database import get_db
 from models import (
     User, LeaveRequest, LeaveType, LeaveEncashmentRequest,
-    NotificationEmail, Attendance, LeaveRequestAllocation
+    NotificationEmail, Attendance, LeaveRequestAllocation, ActivityLog
 )
 from schemas import (
     LeaveRequestOut, LeaveRequestCreate, LeaveDecision,
@@ -622,6 +622,31 @@ def decide_leave(
         _apply_sandwich_rule_on_request(db, leave_request, target_user)
 
         if leave_request.allocations:
+            # A pending request may have been allocated as Paid when it was
+            # submitted, but another request can consume that month's paid
+            # slot before an approver reviews it. Reconcile stale allocations
+            # instead of making approval fail.
+            available_carried_balance = get_carried_leave_balance(db, target_user)
+            remaining_carried_balance = available_carried_balance
+            for alloc in leave_request.allocations:
+                if alloc.leave_category != "Paid":
+                    continue
+                if not has_other_approved_or_pending_paid_leave_this_month(
+                    db,
+                    target_user.id,
+                    alloc.allocation_date,
+                    exclude_leave_id=leave_request.id,
+                ):
+                    continue
+                if remaining_carried_balance > 0:
+                    alloc.leave_category = "Carried"
+                    remaining_carried_balance -= 1
+                else:
+                    alloc.leave_category = "Unpaid"
+            leave_request.leave_category = compute_request_category_from_allocations(
+                [(alloc.allocation_date, alloc.leave_category) for alloc in leave_request.allocations]
+            )
+
             paid_days = sum(1 for alloc in leave_request.allocations if alloc.leave_category == "Paid")
             carried_days = sum(1 for alloc in leave_request.allocations if alloc.leave_category == "Carried")
             if paid_days > 0:
@@ -636,18 +661,14 @@ def decide_leave(
                         exclude_leave_id=leave_request.id,
                     ):
                         raise HTTPException(
-                            status_code=400,
-                            detail=(
-                                "This request cannot be approved as Paid Leave because "
-                                "another leave request already consumes that month's paid slot."
-                            ),
+                            status_code=409,
+                            detail="This leave request has a conflicting paid-leave allocation. Please refresh and try again.",
                         )
             if carried_days > 0:
-                carried_balance = get_carried_leave_balance(db, target_user)
-                if carried_balance < carried_days:
+                if available_carried_balance < carried_days:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Insufficient carried leave balance. Available: {carried_balance}, Required: {carried_days}"
+                        detail=f"Insufficient carried leave balance. Available: {available_carried_balance}, Required: {carried_days}"
                     )
                 target_user.carried_leave -= carried_days
             # Refresh leave accrual to ensure balances remain consistent after approval.

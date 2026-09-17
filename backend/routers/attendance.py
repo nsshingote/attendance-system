@@ -588,18 +588,36 @@ def check_in(
         user = db.query(User).filter(User.id == current_user.id).with_for_update().first()
         if not user:
             continue
-        
-        # Restore carried leave balance if it was a carried leave
-        if leave_request.leave_category == "Carried":
-            user.carried_leave = (user.carried_leave or 0) + 1
-        
+
+        allocations = list(leave_request.allocations)
+        carried_days = (
+            sum(1 for allocation in allocations if allocation.leave_category == "Carried")
+            if allocations
+            else (leave_request.total_days or 1 if leave_request.leave_category == "Carried" else 0)
+        )
+        if carried_days:
+            user.carried_leave = (user.carried_leave or 0) + carried_days
+
+        # Paid leave is represented by the active request/allocation for the
+        # month. Once this request is rejected, release the persisted slot
+        # marker as well so older balance views immediately reflect it.
+        paid_months = {
+            (allocation.allocation_date.year, allocation.allocation_date.month)
+            for allocation in allocations
+            if allocation.leave_category == "Paid"
+        }
+        if not allocations and leave_request.leave_category == "Paid":
+            paid_months.add((leave_request.from_date.year, leave_request.from_date.month))
+
         # Reject the leave request instead of deleting it, to maintain audit trail
         leave_request.status = "Rejected"
         db.add(leave_request)
+        if (today.year, today.month) in paid_months:
+            user.paid_leave_available = 1
         
         db.add(ActivityLog(
             user_id=current_user.id,
-            activity=f"Leave request #{leave_request.id} ({leave_request.leave_category}) for {today} automatically rejected due to check-in"
+            activity=f"Leave request #{leave_request.id} ({leave_request.leave_category}) for {today} automatically rejected due to check-in; leave balance restored"
         ))
 
     # Log activity
