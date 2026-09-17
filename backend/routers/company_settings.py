@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user, require_admin
 from database import get_db
 from models import CompanySettings, User, ActivityLog
+from routers.changed_logs import record_changed_log
 from schemas import CompanySettingsUpdate, CompanySettingsOut
 
 router = APIRouter()
@@ -138,6 +139,10 @@ def update_settings(
         if value is not None:
             next_payload[field] = value
 
+    for field, value in payload.model_dump(exclude_none=True).items():
+        if str(existing.get(field)) != str(value):
+            record_changed_log(db, None, current_user.id, "settings", field.replace("_", " ").title(),
+                               existing.get(field), value)
     updated = _upsert_company_settings_row(db, next_payload)
     db.add(ActivityLog(user_id=current_user.id, activity="Updated company settings"))
     db.commit()

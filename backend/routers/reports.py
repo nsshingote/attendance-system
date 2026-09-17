@@ -36,6 +36,7 @@ from utils.logger import log_activity
 from services.notifications import create_notification, get_admin_user_ids
 from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts
 from utils.date_helpers import iso_with_offset
+from routers.changed_logs import record_changed_log
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -928,6 +929,7 @@ def add_user_row(
     db.refresh(new_row)
     
     log_activity(db, current_user.id, f"Added custom row for {payload.attendance_date}")
+    db.commit()
     
     return {"message": "Row added successfully", "row_id": new_row.id}
 
@@ -994,6 +996,12 @@ def save_report_data(
     
     if existing:
         # Update existing
+        old_values = {
+            "quantity": existing.quantity,
+            "duration": existing.duration,
+            "description": existing.description,
+            "custom_fields": existing.custom_fields,
+        }
         existing.quantity = payload.quantity
         existing.duration = payload.duration
         existing.description = payload.description
@@ -1001,6 +1009,16 @@ def save_report_data(
         if not existing.department_name and department:
             existing.department_name = department.name
         existing.updated_at = datetime.now(IST)
+        for field, old_value, new_value in (
+            ("Quantity", old_values["quantity"], existing.quantity),
+            ("Duration", old_values["duration"], existing.duration),
+            ("Description", old_values["description"], existing.description),
+            ("Custom fields", old_values["custom_fields"], existing.custom_fields),
+        ):
+            if str(old_value) != str(new_value):
+                record_changed_log(db, current_user.id, current_user.id, "reports",
+                                   f"{payload.attendance_date} - {field}", old_value, new_value)
+        log_activity(db, current_user.id, f"Updated report data for {payload.attendance_date}")
         db.commit()
         db.refresh(existing)
         return {"message": "Report data updated successfully", "data_id": existing.id}
@@ -1019,6 +1037,7 @@ def save_report_data(
             submitted_at=datetime.now(IST)
         )
         db.add(new_data)
+        log_activity(db, current_user.id, f"Added report data for {payload.attendance_date}")
         db.commit()
         db.refresh(new_data)
         return {"message": "Report data saved successfully", "data_id": new_data.id}

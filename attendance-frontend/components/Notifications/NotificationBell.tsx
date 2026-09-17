@@ -23,6 +23,7 @@ export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const knownNotificationIds = useRef(new Set<number>());
   const suppressRefreshUntil = useRef(0);
 
@@ -69,7 +70,18 @@ export default function NotificationBell() {
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
-      if (open && containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      // The menu is rendered in a portal, so it is not a descendant of the
+      // bell container. Treat it as part of the notification control too;
+      // otherwise a pointer down on a menu button closes and unmounts the menu
+      // before the button's click can run (particularly on Safari/iOS).
+      if (
+        open
+        && !containerRef.current?.contains(target)
+        && !menuRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -132,6 +144,7 @@ export default function NotificationBell() {
       </button>
       {open && typeof document !== "undefined" && createPortal(
         <div
+          ref={menuRef}
           className="fixed z-[1000] overflow-hidden rounded-xl border border-ink-200 bg-white shadow-xl"
           style={{
             top: "4.25rem",

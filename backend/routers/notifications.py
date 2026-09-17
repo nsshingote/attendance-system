@@ -108,6 +108,17 @@ def get_unread_count(db: Session = Depends(get_db), current_user: User = Depends
     return {"unread_count": unread_count}
 
 
+@router.patch("/read-all")
+def read_all_notifications(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    updated = mark_all_notifications_read(db, current_user.id)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Read all notifications ({updated})",
+    ))
+    db.commit()
+    return {"updated": updated}
+
+
 @router.patch("/{notification_id}/read", response_model=NotificationOut)
 def read_notification(
     notification_id: int,
@@ -125,17 +136,6 @@ def read_notification(
     db.commit()
     db.refresh(notification)
     return serialize_notification(notification)
-
-
-@router.patch("/read-all")
-def read_all_notifications(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    updated = mark_all_notifications_read(db, current_user.id)
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        activity=f"Read all notifications ({updated})",
-    ))
-    db.commit()
-    return {"updated": updated}
 
 
 @router.websocket("/ws")

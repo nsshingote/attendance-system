@@ -68,6 +68,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise HTTPException(status_code=401, detail="User not found")
     if user.status != "active":
         raise HTTPException(status_code=403, detail="User account is inactive")
+    db.info["recycle_actor_id"] = user.id
     return user
 
 

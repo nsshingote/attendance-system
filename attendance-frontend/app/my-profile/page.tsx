@@ -106,6 +106,7 @@ export default function MyProfilePage() {
   const [selectedSlip, setSelectedSlip] = useState<Slip | null>(null);
   const [profileRequests, setProfileRequests] = useState<ProfileEditRequest[]>([]);
   const [editingAddress, setEditingAddress] = useState(false);
+  const [editingBasic, setEditingBasic] = useState(false);
   const [editingEmergency, setEditingEmergency] = useState(false);
   const [otherDocumentTitle, setOtherDocumentTitle] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -115,6 +116,8 @@ export default function MyProfilePage() {
   const [uploadType, setUploadType] = useState("pan");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [profileForm, setProfileForm] = useState({
+    email: "",
+    mobile: "",
     address_line_1: "",
     address_line_2: "",
     city: "",
@@ -148,6 +151,8 @@ export default function MyProfilePage() {
         setPhotoUrl(getProfilePhotoUrl(userData.id, Date.now()));
         setCompanyBranding(branding.data);
         setProfileForm({
+          email: userData.email || "",
+          mobile: userData.mobile || "",
           address_line_1: userData.address_line_1 || "",
           address_line_2: userData.address_line_2 || "",
           city: userData.city || "",
@@ -174,7 +179,7 @@ export default function MyProfilePage() {
         ? ["address_line_1", "address_line_2", "city", "state", "pincode", "country"] as const
         : ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"] as const;
       const requested_data = Object.fromEntries(fields.map((field) => [field, profileForm[field]]));
-      const locked = profile ? fields.some((field) => Boolean(profile[field])) : false;
+      const locked = section === "emergency_contact" && profile ? fields.some((field) => Boolean(profile[field])) : false;
       if (locked) {
         await api.post("/users/me/profile-edit-requests", { section, requested_data });
         setProfileRequests((previous) => [...previous.filter((item) => item.section !== section || item.status !== "Pending"), { id: Date.now(), section, status: "Pending" }]);
@@ -186,8 +191,24 @@ export default function MyProfilePage() {
         setPhotoUrl(getProfilePhotoUrl(data.id, Date.now()));
         // Dispatch profile update event to refresh admin pages and user lists
         window.dispatchEvent(new Event("profile-updated"));
-        toast.success(`${section === "address" ? "Address" : "Emergency contact"} saved and locked`);
+        toast.success(`${section === "address" ? "Address" : "Emergency contact"} saved`);
       }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const handleBasicSave = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const { data } = await api.put<User>("/users/me/profile", {
+        email: profileForm.email,
+        mobile: profileForm.mobile,
+      });
+      setProfile(data);
+      setEditingBasic(false);
+      window.dispatchEvent(new Event("profile-updated"));
+      toast.success("Email and phone number updated");
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -532,7 +553,8 @@ export default function MyProfilePage() {
                       <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePhotoUpload(event.target.files?.[0] || null)} className="hidden" />
                     </label>
                   </div>
-                  <dl className="flex-1 grid gap-5 sm:grid-cols-2">
+                  <form onSubmit={handleBasicSave} className="flex-1">
+                    <dl className="grid gap-5 sm:grid-cols-2">
                     {[
                       ["Full name", profile.name],
                       ["Designation", profile.designation],
@@ -552,10 +574,35 @@ export default function MyProfilePage() {
                     ].map(([label, value]) => (
                       <div key={String(label)}>
                         <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
-                        <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>
+                        <dd className="mt-1 text-sm font-medium text-ink-900">
+                          {editingBasic && (label === "Phone number" || label === "Email") ? (
+                            <input
+                              type={label === "Email" ? "email" : "tel"}
+                              value={label === "Email" ? profileForm.email : profileForm.mobile}
+                              onChange={(event) => setProfileForm({
+                                ...profileForm,
+                                [label === "Email" ? "email" : "mobile"]: event.target.value,
+                              })}
+                              className="w-full rounded-lg border border-ink-200 px-3 py-2"
+                            />
+                          ) : value}
+                        </dd>
                       </div>
                     ))}
-                  </dl>
+                    </dl>
+                    <div className="mt-5 flex gap-2">
+                      {!editingBasic ? (
+                        <button type="button" onClick={() => setEditingBasic(true)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium">
+                          <Pencil size={14} /> Edit email/phone
+                        </button>
+                      ) : (
+                        <>
+                          <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Save</button>
+                          <button type="button" onClick={() => setEditingBasic(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button>
+                        </>
+                      )}
+                    </div>
+                  </form>
                 </div>
               ) : (
                 <p className="text-sm text-ink-500">Loading profile…</p>
@@ -563,9 +610,9 @@ export default function MyProfilePage() {
             </section>
 
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
-              <div className="mb-5 flex items-center justify-between gap-3"><h2 className="font-semibold">Address Details</h2>{profile && ["address_line_1", "address_line_2", "city", "state", "pincode", "country"].some((field) => Boolean(profile[field as keyof User])) && !editingAddress && <button type="button" onClick={() => setEditingAddress(true)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium"><Pencil size={14} /> Edit</button>}</div>
+              <div className="mb-5 flex items-center justify-between gap-3"><h2 className="font-semibold">Address Details</h2>{!editingAddress && <button type="button" onClick={() => setEditingAddress(true)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium"><Pencil size={14} /> Edit</button>}</div>
               <form onSubmit={(event) => handleProfileSave(event, "address")} className="space-y-4">
-                <fieldset disabled={Boolean(profile && ["address_line_1", "address_line_2", "city", "state", "pincode", "country"].some((field) => Boolean(profile[field as keyof User])) && !editingAddress)} className="grid gap-4 md:grid-cols-2">
+                <fieldset disabled={!editingAddress} className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm text-ink-600">
                     Address Line 1
                     <input
@@ -615,11 +662,10 @@ export default function MyProfilePage() {
                     />
                   </label>
                 </fieldset>
-                {(!profile || !["address_line_1", "address_line_2", "city", "state", "pincode", "country"].some((field) => Boolean(profile[field as keyof User])) || editingAddress) && <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
-                  {editingAddress ? "Request Approval" : "Save Address"}
+                {editingAddress && <button type="submit" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
+                  Save Address
                 </button>
                 }
-                {profileRequests.some((item) => item.section === "address" && item.status === "Pending") && <p className="text-sm text-amber-700">Address edit request is pending approval.</p>}
               </form>
             </section>
 

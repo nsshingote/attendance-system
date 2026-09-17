@@ -175,6 +175,8 @@ class UserOut(ORMBase):
 
 
 class PersonalProfileUpdate(BaseModel):
+    email: Optional[str] = None
+    mobile: Optional[str] = None
     address_line_1: Optional[str] = None
     address_line_2: Optional[str] = None
     city: Optional[str] = None

@@ -10,6 +10,26 @@ from models import ChangedLog, User
 router = APIRouter()
 
 
+def record_changed_log(
+    db: Session,
+    employee_id: Optional[int],
+    changed_by: int,
+    category: str,
+    item_name: str,
+    old_value=None,
+    new_value=None,
+):
+    """Queue a changed-log entry without changing the caller's transaction."""
+    db.add(ChangedLog(
+        employee_id=employee_id,
+        changed_by=changed_by,
+        category=category,
+        item_name=item_name,
+        old_value=None if old_value is None else str(old_value),
+        new_value=None if new_value is None else str(new_value),
+    ))
+
+
 @router.get("/")
 def list_changed_logs(
     employee_id: Optional[int] = None,

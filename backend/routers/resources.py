@@ -18,9 +18,10 @@ from sqlalchemy import or_
 from auth import get_current_user, require_admin
 from config import settings
 from database import get_db
-from models import Resource, ResourceDepartmentAccess, ResourceEmployeeAccess, User, Department
+from models import ActivityLog, Resource, ResourceDepartmentAccess, ResourceEmployeeAccess, User, Department
 from schemas import ResourceCreate, ResourceOut, ResourceDetailOut
 from utils.logger import logger
+from routers.changed_logs import record_changed_log
 
 router = APIRouter()
 
@@ -300,6 +301,8 @@ async def create_resource(
 
     db.commit()
     db.refresh(resource)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Created resource '{resource.name}'"))
+    db.commit()
 
     return ResourceDetailOut.model_validate(resource)
 
@@ -321,6 +324,12 @@ async def update_resource(
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
 
+    old_values = {
+        "name": resource.name,
+        "description": resource.description,
+        "visibility_type": resource.visibility_type,
+        "file_name": resource.file_name,
+    }
     # Update basic fields
     resource.name = name.strip()
     resource.description = description.strip() if description else None
@@ -414,8 +423,18 @@ async def update_resource(
         resource.file_path = file_path
         resource.file_name = file.filename
 
+    for field, old_value, new_value in (
+        ("Name", old_values["name"], resource.name),
+        ("Description", old_values["description"], resource.description),
+        ("Visibility", old_values["visibility_type"], resource.visibility_type),
+        ("File", old_values["file_name"], resource.file_name),
+    ):
+        if str(old_value) != str(new_value):
+            record_changed_log(db, None, current_user.id, "resources", f"{resource.name} - {field}", old_value, new_value)
     db.commit()
     db.refresh(resource)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated resource '{resource.name}'"))
+    db.commit()
 
     return ResourceDetailOut.model_validate(resource)
 
@@ -442,6 +461,7 @@ def delete_resource(
     ).all():
         db.delete(access)
     db.delete(resource)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted resource '{resource.name}'"))
     db.commit()
 
     return None

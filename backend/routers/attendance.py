@@ -63,6 +63,7 @@ from utils.email_service import send_wfh_decision_notification
 from services.notifications import create_notification, get_approver_user_ids
 from utils.calender import build_month_calendar
 from utils.date_helpers import iso_with_offset
+from routers.changed_logs import record_changed_log
 
 router = APIRouter()
 
@@ -1538,6 +1539,12 @@ def manual_update(
     requested_status = update_data.get("status")
 
     for field, value in update_data.items():
+        old_value = getattr(record, field, None)
+        if str(old_value) != str(value):
+            record_changed_log(db, record.user_id, current_user.id, "attendance override",
+                               f"{record.attendance_date} {field.replace('_', ' ').title()}",
+                               old_value, value)
+    for field, value in update_data.items():
         setattr(record, field, value)
 
     if "status" in update_data:
@@ -1622,6 +1629,12 @@ def manual_update_by_user_date(
 
     if record:
         for field, value in update_data.items():
+            old_value = getattr(record, field, None)
+            if str(old_value) != str(value):
+                record_changed_log(db, user_id, current_user.id, "attendance override",
+                                   f"{target_date} {field.replace('_', ' ').title()}",
+                                   old_value, value)
+        for field, value in update_data.items():
             setattr(record, field, value)
     else:
         record = Attendance(
@@ -1632,6 +1645,9 @@ def manual_update_by_user_date(
             status=update_data.get("status") or "Absent",
         )
         db.add(record)
+        record_changed_log(db, user_id, current_user.id, "attendance override",
+                           str(target_date), None,
+                           f"Created with status {record.status}")
 
     if "status" in update_data:
         # Mark as manual override early so downstream generators respect it

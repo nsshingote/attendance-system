@@ -18,6 +18,7 @@ from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, E
 from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate
 from utils.email_service import send_email
 from services.notifications import create_notification, get_admin_user_ids
+from routers.changed_logs import record_changed_log
 from services.recycle_bin import archive_object
 
 router = APIRouter()
@@ -167,10 +168,6 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     item = SalarySlip(employee_id=employee.id, month=payload.month, year=payload.year, particulars=json.dumps(particulars),
                       total_amount=total, status="Saved", created_by=current_user.id)
     db.add(item)
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        activity=f"Uploaded personal document '{item.title}'",
-    ))
     db.commit()
     db.refresh(item)
     if payload.send and employee.email:
@@ -201,6 +198,9 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
 def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
+    old_employee = item.employee.name if item.employee else str(item.employee_id)
+    old_values = {"employee": old_employee, "month": item.month, "year": item.year,
+                  "particulars": item.particulars, "total_amount": item.total_amount}
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee: raise HTTPException(status_code=404, detail="Active employee not found")
     particulars = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in payload.particulars if row.name.strip()]
@@ -224,6 +224,20 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
             entity_id=item.id,
         )
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated salary slip for '{employee.name}'")); db.commit(); db.refresh(item)
+    for field, old_value, new_value in (
+        ("Employee", old_values["employee"], employee.name),
+        ("Month", old_values["month"], item.month),
+        ("Year", old_values["year"], item.year),
+        ("Particulars", old_values["particulars"], item.particulars),
+        ("Total amount", old_values["total_amount"], item.total_amount),
+    ):
+        if str(old_value) != str(new_value):
+            record_changed_log(
+                db, employee.id, current_user.id, "salary slip",
+                f"Salary slip {item.month}/{item.year} - {field}",
+                old_value, new_value,
+            )
+    db.commit()
     return _salary_slip_dict(item)
 
 
@@ -232,7 +246,8 @@ def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
     employee_name = item.employee.name if item.employee else f"employee {item.employee_id}"
-    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted salary slip for '{employee_name}'")); db.commit()
+    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted salary slip for '{employee_name}'"))
+    db.commit()
     return {"message": "Salary slip deleted"}
 
 
@@ -267,8 +282,14 @@ def update_kundli_note(note_id: int, payload: KundliNoteCreate, db: Session = De
     require_team_member_access(db, current_user, note.employee_id, "kundli.edit")
     positive, negative = (payload.positive_note or "").strip() or None, (payload.negative_note or "").strip() or None
     if not positive and not negative: raise HTTPException(status_code=422, detail="Write a positive or negative note")
+    old_positive, old_negative = note.positive_note, note.negative_note
     note.positive_note, note.negative_note = positive, negative
-    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated Kundli note for '{note.employee.name}'")); db.commit(); db.refresh(note)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated Kundli note for '{note.employee.name}'"))
+    if old_positive != positive:
+        record_changed_log(db, note.employee_id, current_user.id, "Kundli note", "Positive note", old_positive, positive)
+    if old_negative != negative:
+        record_changed_log(db, note.employee_id, current_user.id, "Kundli note", "Negative note", old_negative, negative)
+    db.commit(); db.refresh(note)
     return {"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
 
 
@@ -278,7 +299,8 @@ def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user
     if not note: raise HTTPException(status_code=404, detail="Kundli note not found")
     require_team_member_access(db, current_user, note.employee_id, "kundli.delete")
     employee_name = note.employee.name
-    db.delete(note); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'")); db.commit()
+    db.delete(note); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'"))
+    db.commit()
     return {"message": "Kundli note deleted"}
 
 
@@ -323,7 +345,8 @@ def create_letter_template(payload: LetterTemplateCreate, db: Session = Depends(
     if db.query(LetterTemplate).filter(LetterTemplate.document_type == document_type).first():
         raise HTTPException(status_code=409, detail="A template already uses this document type")
     item = LetterTemplate(name=name, document_type=document_type, content=content, created_by=current_user.id)
-    db.add(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Created letter template '{name}'")); db.commit(); db.refresh(item)
+    db.add(item)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Created letter template '{name}'")); db.commit(); db.refresh(item)
     return _template_dict(item)
 
 
@@ -338,7 +361,19 @@ def update_letter_template(template_id: int, payload: LetterTemplateUpdate, db: 
     duplicate = db.query(LetterTemplate).filter(LetterTemplate.document_type == document_type, LetterTemplate.id != template_id).first()
     if duplicate:
         raise HTTPException(status_code=409, detail="A template already uses this document type")
+    old_values = (item.name, item.document_type, item.content)
     item.name, item.document_type, item.content = name, document_type, content
+    for field, old_value, new_value in zip(
+        ("Name", "Document type", "Content"),
+        old_values,
+        (name, document_type, content),
+    ):
+        if old_value != new_value:
+            record_changed_log(
+                db, None, current_user.id, "letter template",
+                f"Letter template: {name} - {field}",
+                old_value, new_value,
+            )
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated letter template '{name}'")); db.commit(); db.refresh(item)
     return _template_dict(item)
 
@@ -349,7 +384,8 @@ def delete_letter_template(template_id: int, db: Session = Depends(get_db), curr
     if not item:
         raise HTTPException(status_code=404, detail="Letter template not found")
     name = item.name
-    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted letter template '{name}'")); db.commit()
+    db.delete(item)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted letter template '{name}'")); db.commit()
     return {"message": "Letter template deleted"}
 
 
@@ -374,7 +410,8 @@ def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(
     item = EmployeeDocument(employee_id=employee.id, document_type=template.document_type, title=template.name,
                             content=json.dumps(snapshot), status=status, created_by=current_user.id,
                             sent_at=datetime.utcnow() if payload.send else None)
-    db.add(item); db.commit(); db.refresh(item)
+    db.add(item)
+    db.commit(); db.refresh(item)
     if payload.send and employee.email:
         send_email([employee.email], template.name, f"<p>Hi {employee.name},</p><p>Your <b>{template.name}</b> is available in My Profile → Documents.</p>")
     if payload.send and employee.id != current_user.id:
@@ -418,7 +455,8 @@ def list_employee_documents(employee_id: int, db: Session = Depends(get_db), cur
 def delete_generated_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     item = db.query(EmployeeDocument).filter(EmployeeDocument.id == document_id).first()
     if not item: raise HTTPException(status_code=404, detail="Document not found")
-    db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted {item.document_type.replace('_', ' ')} for '{item.employee.name}'")); db.commit()
+    db.delete(item)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted {item.document_type.replace('_', ' ')} for '{item.employee.name}'")); db.commit()
     return {"message": "Document deleted"}
 
 
@@ -691,14 +729,6 @@ def decide_personal_document_request(request_id: int, payload: PersonalDocumentR
             document.mime_type = request.pending_mime_type
             document.file_size = request.pending_file_size or 0
         else:
-            db.add(ChangedLog(
-                employee_id=document.employee_id,
-                changed_by=current_user.id,
-                category="document",
-                item_name=document.title,
-                old_value=document.original_filename or document.file_name or document.title,
-                new_value="[Deleted]",
-            ))
             archive_object(db, document, deleted_by=current_user.id)
             db.delete(document)
     elif payload.status == "Rejected" and pending_path and pending_path.is_file():

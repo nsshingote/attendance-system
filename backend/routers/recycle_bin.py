@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from auth import require_admin
 from database import get_db
-from models import User
+from models import ActivityLog, User
 from services.recycle_bin import list_entries, permanently_delete, restore
 
 router = APIRouter()
@@ -31,10 +31,16 @@ def get_recycle_bin(db: Session = Depends(get_db), current_user: User = Depends(
 @router.post("/{entry_id}/restore")
 def restore_recycle_bin_entry(entry_id: int, db: Session = Depends(get_db),
                               current_user: User = Depends(require_admin)):
-    return restore(db, entry_id)
+    result = restore(db, entry_id)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Restored recycle-bin entry #{entry_id}"))
+    db.commit()
+    return result
 
 
 @router.delete("/{entry_id}")
 def permanently_delete_recycle_bin_entry(entry_id: int, db: Session = Depends(get_db),
                                          current_user: User = Depends(require_admin)):
-    return permanently_delete(db, entry_id)
+    result = permanently_delete(db, entry_id)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Permanently deleted recycle-bin entry #{entry_id}"))
+    db.commit()
+    return result

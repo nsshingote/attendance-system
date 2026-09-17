@@ -16,6 +16,7 @@ from database import get_db
 from models import DeviceRequest, User, ActivityLog
 from schemas import DeviceRequestDecision, DeviceRequestOut
 from services.notifications import create_notification
+from routers.changed_logs import record_changed_log
 
 router = APIRouter()
 
@@ -80,10 +81,24 @@ def decide_device_request(
     if payload.status == "Approved":
         user = db.query(User).filter(User.id == device_request.user_id).first()
         if user:
+            old_device_values = {
+                "device_token": user.device_token,
+                "device_name": user.device_name,
+                "browser_name": user.browser_name,
+                "device_registered_at": user.device_registered_at,
+            }
             user.device_token = device_request.device_token
             user.device_name = device_request.device_name
             user.browser_name = device_request.browser_name
             user.device_registered_at = datetime.utcnow()
+            for field, old_value, new_value in (
+                ("Device token", old_device_values["device_token"], user.device_token),
+                ("Device name", old_device_values["device_name"], user.device_name),
+                ("Browser", old_device_values["browser_name"], user.browser_name),
+                ("Registered at", old_device_values["device_registered_at"], user.device_registered_at),
+            ):
+                if str(old_value) != str(new_value):
+                    record_changed_log(db, user.id, current_user.id, "device", field, old_value, new_value)
 
     db.add(
         ActivityLog(

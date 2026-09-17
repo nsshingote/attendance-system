@@ -27,6 +27,7 @@ from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserD
 from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
 from services.notifications import create_notification, get_admin_user_ids
+from routers.changed_logs import record_changed_log
 
 router = APIRouter()
 PROFILE_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "profile_images"
@@ -92,13 +93,28 @@ def update_my_profile(
     current_user: User = Depends(get_current_user),
 ):
     update_data = payload.model_dump(exclude_unset=True)
-    supplied_address = set(update_data) & ADDRESS_FIELDS
+    if "email" in update_data and update_data["email"]:
+        duplicate_email = db.query(User).filter(
+            User.email == update_data["email"],
+            User.id != current_user.id,
+        ).first()
+        if duplicate_email:
+            raise HTTPException(status_code=409, detail="That email address is already in use")
+    if "mobile" in update_data and update_data["mobile"]:
+        duplicate_mobile = db.query(User).filter(
+            User.mobile == update_data["mobile"],
+            User.id != current_user.id,
+        ).first()
+        if duplicate_mobile:
+            raise HTTPException(status_code=409, detail="That mobile number is already in use")
     supplied_emergency = set(update_data) & EMERGENCY_FIELDS
-    if supplied_address and any(getattr(current_user, field) for field in ADDRESS_FIELDS):
-        raise HTTPException(status_code=403, detail="Address is locked. Request an edit approval instead.")
     if supplied_emergency and any(getattr(current_user, field) for field in EMERGENCY_FIELDS):
         raise HTTPException(status_code=403, detail="Emergency contact is locked. Request an edit approval instead.")
     for field, value in update_data.items():
+        old_value = getattr(current_user, field)
+        if str(old_value or "") != str(value or ""):
+            record_changed_log(db, current_user.id, current_user.id, "profile",
+                               field.replace("_", " ").title(), old_value, value)
         setattr(current_user, field, value)
     changed_fields = ", ".join(sorted(update_data)) or "no fields"
     db.add(ActivityLog(
@@ -256,6 +272,8 @@ async def upload_profile_photo(
     if previous and previous != path:
         previous.unlink(missing_ok=True)
     db.add(ActivityLog(user_id=current_user.id, activity="Updated profile photo"))
+    record_changed_log(db, current_user.id, current_user.id, "profile", "Profile photo",
+                       previous.name if previous else None, path.name)
     db.commit()
     return {"message": "Profile image updated"}
 
@@ -351,6 +369,10 @@ def update_user(
 
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
+        old_value = getattr(user, field)
+        if str(old_value or "") != str(value or ""):
+            record_changed_log(db, user.id, current_user.id, "profile",
+                               field.replace("_", " ").title(), old_value, value)
         setattr(user, field, value)
 
     db.commit()
@@ -397,6 +419,10 @@ def update_user(
                     db.refresh(user)
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated user '{user.name}'"))
+    # Department assignment may be normalized after the initial update.
+    if payload.department is not None and user.department != payload.department:
+        record_changed_log(db, user.id, current_user.id, "profile", "Department",
+                           payload.department, user.department)
     db.commit()
 
     return user
@@ -412,7 +438,9 @@ def deactivate_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    old_status = user.status
     user.status = "inactive"
+    record_changed_log(db, user.id, current_user.id, "profile", "Status", old_status, user.status)
     db.commit()
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Deactivated user '{user.name}'"))
@@ -432,10 +460,24 @@ def reset_user_device(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    old_device_values = {
+        "device_token": user.device_token,
+        "device_name": user.device_name,
+        "browser_name": user.browser_name,
+        "device_registered_at": user.device_registered_at,
+    }
     user.device_token = None
     user.device_name = None
     user.browser_name = None
     user.device_registered_at = None
+    for field, old_value, new_value in (
+        ("Device token", old_device_values["device_token"], None),
+        ("Device name", old_device_values["device_name"], None),
+        ("Browser", old_device_values["browser_name"], None),
+        ("Registered at", old_device_values["device_registered_at"], None),
+    ):
+        if str(old_value) != str(new_value):
+            record_changed_log(db, user.id, current_user.id, "device", field, old_value, new_value)
     db.commit()
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Reset device for user '{user.name}'"))
@@ -501,6 +543,7 @@ def assign_user_department(
     db.refresh(assignment)
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Assigned department '{department.name}' to user '{user.name}'"))
+    record_changed_log(db, user.id, current_user.id, "profile", "Department", None, department.name)
     db.commit()
 
     return assignment
@@ -520,10 +563,11 @@ def set_primary_department(
     if not assignment:
         raise HTTPException(status_code=404, detail="Department assignment not found for this user")
 
+    user = db.query(User).filter(User.id == user_id).first()
+    old_department = user.department if user else None
     db.query(UserDepartment).filter(UserDepartment.user_id == user_id).update({"is_primary": 0})
     assignment.is_primary = 1
 
-    user = db.query(User).filter(User.id == user_id).first()
     department = db.query(Department).filter(Department.id == payload.department_id).first()
     if user and department:
         user.department = department.name
@@ -532,6 +576,7 @@ def set_primary_department(
     db.refresh(assignment)
 
     db.add(ActivityLog(user_id=current_user.id, activity=f"Set primary department '{department.name}' for user '{user.name}'"))
+    record_changed_log(db, user.id, current_user.id, "profile", "Department", old_department, department.name)
     db.commit()
 
     return assignment
@@ -556,6 +601,7 @@ def remove_user_department(
         raise HTTPException(status_code=400, detail="Cannot remove the user's last department")
 
     is_primary_removed = bool(assignment.is_primary)
+    removed_department_id = assignment.department_id
     db.delete(assignment)
     db.commit()
 
@@ -569,6 +615,14 @@ def remove_user_department(
                 user.department = department.name
         db.commit()
 
+    user = db.query(User).filter(User.id == user_id).first()
+    department_name = None
+    if user and remaining:
+        department_name = db.query(Department).filter(Department.id == remaining[0].department_id).first()
+        department_name = department_name.name if department_name else None
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Removed department assignment from user '{user.name if user else user_id}'"))
+    record_changed_log(db, user_id, current_user.id, "profile", "Department", removed_department_id, department_name)
+    db.commit()
     return {"message": "Department assignment removed successfully"}
 
 

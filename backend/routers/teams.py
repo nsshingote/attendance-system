@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from auth import require_admin
 from database import get_db
-from models import Department, Team, TeamMember, User
+from models import ActivityLog, Department, Team, TeamMember, User
 from schemas import TeamCreate, TeamMemberOut, TeamOut, TeamUpdate
 from team_scope import assign_team_leader
+from routers.changed_logs import record_changed_log
 
 router = APIRouter()
 
@@ -95,6 +96,8 @@ def create_team(payload: TeamCreate, db: Session = Depends(get_db), current_user
         db.rollback()
         raise HTTPException(status_code=409, detail="A team with this name already exists")
     db.refresh(team)
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Created team '{team.name}'"))
+    db.commit()
     return _team_response(team)
 
 
@@ -124,6 +127,13 @@ def update_team(
     leader_id = data.get("team_leader_id", team.team_leader_id)
     department_id = data.get("department_id", team.department_id)
     current_member_ids = [member.employee_id for member in team.members]
+    old_values = {
+        "name": team.name,
+        "department_id": team.department_id,
+        "team_leader_id": team.team_leader_id,
+        "status": team.status,
+        "member_ids": sorted(current_member_ids),
+    }
     _validate_team_inputs(db, department_id, leader_id, member_ids if member_ids is not None else current_member_ids)
     if "team_leader_id" in data:
         assign_team_leader(db, team, data.pop("team_leader_id"))
@@ -137,6 +147,18 @@ def update_team(
         db.rollback()
         raise HTTPException(status_code=409, detail="A team with this name already exists")
     db.refresh(team)
+    new_values = {
+        "name": team.name,
+        "department_id": team.department_id,
+        "team_leader_id": team.team_leader_id,
+        "status": team.status,
+        "member_ids": sorted(member.employee_id for member in team.members),
+    }
+    for field in ("name", "department_id", "team_leader_id", "status", "member_ids"):
+        if old_values[field] != new_values[field]:
+            record_changed_log(db, None, current_user.id, "teams", f"{team.name} - {field}", old_values[field], new_values[field])
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Updated team '{team.name}'"))
+    db.commit()
     return _team_response(team)
 
 
@@ -159,7 +181,12 @@ def replace_team_members(
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
     _validate_team_inputs(db, team.department_id, team.team_leader_id, member_ids)
+    old_member_ids = sorted(member.employee_id for member in team.members)
     _replace_members(team, member_ids)
     db.commit()
     db.refresh(team)
+    if old_member_ids != sorted(member_ids):
+        record_changed_log(db, None, current_user.id, "teams", f"{team.name} - member_ids", old_member_ids, sorted(member_ids))
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Replaced members for team '{team.name}'"))
+    db.commit()
     return _team_response(team)
