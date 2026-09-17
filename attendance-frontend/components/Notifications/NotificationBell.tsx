@@ -30,8 +30,9 @@ export default function NotificationBell() {
   const refresh = useCallback(async () => {
     try {
       const data = await fetchNotifications(0, 20);
-      data.items.forEach((item) => knownNotificationIds.current.add(item.id));
-      setItems((current) => mergeNotifications([...data.items, ...current]).slice(0, 50));
+      const unreadItems = data.items.filter((item) => !item.is_read);
+      unreadItems.forEach((item) => knownNotificationIds.current.add(item.id));
+      setItems((current) => mergeNotifications([...unreadItems, ...current.filter((item) => !item.is_read)]).slice(0, 50));
       setUnreadCount(data.unread_count);
     } catch {
       // The rest of the authenticated shell must remain usable if notifications fail.
@@ -45,6 +46,7 @@ export default function NotificationBell() {
         if (event.type === "notification") {
           const isNewNotification = !knownNotificationIds.current.has(event.notification.id);
           knownNotificationIds.current.add(event.notification.id);
+          if (event.notification.is_read) return;
           setItems((current) => mergeNotifications([event.notification, ...current]).slice(0, 50));
           if (isNewNotification && !event.notification.is_read) {
             setUnreadCount((count) => count + 1);
@@ -73,7 +75,7 @@ export default function NotificationBell() {
       try {
         const updated = await markNotificationRead(item.id);
         knownNotificationIds.current.add(item.id);
-        setItems((current) => current.map((entry) => entry.id === item.id ? updated : entry));
+        setItems((current) => current.filter((entry) => entry.id !== item.id));
         setUnreadCount((count) => Math.max(0, count - 1));
       } catch {
         toast.error("Unable to mark notification as read");
@@ -89,7 +91,7 @@ export default function NotificationBell() {
   const handleReadAll = async () => {
     try {
       await markAllNotificationsRead();
-      setItems((current) => current.map((item) => ({ ...item, is_read: true, read_at: new Date().toISOString() })));
+      setItems([]);
       setUnreadCount(0);
     } catch {
       toast.error("Unable to mark notifications as read");
@@ -131,7 +133,7 @@ export default function NotificationBell() {
           </div>
           <div className="max-h-80 overflow-y-auto">
             {items.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-ink-500">No notifications yet.</p>
+              <p className="px-4 py-8 text-center text-sm text-ink-500">No unread notifications.</p>
             ) : items.slice(0, 10).map((item) => (
               <button
                 key={item.id}

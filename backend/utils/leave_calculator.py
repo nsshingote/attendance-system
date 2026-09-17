@@ -12,8 +12,10 @@ Leave balance logic with two separate buckets:
 LEAVE YEAR MODEL
 -----------------
 The leave year is the calendar year (Jan-Dec). Accrual for this
-application begins LEAVE_TRACKING_START_DATE (August 2026), so 2026 is a
-prorated year: Aug, Sep, Oct, Nov, Dec = 5 months = 5 total days. From
+application begins LEAVE_TRACKING_START_DATE (August 2026), so existing
+employees have a prorated 2026 year of Aug, Sep, Oct, Nov, Dec = 5 months.
+New employees start accruing from their joining month, so a September hire
+has Sep, Oct, Nov, Dec = 4 months. From
 2027 onward, every full year = 12 days (1/month x 12) — computed
 automatically from the calendar year, no DB change needed at the
 year boundary.
@@ -39,7 +41,8 @@ not stored.
 
 ACCRUAL MODEL (lazy, no cron job)
 ----------------------------------
-accrue_monthly_leave() walks month-by-month from last_leave_accrual_date
+accrue_monthly_leave() walks month-by-month from the employee's eligible
+starting month (or last_leave_accrual_date)
 to today. For each month boundary crossed:
   - if that month's paid_leave_available was never used, it moves into
     carried_leave (+1), UNLESS the month being entered is January, in
@@ -151,19 +154,29 @@ def has_other_approved_or_pending_paid_leave_this_month(
     return _has_paid_leave_in_month(db, user_id, on_date, exclude_leave_id=exclude_leave_id)
 
 
+def _leave_accrual_start_date(user: User) -> date:
+    """Return the first day of the employee's eligible starting month."""
+    joining_date = user.date_of_joining
+    if joining_date is None:
+        return LEAVE_TRACKING_START_DATE
+    joining_month = joining_date.replace(day=1)
+    return max(LEAVE_TRACKING_START_DATE, joining_month)
+
+
 def accrue_monthly_leave(db: Session, user: User) -> User:
     """Lazily runs the monthly carry-forward/refresh logic, with an
     annual reset at each January boundary. See module docstring."""
     today = date.today()
 
-    if today < LEAVE_TRACKING_START_DATE:
+    accrual_start = _leave_accrual_start_date(user)
+    if today < accrual_start:
         # Accrual hasn't started yet — nothing to grant.
         return user
 
-    if user.last_leave_accrual_date is None or user.last_leave_accrual_date < LEAVE_TRACKING_START_DATE:
+    if user.last_leave_accrual_date is None or user.last_leave_accrual_date < accrual_start:
         # First run, or a stale/pre-launch date — (re)initialize cleanly
-        # from the tracking start date.
-        user.last_leave_accrual_date = LEAVE_TRACKING_START_DATE
+        # from the employee's eligible starting month.
+        user.last_leave_accrual_date = accrual_start
         user.carried_leave = 0
         user.paid_leave_available = 1
         db.commit()
@@ -224,7 +237,14 @@ def _get_date_range(from_date: date, to_date: date) -> list[date]:
     return days
 
 
-def allocate_leave_days(db: Session, user: User, from_date: date, to_date: date, submission_date: date | None = None) -> list[tuple[date, str]]:
+def allocate_leave_days(
+    db: Session,
+    user: User,
+    from_date: date,
+    to_date: date,
+    submission_date: date | None = None,
+    exclude_leave_id: int | None = None,
+) -> list[tuple[date, str]]:
     submission_date = submission_date or date.today()
     advanced = (from_date - submission_date).days >= 4
     allocations = []
@@ -237,7 +257,12 @@ def allocate_leave_days(db: Session, user: User, from_date: date, to_date: date,
 
     for allocation_date in _get_date_range(from_date, to_date):
         month_key = (allocation_date.year, allocation_date.month)
-        if month_key not in paid_months_used and not has_approved_or_pending_paid_leave_this_month(db, user.id, allocation_date):
+        if month_key not in paid_months_used and not has_other_approved_or_pending_paid_leave_this_month(
+            db,
+            user.id,
+            allocation_date,
+            exclude_leave_id=exclude_leave_id,
+        ):
             allocations.append((allocation_date, "Paid"))
             paid_months_used.add(month_key)
         elif carried_balance > 0:
@@ -315,12 +340,14 @@ def get_leave_year_bounds(year: int):
     return start, end
 
 
-def get_leave_year_quota(year: int) -> int:
+def get_leave_year_quota(year: int, user: User | None = None) -> int:
     """Total days granted for this leave year — 5 for the prorated 2026
     launch year (Aug-Dec), 12 for every full year after. Computed live
     from the calendar, so 2027 automatically becomes 12 with no DB
     migration or manual change needed."""
     start, end = get_leave_year_bounds(year)
+    if user is not None and year == LEAVE_TRACKING_START_DATE.year:
+        start = max(start, _leave_accrual_start_date(user))
     months = (end.year - start.year) * 12 + (end.month - start.month) + 1
     return months
 
@@ -382,7 +409,7 @@ def get_remaining_leave(db: Session, user: User, year: int = None) -> int:
     accrue_monthly_leave(db, user)
     year = year or today.year
 
-    quota = get_leave_year_quota(year)
+    quota = get_leave_year_quota(year, user)
     used = get_used_balance_days_this_year(db, user.id, year)
     encashed = get_encashed_days_this_year(db, user.id, year)
 

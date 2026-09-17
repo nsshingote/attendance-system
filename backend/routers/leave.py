@@ -603,19 +603,27 @@ def decide_leave(
     leave_request.approved_at = datetime.now()
     
     if payload.status == "Approved":
-        # New requests are allocated on submission. Give legacy requests the
-        # same automatic Paid -> Carried -> Unpaid allocation on approval,
-        # while preserving explicit exception categories from older records.
-        if not leave_request.allocations:
-            if leave_request.leave_category in {"Privilege", "Emergency", "Sick"}:
-                allocations = [(day, leave_request.leave_category) for day in _get_date_range(leave_request.from_date, leave_request.to_date)]
-            else:
-                allocations = allocate_leave_days(db, target_user, leave_request.from_date, leave_request.to_date)
-            leave_request.allocations = [
-                LeaveRequestAllocation(allocation_date=allocation_date, leave_category=leave_category)
-                for allocation_date, leave_category in allocations
+        # Recalculate automatic allocations at approval time. A pending
+        # request may have been created while the monthly Paid slot was used,
+        # then another request may be deleted or rejected before approval.
+        if leave_request.leave_category in {"Privilege", "Emergency", "Sick"}:
+            allocations = [
+                (day, leave_request.leave_category)
+                for day in _get_date_range(leave_request.from_date, leave_request.to_date)
             ]
-            leave_request.leave_category = compute_request_category_from_allocations(allocations)
+        else:
+            allocations = allocate_leave_days(
+                db,
+                target_user,
+                leave_request.from_date,
+                leave_request.to_date,
+                exclude_leave_id=leave_request.id,
+            )
+        leave_request.allocations = [
+            LeaveRequestAllocation(allocation_date=allocation_date, leave_category=leave_category)
+            for allocation_date, leave_category in allocations
+        ]
+        leave_request.leave_category = compute_request_category_from_allocations(allocations)
 
         # Apply sandwich rule before validating/deducting balances so any
         # inserted Sunday allocations are considered.
