@@ -72,6 +72,10 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
             status="Pending",
         )
         db.add(new_request)
+        db.add(ActivityLog(
+            user_id=user.id,
+            activity=f"Requested device approval for '{user.name}' ({payload.device_name or 'unknown device'})",
+        ))
         for admin_id in get_admin_user_ids(db, actor_user_id=user.id):
             create_notification(
                 db,
@@ -142,6 +146,7 @@ def logout(response: Response, ams_refresh_token: str | None = Cookie(None), db:
         stored = db.query(RefreshToken).filter(RefreshToken.token_hash == _token_hash(ams_refresh_token)).first()
         if stored and not stored.revoked_at:
             stored.revoked_at = datetime.utcnow()
+            db.add(ActivityLog(user_id=stored.user_id, activity="Logged out"))
             db.commit()
     response.delete_cookie(
         "ams_refresh_token",

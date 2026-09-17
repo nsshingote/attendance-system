@@ -33,6 +33,7 @@ from utils.leave_calculator import (
     count_leave_category_days,
 )
 from utils.logger import log_activity
+from services.notifications import create_notification, get_admin_user_ids
 from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts
 from utils.date_helpers import iso_with_offset
 from zoneinfo import ZoneInfo
@@ -791,6 +792,10 @@ def submit_report(
         status="submitted"
     )
     db.add(report)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Submitted daily report for user #{user_id} on {attendance_date}",
+    ))
     db.commit()
     db.refresh(report)
     
@@ -1115,6 +1120,22 @@ def request_past_report_submission(
     request.status = "Pending"
     request.reviewed_by = None
     request.reviewed_at = None
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Requested {request.attendance_date} past report submission approval for {current_user.name}",
+    ))
+    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+        create_notification(
+            db,
+            recipient_user_id=admin_id,
+            actor_user_id=current_user.id,
+            notification_type="report.submitted",
+            title="New report approval request",
+            message=f"{current_user.name} requested permission to submit a report for {attendance_date}.",
+            route="/requests",
+            entity_type="past_report_submission",
+            entity_id=request.id,
+        )
     db.commit()
     db.refresh(request)
     return {"id": request.id, "status": request.status, "message": "Past report submission request sent"}
@@ -1164,6 +1185,11 @@ def complete_past_report_submission(
     if not submitted:
         raise HTTPException(status_code=409, detail="Submit the report before completing this approval")
     request.status = "Submitted"
+    log_activity(
+        db,
+        current_user.id,
+        f"Completed past report submission for {request.attendance_date} after approval #{request.id}",
+    )
     db.commit()
     return {"message": "Past report submission completed"}
 
@@ -1179,6 +1205,22 @@ def review_past_report_submission_request(
     if status not in {"Approved", "Rejected"}:
         raise HTTPException(status_code=400, detail="status must be Approved or Rejected")
     request.status, request.reviewed_by, request.reviewed_at = status, current_user.id, datetime.now(IST)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"{status} past report submission request #{request.id} for {request.user.name if request.user else f'user #{request.user_id}'} ({request.attendance_date})",
+    ))
+    if request.user_id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=request.user_id,
+            actor_user_id=current_user.id,
+            notification_type=f"report.{status.lower()}",
+            title=f"Report request {status.lower()}",
+            message=f"Your past report submission request for {request.attendance_date} was {status.lower()}.",
+            route="/admin-reports",
+            entity_type="past_report_submission",
+            entity_id=request.id,
+        )
     db.commit()
     return {"message": f"Request {status.lower()}"}
 

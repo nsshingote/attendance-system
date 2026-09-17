@@ -15,7 +15,7 @@ import AppShell from "@/components/AppShell";
 import ReportForm from "@/components/Reports/ReportForm";
 import Loading from "@/components/Common/Loading";
 
-export default function DailyReportPage() {
+export function DailyReportContent() {
   const session = getSession();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -69,16 +69,11 @@ export default function DailyReportPage() {
   };
 
   if (loading) {
-    return (
-      <AppShell>
-        <Loading fullScreen />
-      </AppShell>
-    );
+    return <Loading fullScreen />;
   }
 
   return (
-    <AppShell>
-      <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto">
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-ink-900">Daily Report</h1>
           <p className="text-sm text-ink-500">
@@ -98,7 +93,14 @@ export default function DailyReportPage() {
             onCancel={handleCancel}
           />
         </div>
-      </div>
+    </div>
+  );
+}
+
+export default function DailyReportPage() {
+  return (
+    <AppShell>
+      <DailyReportContent />
     </AppShell>
   );
 }

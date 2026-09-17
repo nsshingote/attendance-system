@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin, require_superadmin
 from database import get_db
-from models import Feedback, NotificationEmail, User
+from models import Feedback, NotificationEmail, User, ActivityLog
 from schemas import FeedbackCreate
 from utils.date_helpers import iso_with_offset
 from utils.email_service import send_feedback_submission_confirmation
+from services.notifications import create_notification, get_admin_user_ids
 
 router = APIRouter()
 
@@ -30,6 +31,23 @@ def create_feedback(payload: FeedbackCreate, db: Session = Depends(get_db), curr
             )
     feedback = Feedback(user_id=current_user.id, **payload.model_dump())
     db.add(feedback)
+    db.flush()
+    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+        create_notification(
+            db,
+            recipient_user_id=admin_id,
+            actor_user_id=current_user.id,
+            notification_type="feedback.submitted",
+            title="New feedback received",
+            message=f"{current_user.name} submitted {payload.feedback_type} feedback.",
+            route="/feedback",
+            entity_type="feedback",
+            entity_id=feedback.id,
+        )
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Submitted {payload.feedback_type} feedback{' anonymously' if payload.is_anonymous else ''}",
+    ))
     db.commit()
 
     if current_user.email:
@@ -83,6 +101,10 @@ def mark_feedback_viewed(feedback_id: int, db: Session = Depends(get_db), curren
         raise HTTPException(status_code=404, detail="Feedback not found")
     if item.viewed_at is None:
         item.viewed_at = datetime.utcnow()
+        db.add(ActivityLog(
+            user_id=current_user.id,
+            activity=f"Viewed feedback #{feedback_id}",
+        ))
         db.commit()
     return {"message": "Feedback marked as viewed"}
 
@@ -91,6 +113,10 @@ def delete_feedback(feedback_id: int, db: Session = Depends(get_db), current_use
     item = db.query(Feedback).filter(Feedback.id == feedback_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Feedback not found")
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Deleted feedback #{feedback_id}",
+    ))
     db.delete(item)
     db.commit()
     return {"message": "Feedback deleted"}

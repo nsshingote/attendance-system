@@ -6,9 +6,22 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
 
-from auth import decode_access_token, get_current_user
+from auth import decode_access_token, get_current_user, has_permission
 from database import SessionLocal, get_db
-from models import User
+from models import (
+    User,
+    AttendanceCorrection,
+    EmployeeProfileEditRequest,
+    PersonalDocumentChangeRequest,
+    PastReportSubmissionRequest,
+    DeviceRequest,
+    Feedback,
+    LeaveRequest,
+    HalfDayRequest,
+    WFHRequest,
+    ActivityLog,
+)
+from team_scope import get_team_member_ids
 from schemas import NotificationListOut, NotificationOut
 from services.notifications import (
     get_notification_for_user,
@@ -20,6 +33,62 @@ from services.notifications import (
 from services.realtime import notification_connections
 
 router = APIRouter()
+
+
+@router.get("/pending-request-count")
+def get_pending_request_count(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role in ("admin", "superadmin"):
+        return {
+            "requests": (
+                db.query(AttendanceCorrection).filter(AttendanceCorrection.status == "Pending").count()
+                + db.query(EmployeeProfileEditRequest).filter(EmployeeProfileEditRequest.status == "Pending").count()
+                + db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.status == "Pending").count()
+                + db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.status == "Pending").count()
+            ),
+            "leave": (
+                db.query(LeaveRequest).filter(LeaveRequest.status == "Pending").count()
+                + db.query(HalfDayRequest).filter(HalfDayRequest.status == "Pending").count()
+                + db.query(WFHRequest).filter(WFHRequest.status == "Pending").count()
+            ),
+            "devices": db.query(DeviceRequest).filter(DeviceRequest.status == "Pending").count(),
+            "feedback": db.query(Feedback).filter(Feedback.viewed_at.is_(None)).count(),
+        }
+    if current_user.role != "team_leader":
+        return {"requests": 0, "leave": 0, "devices": 0, "feedback": 0}
+    team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+    count = 0
+    if has_permission(current_user, "corrections.team_view", db):
+        count += db.query(AttendanceCorrection).filter(
+            AttendanceCorrection.status == "Pending",
+            AttendanceCorrection.requested_by.in_(team_ids),
+        ).count()
+    if has_permission(current_user, "employees.team_view", db):
+        count += db.query(EmployeeProfileEditRequest).filter(
+            EmployeeProfileEditRequest.status == "Pending",
+            EmployeeProfileEditRequest.employee_id.in_(team_ids),
+        ).count()
+    if has_permission(current_user, "reports.team_view", db):
+        count += db.query(PastReportSubmissionRequest).filter(
+            PastReportSubmissionRequest.status == "Pending",
+            PastReportSubmissionRequest.user_id.in_(team_ids),
+        ).count()
+    leave_count = 0
+    if has_permission(current_user, "leave.approve", db):
+        leave_count = (
+            db.query(LeaveRequest).filter(
+                LeaveRequest.status == "Pending",
+                LeaveRequest.user_id.in_(team_ids),
+            ).count()
+            + db.query(HalfDayRequest).filter(
+                HalfDayRequest.status == "Pending",
+                HalfDayRequest.user_id.in_(team_ids),
+            ).count()
+            + db.query(WFHRequest).filter(
+                WFHRequest.status == "Pending",
+                WFHRequest.user_id.in_(team_ids),
+            ).count()
+        )
+    return {"requests": count, "leave": leave_count, "devices": 0, "feedback": 0}
 
 
 @router.get("", response_model=NotificationListOut)
@@ -49,6 +118,10 @@ def read_notification(
     if notification is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     mark_notification_read(db, notification)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Read notification #{notification_id}",
+    ))
     db.commit()
     db.refresh(notification)
     return serialize_notification(notification)
@@ -57,6 +130,10 @@ def read_notification(
 @router.patch("/read-all")
 def read_all_notifications(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     updated = mark_all_notifications_read(db, current_user.id)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Read all notifications ({updated})",
+    ))
     db.commit()
     return {"updated": updated}
 

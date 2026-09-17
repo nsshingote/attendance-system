@@ -26,6 +26,7 @@ from models import (
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
 from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
+from services.notifications import create_notification, get_admin_user_ids
 
 router = APIRouter()
 PROFILE_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "profile_images"
@@ -99,6 +100,11 @@ def update_my_profile(
         raise HTTPException(status_code=403, detail="Emergency contact is locked. Request an edit approval instead.")
     for field, value in update_data.items():
         setattr(current_user, field, value)
+    changed_fields = ", ".join(sorted(update_data)) or "no fields"
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Updated own profile ({changed_fields})",
+    ))
     db.commit()
     db.refresh(current_user)
     return current_user
@@ -151,6 +157,18 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
         requested_data=json.dumps({key: (value or "").strip() for key, value in payload.requested_data.items()}))
     db.add(item)
     db.add(ActivityLog(user_id=current_user.id, activity=f"Requested approval to edit {payload.section.replace('_', ' ')}"))
+    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+        create_notification(
+            db,
+            recipient_user_id=admin_id,
+            actor_user_id=current_user.id,
+            notification_type="profile_edit.submitted",
+            title="New profile correction request",
+            message=f"{current_user.name} submitted a {payload.section.replace('_', ' ')} profile correction request.",
+            route="/requests",
+            entity_type="profile_edit_request",
+            entity_id=item.id,
+        )
     db.commit(); db.refresh(item)
     return _profile_request_dict(item)
 
@@ -182,6 +200,18 @@ def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDeci
     if payload.status == "Approved":
         for field, value in json.loads(item.requested_data).items(): setattr(item.employee, field, value)
     db.add(ActivityLog(user_id=current_user.id, activity=f"{payload.status} {item.section.replace('_', ' ')} edit request for {item.employee.name}"))
+    if item.employee_id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=item.employee_id,
+            actor_user_id=current_user.id,
+            notification_type=f"profile_edit.{payload.status.lower()}",
+            title=f"Profile correction {payload.status.lower()}",
+            message=f"Your {item.section.replace('_', ' ')} profile correction request was {payload.status.lower()}.",
+            route="/my-profile",
+            entity_type="profile_edit_request",
+            entity_id=item.id,
+        )
     db.commit(); db.refresh(item)
     return _profile_request_dict(item)
 
@@ -191,7 +221,11 @@ def _profile_photo_path(user_id: int) -> Optional[Path]:
 
 
 @router.post("/me/profile-photo")
-async def upload_profile_photo(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+async def upload_profile_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     extension = Path(file.filename or "").suffix.lower()
     if extension not in {".jpg", ".jpeg", ".png", ".webp"}: raise HTTPException(status_code=400, detail="Upload a JPG, PNG, or WEBP image")
     data = await file.read()
@@ -210,6 +244,8 @@ async def upload_profile_photo(file: UploadFile = File(...), current_user: User 
         raise HTTPException(status_code=500, detail="Unable to store profile image") from error
     if previous and previous != path:
         previous.unlink(missing_ok=True)
+    db.add(ActivityLog(user_id=current_user.id, activity="Updated profile photo"))
+    db.commit()
     return {"message": "Profile image updated"}
 
 

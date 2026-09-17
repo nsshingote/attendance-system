@@ -9,7 +9,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { format, parseISO } from "date-fns";
-import { Download, FileSpreadsheet, Calendar as CalendarIcon } from "lucide-react";
+import { Download, FileSpreadsheet, Calendar as CalendarIcon, FileText, FileBarChart } from "lucide-react";
 import * as XLSX from "xlsx";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
@@ -19,6 +19,7 @@ import MonthSelector from "@/components/Calendar/MonthSelector";
 import ExpandableText from "@/components/Common/ExpandableText";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 import { getSession } from "@/lib/auth";
+import { DailyReportContent } from "@/app/daily-report/page";
 
 interface UserOption {
   id: number;
@@ -413,9 +414,24 @@ const getTotalDuration = (activities: ReportRow[]) => {
 }
 
 export default function AdminReportsPage(props: AdminReportsPageProps) {
+  const [tab, setTab] = useState<"my" | "team">("team");
   return (
     <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
-      <AdminReportsContent {...props} />
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-xl font-semibold text-ink-900">Reports</h1>
+          <p className="text-sm text-ink-500">View daily reports and team reports.</p>
+        </div>
+        <div className="flex w-fit flex-wrap rounded-lg border border-ink-200 bg-white p-1">
+          <button type="button" onClick={() => setTab("my")} className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${tab === "my" ? "bg-brand-600 text-white" : "text-ink-600"}`}>
+            <FileText size={16} /> My Report
+          </button>
+          <button type="button" onClick={() => setTab("team")} className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${tab === "team" ? "bg-brand-600 text-white" : "text-ink-600"}`}>
+            <FileBarChart size={16} /> Team Report
+          </button>
+        </div>
+        {tab === "my" ? <DailyReportContent /> : <AdminReportsContent {...props} />}
+      </div>
     </AppShell>
   );
 }

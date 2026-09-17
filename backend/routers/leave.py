@@ -418,6 +418,25 @@ def apply_leave(
     return leave_request
 
 
+@router.delete("/{leave_id}", response_model=dict)
+def delete_pending_leave(
+    leave_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    leave_request = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave_request:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    if leave_request.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own leave request")
+    if leave_request.status != "Pending":
+        raise HTTPException(status_code=400, detail="Only pending leave requests can be deleted")
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted pending leave request #{leave_id}"))
+    db.delete(leave_request)
+    db.commit()
+    return {"message": "Leave request deleted"}
+
+
 # ------------------------------------------------------------
 # Get My Leave Requests
 # ------------------------------------------------------------

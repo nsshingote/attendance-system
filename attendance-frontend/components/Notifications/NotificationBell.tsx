@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, CheckCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { createPortal } from "react-dom";
 import {
   fetchNotifications,
   isSafeNotificationRoute,
@@ -110,11 +111,21 @@ export default function NotificationBell() {
           </span>
         )}
       </button>
-      {open && (
-        <div className="absolute right-0 z-[100] mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-ink-200 bg-white shadow-xl sm:w-96">
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-[1000] overflow-hidden rounded-xl border border-ink-200 bg-white shadow-xl"
+          style={{
+            top: "4.25rem",
+            left: "0.5rem",
+            right: "0.5rem",
+            width: "auto",
+            maxWidth: "24rem",
+            marginLeft: "auto",
+          }}
+        >
           <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
-            <p className="font-semibold text-ink-900">Notifications</p>
-            <button type="button" onClick={handleReadAll} className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
+            <p className="min-w-0 font-semibold text-ink-900">Notifications</p>
+            <button type="button" onClick={handleReadAll} className="shrink-0 flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
               <CheckCheck size={14} /> Mark all read
             </button>
           </div>
@@ -127,16 +138,18 @@ export default function NotificationBell() {
                 type="button"
                 onClick={() => handleRead(item)}
                 className={`block w-full border-b border-ink-100 px-4 py-3 text-left hover:bg-ink-50 ${item.is_read ? "bg-white" : "bg-brand-50"}`}
+                style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}
               >
-                <p className="text-sm font-semibold text-ink-900">{item.title}</p>
-                <p className="mt-1 text-xs text-ink-600">{item.message}</p>
+                <p className="text-sm font-semibold leading-5 text-ink-900" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{item.title}</p>
+                <p className="mt-1 text-xs leading-5 text-ink-600" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{item.message}</p>
               </button>
             ))}
           </div>
           <button type="button" onClick={() => { setOpen(false); router.push("/notifications"); }} className="w-full px-4 py-3 text-center text-sm font-semibold text-brand-600 hover:bg-ink-50">
             View notification history
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

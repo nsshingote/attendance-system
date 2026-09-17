@@ -1907,6 +1907,25 @@ def decide_half_day(
     return half_day_request
 
 
+@router.delete("/half-day-requests/{request_id}", response_model=dict)
+def delete_pending_half_day(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    request = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Half day request not found")
+    if request.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own half day request")
+    if request.status != "Pending":
+        raise HTTPException(status_code=400, detail="Only pending half day requests can be deleted")
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted pending half day request #{request_id}"))
+    db.delete(request)
+    db.commit()
+    return {"message": "Half day request deleted"}
+
+
 @router.post("/half-day/{user_id}", response_model=HalfDayOut, status_code=201)
 def admin_request_half_day_for_user(
     user_id: int,
@@ -2245,6 +2264,25 @@ def decide_wfh(
     db.commit()
 
     return wfh_request
+
+
+@router.delete("/wfh/{request_id}", response_model=dict)
+def delete_pending_wfh(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    request = db.query(WFHRequestModel).filter(WFHRequestModel.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="WFH request not found")
+    if request.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own WFH request")
+    if request.status != "Pending":
+        raise HTTPException(status_code=400, detail="Only pending WFH requests can be deleted")
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted pending WFH request #{request_id}"))
+    db.delete(request)
+    db.commit()
+    return {"message": "WFH request deleted"}
 
 
 @router.post("/wfh/{user_id}", response_model=WFHOut, status_code=201)

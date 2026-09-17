@@ -24,7 +24,6 @@ import {
   History,
   UserRoundCog,
   FileText,
-  FileSearch,
   X,
   Layers,
   MessageSquare,
@@ -33,7 +32,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
-import { fetchNotifications } from "@/lib/notifications";
+import api from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -47,11 +46,10 @@ const NAV_ITEMS = [
   { href: "/manage-departments", label: "Manage Departments", icon: Layers },
   { href: "/attendance", label: "Attendance", icon: CalendarCheck },
   { href: "/leave", label: "Leave", icon: Plane },
-  { href: "/daily-report", label: "Daily Report", icon: FileText },
-  { href: "/admin-reports", label: "Team Reports", icon: FileSearch },
+  { href: "/admin-reports", label: "Reports", icon: FileBarChart },
   { href: "/requests", label: "Requests", icon: ClipboardEdit },
   { href: "/holidays", label: "Holidays", icon: CalendarDays },
-  { href: "/reports", label: "Monthly Reports", icon: FileBarChart },
+  { href: "/reports", label: "Monthly Summary", icon: FileBarChart },
   { href: "/device-requests", label: "Device Requests", icon: Smartphone },
   { href: "/notification-emails", label: "Notification Emails", icon: Mail },
   { href: "/office-ip", label: "Office IPs", icon: Wifi },
@@ -68,12 +66,15 @@ interface AdminSidebarProps {
 export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
   const session = getSession();
-  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingCounts, setPendingCounts] = useState({ requests: 0, leave: 0, devices: 0, feedback: 0 });
 
   useEffect(() => {
-    fetchNotifications(0, 100).then((data) => {
-      setPendingLeaveCount(data.items.filter((item) => !item.is_read && item.notification_type === "leave.submitted").length);
-    }).catch(() => {});
+    const refresh = () => api.get<typeof pendingCounts>("/notifications/pending-request-count")
+      .then(({ data }) => setPendingCounts(data))
+      .catch(() => {});
+    refresh();
+    const timer = window.setInterval(refresh, 15000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const sidebarContent = (
@@ -111,10 +112,19 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
             >
               <Icon size={17} strokeWidth={active ? 2.4 : 2} />
               {label}
-              {href === "/leave" && pendingLeaveCount > 0 && (
+              {href === "/requests" && pendingCounts.requests > 0 && (
                 <span className="ml-auto min-w-5 rounded-full bg-brand-600 px-1.5 text-center text-[10px] font-bold leading-5 text-white">
-                  {pendingLeaveCount > 99 ? "99+" : pendingLeaveCount}
+                  {pendingCounts.requests > 99 ? "99+" : pendingCounts.requests}
                 </span>
+              )}
+              {href === "/leave" && pendingCounts.leave > 0 && (
+                <span className="ml-auto min-w-5 rounded-full bg-brand-600 px-1.5 text-center text-[10px] font-bold leading-5 text-white">{pendingCounts.leave > 99 ? "99+" : pendingCounts.leave}</span>
+              )}
+              {href === "/device-requests" && pendingCounts.devices > 0 && (
+                <span className="ml-auto min-w-5 rounded-full bg-brand-600 px-1.5 text-center text-[10px] font-bold leading-5 text-white">{pendingCounts.devices > 99 ? "99+" : pendingCounts.devices}</span>
+              )}
+              {href === "/feedback" && pendingCounts.feedback > 0 && (
+                <span className="ml-auto min-w-5 rounded-full bg-brand-600 px-1.5 text-center text-[10px] font-bold leading-5 text-white">{pendingCounts.feedback > 99 ? "99+" : pendingCounts.feedback}</span>
               )}
             </Link>
           );

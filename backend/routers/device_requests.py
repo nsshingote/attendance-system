@@ -88,7 +88,7 @@ def decide_device_request(
     db.add(
         ActivityLog(
             user_id=current_user.id,
-            activity=f"{payload.status} device request #{device_request.id}",
+            activity=f"{payload.status} device request #{device_request.id} for {employee.name if employee else f'user #{device_request.user_id}'}",
         )
     )
     db.commit()

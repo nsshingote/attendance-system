@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus, Check, X, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Check, X, Trash2, Calendar as CalendarIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
 import { useSession, isAdmin } from "@/lib/auth";
@@ -338,6 +338,23 @@ export default function LeavePage() {
     }
   };
 
+  const handleDeleteRequest = async (request: UnifiedRequestRow) => {
+    if (request.status !== "Pending") return;
+    if (!window.confirm(`Delete this pending ${request.type.toLowerCase()} request?`)) return;
+    const endpoint = request.type === "Leave"
+      ? `/leave/${request.id}`
+      : request.type === "Half Day"
+        ? `/attendance/half-day-requests/${request.id}`
+        : `/attendance/wfh/${request.id}`;
+    try {
+      await api.delete(endpoint);
+      toast.success(`${request.type} request deleted`);
+      fetchAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   // Merge my leave + half-day + WFH requests into one unified list
   const unifiedMyRequests: UnifiedRequestRow[] = [
     ...myRequests.map((r) => ({
@@ -550,6 +567,7 @@ export default function LeavePage() {
                             <th className="px-4 py-3 font-medium">Details</th>
                             <th className="px-4 py-3 font-medium">Reason</th>
                             <th className="px-4 py-3 font-medium">Status</th>
+                            <th className="px-4 py-3 text-right font-medium">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-ink-100">
@@ -579,6 +597,18 @@ export default function LeavePage() {
                               </td>
                               <td className="px-4 py-3">
                                 <Badge status={r.status} />
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                {r.status === "Pending" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRequest(r)}
+                                    className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
+                                    aria-label={`Delete ${r.type} request`}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}

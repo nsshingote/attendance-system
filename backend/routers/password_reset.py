@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from auth import hash_password
 from database import get_db
-from models import User, PasswordResetToken
+from models import ActivityLog, User, PasswordResetToken
 from schemas import PasswordResetRequest, PasswordResetConfirm
 from utils.email_service import send_password_reset_email
 from config import settings
@@ -50,6 +50,7 @@ def forgot_password(payload: PasswordResetRequest, db: Session = Depends(get_db)
 
     reset_token = PasswordResetToken(user_id=user.id, token=token, expires_at=expires_at)
     db.add(reset_token)
+    db.add(ActivityLog(user_id=user.id, activity="Requested password reset"))
     db.commit()
 
     reset_link = f"{_frontend_origin()}/reset-password?token={quote(token, safe='')}"
@@ -85,6 +86,7 @@ def reset_password(payload: PasswordResetConfirm, db: Session = Depends(get_db))
 
     user.password_hash = hash_password(payload.new_password)
     db.delete(reset_token)
+    db.add(ActivityLog(user_id=user.id, activity="Completed password reset"))
     db.commit()
     logger.info("Password reset token consumed for user_id=%s", user.id)
 

@@ -166,6 +166,10 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     item = SalarySlip(employee_id=employee.id, month=payload.month, year=payload.year, particulars=json.dumps(particulars),
                       total_amount=total, status="Saved", created_by=current_user.id)
     db.add(item)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Uploaded personal document '{item.title}'",
+    ))
     db.commit()
     db.refresh(item)
     if payload.send and employee.email:
@@ -597,6 +601,10 @@ async def request_personal_document_replace(
         pending_file_size=len(file_bytes),
     )
     db.add(request)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Requested replacement of personal document '{item.title}'",
+    ))
     for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
         create_notification(
             db,
@@ -622,6 +630,10 @@ def request_personal_document_delete(document_id: int, db: Session = Depends(get
         raise HTTPException(status_code=409, detail="A change request is already pending for this document")
     request = PersonalDocumentChangeRequest(employee_id=current_user.id, document_id=document_id, request_type="delete")
     db.add(request)
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        activity=f"Requested deletion of personal document '{item.title}'",
+    ))
     for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
         create_notification(
             db,
