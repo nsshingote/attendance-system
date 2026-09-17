@@ -10,7 +10,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
-import { LayoutDashboard, CalendarCheck, Plane, ClipboardEdit, MessageSquare, ContactRound, X, BookOpen, Users, FileBarChart, NotebookPen } from "lucide-react";
+import { LayoutDashboard, CalendarCheck, Plane, ClipboardEdit, MessageSquare, ContactRound, X, BookOpen, Users, FileBarChart, FileText, NotebookPen } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 import api from "@/lib/api";
@@ -22,6 +22,7 @@ const EMPLOYEE_NAV_ITEMS = [
   { href: "/attendance", label: "My Attendance", icon: CalendarCheck },
   { href: "/leave", label: "My Leave", icon: Plane },
   { href: "/corrections", label: "Corrections", icon: ClipboardEdit },
+  { href: "/daily-report", label: "Daily Report", icon: FileText },
   { href: "/feedback", label: "Feedback", icon: MessageSquare },
 ];
 
