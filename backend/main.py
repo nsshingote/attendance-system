@@ -37,6 +37,7 @@ from routers import (
     teams,
     notifications,
     recycle_bin,
+    changed_logs,
 )
 from services.recycle_bin import purge_expired
 
@@ -171,6 +172,7 @@ app.include_router(permissions.router, prefix="/permissions", tags=["Permissions
 app.include_router(teams.router, prefix="/teams", tags=["Teams"])
 app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 app.include_router(recycle_bin.router, prefix="/recycle-bin", tags=["Recycle Bin"])
+app.include_router(changed_logs.router, prefix="/changed-logs", tags=["Changed Logs"])
 
 
 @app.get("/")

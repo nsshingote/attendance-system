@@ -20,7 +20,7 @@ from team_scope import require_team_member_access, require_team_permission, get_
 from config import settings
 from database import get_db
 from models import (
-    User, ActivityLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, PersonalDocumentChangeRequest,
+    User, ActivityLog, ChangedLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, PersonalDocumentChangeRequest,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
@@ -198,7 +198,18 @@ def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDeci
     if item.status != "Pending": raise HTTPException(status_code=409, detail="This request has already been decided")
     item.status, item.approved_by, item.decided_at = payload.status, current_user.id, datetime.utcnow()
     if payload.status == "Approved":
-        for field, value in json.loads(item.requested_data).items(): setattr(item.employee, field, value)
+        for field, value in json.loads(item.requested_data).items():
+            old_value = getattr(item.employee, field)
+            if str(old_value or "") != str(value or ""):
+                db.add(ChangedLog(
+                    employee_id=item.employee_id,
+                    changed_by=current_user.id,
+                    category=item.section,
+                    item_name=field.replace("_", " ").title(),
+                    old_value=str(old_value or ""),
+                    new_value=str(value or ""),
+                ))
+            setattr(item.employee, field, value)
     db.add(ActivityLog(user_id=current_user.id, activity=f"{payload.status} {item.section.replace('_', ' ')} edit request for {item.employee.name}"))
     if item.employee_id != current_user.id:
         create_notification(

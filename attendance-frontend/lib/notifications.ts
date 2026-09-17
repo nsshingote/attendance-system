@@ -43,3 +43,21 @@ export async function markAllNotificationsRead(): Promise<number> {
 export function isSafeNotificationRoute(route: string | null): route is string {
   return Boolean(route && route.startsWith("/") && !route.startsWith("//") && !route.includes("://"));
 }
+
+export function getNotificationRoute(item: Pick<NotificationItem, "route" | "notification_type">): string | null {
+  if (isSafeNotificationRoute(item.route)) return item.route;
+  const prefix = item.notification_type.split(".", 1)[0];
+  const fallbackRoutes: Record<string, string> = {
+    leave: "/leave",
+    wfh: "/attendance",
+    half_day: "/attendance",
+    attendance_correction: "/corrections",
+    profile_edit: "/requests",
+    employee_document: "/employee-documents",
+    salary_slip: "/employee-documents",
+    device: "/device-requests",
+    report: "/admin-reports",
+    feedback: "/feedback",
+  };
+  return fallbackRoutes[prefix] ?? null;
+}

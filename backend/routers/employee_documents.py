@@ -14,10 +14,11 @@ from auth import get_current_user, require_admin
 from team_scope import require_team_member_access
 from config import settings
 from database import get_db
-from models import ActivityLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
+from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
 from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate
 from utils.email_service import send_email
 from services.notifications import create_notification, get_admin_user_ids
+from services.recycle_bin import archive_object
 
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "personal_documents"
@@ -671,6 +672,16 @@ def decide_personal_document_request(request_id: int, payload: PersonalDocumentR
     pending_path = Path(request.pending_file_path) if request.pending_file_path else None
     if payload.status == "Approved" and document:
         if request.request_type == "replace":
+            old_document_name = document.original_filename or document.file_name or document.title
+            new_document_name = request.pending_original_filename or request.pending_file_name or old_document_name
+            db.add(ChangedLog(
+                employee_id=document.employee_id,
+                changed_by=current_user.id,
+                category="document",
+                item_name=document.title,
+                old_value=old_document_name,
+                new_value=new_document_name,
+            ))
             old_path = _personal_document_path(document)
             if old_path.is_file() and old_path != pending_path:
                 old_path.unlink()
@@ -680,9 +691,15 @@ def decide_personal_document_request(request_id: int, payload: PersonalDocumentR
             document.mime_type = request.pending_mime_type
             document.file_size = request.pending_file_size or 0
         else:
-            old_path = _personal_document_path(document)
-            if old_path.is_file():
-                old_path.unlink()
+            db.add(ChangedLog(
+                employee_id=document.employee_id,
+                changed_by=current_user.id,
+                category="document",
+                item_name=document.title,
+                old_value=document.original_filename or document.file_name or document.title,
+                new_value="[Deleted]",
+            ))
+            archive_object(db, document, deleted_by=current_user.id)
             db.delete(document)
     elif payload.status == "Rejected" and pending_path and pending_path.is_file():
         pending_path.unlink()
@@ -713,12 +730,7 @@ def delete_personal_document(document_id: int, db: Session = Depends(get_db), cu
         raise HTTPException(status_code=403, detail="Submit a delete request for approval")
     if current_user.role not in {"admin", "superadmin"} and current_user.id != item.employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
-    file_path = _personal_document_path(item)
-    if file_path.is_file():
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass
+    archive_object(db, item, deleted_by=current_user.id)
     db.delete(item)
     db.commit()
     return {"message": "Document deleted"}

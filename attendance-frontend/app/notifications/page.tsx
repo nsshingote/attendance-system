@@ -1,19 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import {
   fetchNotifications,
-  isSafeNotificationRoute,
+  getNotificationRoute,
   markAllNotificationsRead,
   markNotificationRead,
   NotificationItem,
 } from "@/lib/notifications";
 
 export default function NotificationsPage() {
-  const router = useRouter();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -39,7 +37,8 @@ export default function NotificationsPage() {
     try {
       const updated = item.is_read ? item : await markNotificationRead(item.id);
       setItems((current) => current.map((entry) => entry.id === item.id ? updated : entry));
-      if (isSafeNotificationRoute(item.route)) router.push(item.route);
+      const route = getNotificationRoute(item);
+      if (route) window.location.assign(route);
     } catch {
       toast.error("Unable to mark notification as read");
     }

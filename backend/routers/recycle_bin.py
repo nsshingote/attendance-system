@@ -11,11 +11,18 @@ router = APIRouter()
 
 @router.get("/")
 def get_recycle_bin(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    entries = list_entries(db)
+    actor_ids = {item.deleted_by for item in entries if item.deleted_by is not None}
+    actors = {
+        user.id: user.name
+        for user in db.query(User).filter(User.id.in_(actor_ids)).all()
+    } if actor_ids else {}
     return [{
         "id": item.id,
         "table_name": item.table_name,
         "record_id": item.record_id,
         "label": item.record_label,
+        "deleted_by": actors.get(item.deleted_by),
         "deleted_at": item.deleted_at,
         "expires_at": item.expires_at,
     } for item in list_entries(db)]

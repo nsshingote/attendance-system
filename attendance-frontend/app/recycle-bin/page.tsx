@@ -12,6 +12,7 @@ type Entry = {
   table_name: string;
   record_id: number;
   label: string;
+  deleted_by: string | null;
   deleted_at: string;
   expires_at: string;
 };
@@ -50,7 +51,9 @@ export default function RecycleBinPage() {
             <div className="divide-y divide-ink-100">{entries.map((entry) => (
               <div key={entry.id} className="flex items-center justify-between gap-4 p-4">
                 <div><p className="font-medium text-ink-900">{entry.label}</p>
-                  <p className="text-xs text-ink-500">{entry.table_name} · deleted {formatStoredUtc(entry.deleted_at)} · expires {formatStoredUtc(entry.expires_at, false)}</p></div>
+                  <p className="text-xs text-ink-500">
+                    {entry.table_name} · deleted by {entry.deleted_by ?? "System"} · {formatStoredUtc(entry.deleted_at)} · expires {formatStoredUtc(entry.expires_at, false)}
+                  </p></div>
                 <div className="flex gap-2"><button onClick={() => restore(entry.id)} className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700"><RotateCcw size={15} /></button>
                   <button onClick={() => destroy(entry.id)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"><Trash2 size={15} /></button></div>
               </div>

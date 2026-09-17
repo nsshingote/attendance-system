@@ -2,14 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, CheckCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { createPortal } from "react-dom";
 import {
   fetchNotifications,
-  isSafeNotificationRoute,
   markAllNotificationsRead,
   markNotificationRead,
+  getNotificationRoute,
   NotificationItem,
 } from "@/lib/notifications";
 import { NotificationRealtime } from "@/lib/notificationRealtime";
@@ -20,14 +19,15 @@ function mergeNotifications(items: NotificationItem[]): NotificationItem[] {
 }
 
 export default function NotificationBell() {
-  const router = useRouter();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const knownNotificationIds = useRef(new Set<number>());
+  const suppressRefreshUntil = useRef(0);
 
   const refresh = useCallback(async () => {
+    if (Date.now() < suppressRefreshUntil.current) return;
     try {
       const data = await fetchNotifications(0, 20);
       const unreadItems = data.items.filter((item) => !item.is_read);
@@ -41,6 +41,9 @@ export default function NotificationBell() {
 
   useEffect(() => {
     const refreshTimer = setTimeout(() => { refresh(); }, 0);
+    const refreshOnFocus = () => refresh();
+    const pollingTimer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refreshOnFocus);
     const realtime = new NotificationRealtime({
       onEvent: (event) => {
         if (event.type === "notification") {
@@ -58,6 +61,8 @@ export default function NotificationBell() {
     realtime.start();
     return () => {
       clearTimeout(refreshTimer);
+      clearInterval(pollingTimer);
+      window.removeEventListener("focus", refreshOnFocus);
       realtime.stop();
     };
   }, [refresh]);
@@ -91,17 +96,20 @@ export default function NotificationBell() {
         return;
       }
     }
-    if (isSafeNotificationRoute(item.route)) {
+    const route = getNotificationRoute(item);
+    if (route) {
       setOpen(false);
-      router.push(item.route);
+      window.location.assign(route);
     }
   };
 
   const handleReadAll = async () => {
     try {
       await markAllNotificationsRead();
+      suppressRefreshUntil.current = Date.now() + 2000;
       setItems([]);
       setUnreadCount(0);
+      setOpen(false);
     } catch {
       toast.error("Unable to mark notifications as read");
     }
@@ -156,7 +164,7 @@ export default function NotificationBell() {
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => { setOpen(false); router.push("/notifications"); }} className="w-full px-4 py-3 text-center text-sm font-semibold text-brand-600 hover:bg-ink-50">
+          <button type="button" onClick={() => { setOpen(false); window.location.assign("/notifications"); }} className="w-full px-4 py-3 text-center text-sm font-semibold text-brand-600 hover:bg-ink-50">
             View notification history
           </button>
         </div>,

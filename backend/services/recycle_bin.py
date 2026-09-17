@@ -35,6 +35,17 @@ def archive_object(
          if values.get(key)),
         f"{mapper.local_table.name} #{record_id}",
     )
+    if mapper.local_table.name == "leave_requests":
+        employee = getattr(obj, "user", None)
+        employee_name = getattr(employee, "name", None)
+        if employee_name:
+            label = f"Leave request for {employee_name} ({values.get('from_date')} to {values.get('to_date')})"
+    elif mapper.local_table.name == "employee_personal_documents":
+        employee = getattr(obj, "employee", None)
+        employee_name = getattr(employee, "name", None)
+        document_name = values.get("title") or values.get("original_filename") or values.get("file_name")
+        if employee_name and document_name:
+            label = f"{document_name} ({employee_name})"
     db.add(RecycleBinEntry(
         table_name=mapper.local_table.name,
         record_id=record_id,

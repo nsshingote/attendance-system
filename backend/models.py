@@ -573,6 +573,22 @@ class ActivityLog(Base):
     user = relationship("User", back_populates="activity_logs")
 
 
+class ChangedLog(Base):
+    __tablename__ = "changed_logs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    changed_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    category = Column(String(100), nullable=False)
+    item_name = Column(String(255), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), index=True)
+
+    employee = relationship("User", foreign_keys=[employee_id])
+    actor = relationship("User", foreign_keys=[changed_by])
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 
