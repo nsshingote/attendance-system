@@ -200,6 +200,7 @@ export default function MyProfilePage() {
 
   const handleBasicSave = async (event: FormEvent) => {
     event.preventDefault();
+    if (!editingBasic) return;
     try {
       const { data } = await api.put<User>("/users/me/profile", {
         email: profileForm.email,
@@ -592,7 +593,20 @@ export default function MyProfilePage() {
                     </dl>
                     <div className="mt-5 flex gap-2">
                       {!editingBasic ? (
-                        <button type="button" onClick={() => setEditingBasic(true)} className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setProfileForm((previous) => ({
+                              ...previous,
+                              email: profile.email || "",
+                              mobile: profile.mobile || "",
+                            }));
+                            setEditingBasic(true);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium"
+                        >
                           <Pencil size={14} /> Edit email/phone
                         </button>
                       ) : (

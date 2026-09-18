@@ -21,14 +21,26 @@ router = APIRouter()
 VALID_APPLIES_TO = {"all_users", "specific_users", "office", "onsite", "specific_teams"}
 
 
-def _holiday_out(holiday: Holiday) -> dict:
+def _holiday_out(db: Session, holiday: Holiday) -> dict:
+    user_ids = json.loads(holiday.target_user_ids_json or "[]")
+    team_ids = json.loads(holiday.target_team_ids_json or "[]")
+    users_by_id = {
+        user.id: user.name
+        for user in db.query(User).filter(User.id.in_(user_ids)).all()
+    } if user_ids else {}
+    teams_by_id = {
+        team.id: team.name
+        for team in db.query(Team).filter(Team.id.in_(team_ids)).all()
+    } if team_ids else {}
     return {
         "id": holiday.id,
         "holiday_date": holiday.holiday_date,
         "holiday_name": holiday.holiday_name,
         "applies_to": holiday.applies_to,
-        "user_ids": json.loads(holiday.target_user_ids_json or "[]"),
-        "team_ids": json.loads(holiday.target_team_ids_json or "[]"),
+        "user_ids": user_ids,
+        "team_ids": team_ids,
+        "user_names": [users_by_id[user_id] for user_id in user_ids if user_id in users_by_id],
+        "team_names": [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id],
         "created_by": holiday.created_by,
         "created_at": holiday.created_at,
     }
@@ -44,7 +56,7 @@ def list_holidays(
     query = db.query(Holiday)
     if year:
         query = query.filter(Holiday.holiday_date.between(f"{year}-01-01", f"{year}-12-31"))
-    return [_holiday_out(holiday) for holiday in query.order_by(Holiday.holiday_date).all()]
+    return [_holiday_out(db, holiday) for holiday in query.order_by(Holiday.holiday_date).all()]
 
 
 @router.post("/", response_model=HolidayOut, status_code=201)
@@ -76,7 +88,7 @@ def add_holiday(
     db.add(ActivityLog(user_id=current_user.id, activity=f"Added holiday '{payload.holiday_name}'"))
     db.commit()
     db.refresh(holiday)
-    return _holiday_out(holiday)
+    return _holiday_out(db, holiday)
 
 
 @router.delete("/{holiday_id}")

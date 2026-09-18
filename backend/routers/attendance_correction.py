@@ -9,13 +9,13 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
 from database import get_db
-from models import User, Attendance, AttendanceCorrection, Holiday
+from models import User, Attendance, AttendanceCorrection
 from schemas import (
     CorrectionOut, CorrectionCreate, CorrectionDecision
 )
 from auth import get_current_user, require_roles
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
-from utils.attendance_status import determine_attendance_status_for_date
+from utils.attendance_status import applicable_holiday, determine_attendance_status_for_date
 from utils.logger import log_activity
 from services.notifications import create_notification, get_approver_user_ids
 
@@ -273,7 +273,7 @@ def decide_correction(
             # Recalculate status based on new times
             if attendance.check_in:
                 # Check if it's a holiday first
-                holiday = db.query(Holiday).filter(Holiday.holiday_date == attendance.attendance_date).first()
+                holiday = applicable_holiday(db, attendance.user_id, attendance.attendance_date)
                 if holiday:
                     attendance.status = "Holiday"
                 else:

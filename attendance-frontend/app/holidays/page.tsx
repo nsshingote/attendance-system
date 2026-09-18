@@ -20,6 +20,10 @@ interface Holiday {
   holiday_date: string;
   holiday_name: string;
   applies_to: string;
+  user_ids: number[];
+  team_ids: number[];
+  user_names: string[];
+  team_names: string[];
 }
 
 interface UserOption {
@@ -86,6 +90,14 @@ export default function HolidaysPage() {
   const handleAdd = async () => {
     if (!newDate || !newName) {
       toast.error("Please provide both a date and name");
+      return;
+    }
+    if (appliesTo === "specific_users" && selectedUserIds.length === 0) {
+      toast.error("Please select at least one user");
+      return;
+    }
+    if (appliesTo === "specific_teams" && selectedTeamIds.length === 0) {
+      toast.error("Please select at least one team");
       return;
     }
     setSubmitting(true);
@@ -247,7 +259,15 @@ export default function HolidaysPage() {
                 <div>
                   <p className="font-medium text-ink-900">{h.holiday_name}</p>
                   <p className="text-sm text-ink-500">{format(parseISO(h.holiday_date), "EEEE, dd MMM yyyy")}</p>
-                  <p className="text-xs text-ink-500">{h.applies_to.replace("_", " ")}</p>
+                  <p className="text-xs capitalize text-ink-500">
+                    {h.applies_to.replace("_", " ")}
+                    {h.applies_to === "specific_users" && h.user_ids?.length
+                      ? `: ${(h.user_names?.length ? h.user_names : h.user_ids.map((id) => users.find((user) => user.id === id)?.name || `User #${id}`)).join(", ")}`
+                      : ""}
+                    {h.applies_to === "specific_teams" && h.team_ids?.length
+                      ? `: ${(h.team_names?.length ? h.team_names : h.team_ids.map((id) => teams.find((team) => team.id === id)?.name || `Team #${id}`)).join(", ")}`
+                      : ""}
+                  </p>
                 </div>
                 {admin && (
                   <button

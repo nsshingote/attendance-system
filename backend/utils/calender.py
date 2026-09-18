@@ -20,7 +20,7 @@ def get_month_dates(year: int, month: int) -> List[date]:
     return [date(year, month, day) for day in range(1, days_in_month + 1)]
 
 
-def get_holidays_in_month(db: Session, year: int, month: int) -> Dict[str, str]:
+def get_holidays_in_month(db: Session, year: int, month: int, user_id: int | None = None) -> Dict[str, str]:
     """Returns {iso_date: holiday_name} for holidays falling within the month."""
     start_date = date(year, month, 1)
     _, days_in_month = pycalendar.monthrange(year, month)
@@ -31,17 +31,24 @@ def get_holidays_in_month(db: Session, year: int, month: int) -> Dict[str, str]:
         .filter(Holiday.holiday_date.between(start_date, end_date))  # FIXED: holiday_date
         .all()
     )
-    return {h.holiday_date.isoformat(): h.holiday_name for h in holidays}
+    if user_id is None:
+        return {h.holiday_date.isoformat(): h.holiday_name for h in holidays if h.applies_to == "all_users"}
+    from utils.attendance_status import holiday_applies_to_user
+    return {
+        h.holiday_date.isoformat(): h.holiday_name
+        for h in holidays
+        if holiday_applies_to_user(db, h, user_id)
+    }
 
 
-def build_month_calendar(db: Session, year: int, month: int) -> List[Dict]:
+def build_month_calendar(db: Session, year: int, month: int, user_id: int | None = None) -> List[Dict]:
     """
     Builds a base calendar structure for the month with day-type tags:
     'holiday', 'weekly_off', or 'working_day'. Attendance data is merged
     in separately by the calling router.
     """
     company_settings = get_company_settings(db)
-    holidays_map = get_holidays_in_month(db, year, month)
+    holidays_map = get_holidays_in_month(db, year, month, user_id)
 
     result = []
     for d in get_month_dates(year, month):

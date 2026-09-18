@@ -7,7 +7,7 @@ from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Literal
 
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 
 
 # =========================================================
@@ -570,8 +570,8 @@ class HolidayCreate(BaseModel):
     holiday_date: date
     holiday_name: str
     applies_to: str = "all_users"
-    user_ids: list[int] = []
-    team_ids: list[int] = []
+    user_ids: list[int] = Field(default_factory=list)
+    team_ids: list[int] = Field(default_factory=list)
 
 
 class HolidayOut(ORMBase):
@@ -579,8 +579,10 @@ class HolidayOut(ORMBase):
     holiday_date: date
     holiday_name: str
     applies_to: str
-    user_ids: list[int] = []
-    team_ids: list[int] = []
+    user_ids: list[int] = Field(default_factory=list)
+    team_ids: list[int] = Field(default_factory=list)
+    user_names: list[str] = Field(default_factory=list)
+    team_names: list[str] = Field(default_factory=list)
     created_by: int
     created_at: datetime
 

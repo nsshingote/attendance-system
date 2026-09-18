@@ -21,7 +21,7 @@ from schemas import (
     TodayAttendanceOut
 )
 from auth import get_current_user, require_roles
-from utils.attendance_status import get_today_attendance_status, determine_attendance_status_for_date
+from utils.attendance_status import get_today_attendance_status, determine_attendance_status_for_date, applicable_holiday
 from utils.logger import log_activity
 from utils.date_helpers import iso_with_offset
 
@@ -129,7 +129,7 @@ def get_admin_dashboard(
     extra_working_day_count = sum(1 for status in today_status_map.values() if status == "Extra Working Day")
 
     # Check if today is a holiday
-    is_holiday = db.query(Holiday).filter(Holiday.holiday_date == today).first() is not None
+    is_holiday = any(applicable_holiday(db, employee.id, today) for employee in employees)
 
     absent_count = sum(
         1 for status in today_status_map.values()

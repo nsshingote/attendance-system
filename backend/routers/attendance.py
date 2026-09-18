@@ -425,7 +425,7 @@ def _mark_absent_records_for_date_range(
                 continue
             if (user_id, target_date) in existing_pairs:
                 continue
-            if target_date in holiday_dates:
+            if applicable_holiday(db, user_id, target_date):
                 continue
             if (user_id, target_date) in approved_wfh_keys:
                 continue
@@ -459,7 +459,7 @@ def _determine_attendance_status_for_record(
         return record.status
     if (record.user_id, record.attendance_date) in approved_wfh_keys:
         return "WFH"
-    if record.attendance_date in holiday_dates and not _is_working_day(db, record.user_id, record.attendance_date):
+    if applicable_holiday(db, record.user_id, record.attendance_date) and not _is_working_day(db, record.user_id, record.attendance_date):
         return "Holiday"
     if record.status == "On Leave":
         return "On Leave"
@@ -545,7 +545,7 @@ def check_in(
         status_value = "Present" if onsite else calculate_status(ist_now, db)
     elif is_weekly_off(today, db):
         status_value = "Present"
-    elif applicable_holiday(db, user.id, today):
+    elif applicable_holiday(db, current_user.id, today):
         status_value = "Holiday"
     else:
         status_value = "Present" if onsite else calculate_status(ist_now, db)
@@ -1139,7 +1139,7 @@ def attendance_calendar(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-    calendar_days = build_month_calendar(db, year, month)
+    calendar_days = build_month_calendar(db, year, month, target_user_id)
     
     # Get attendance records for the month
     start_date = date(year, month, 1)
@@ -1635,7 +1635,7 @@ def manual_update(
         if requested_status in ("Present", "Late", "Half Day", "Absent", "Extra Working Day"):
             try:
                 # Use helpers to detect holiday or weekly off
-                holiday_row = db.query(Holiday).filter(Holiday.holiday_date == record.attendance_date).first()
+                holiday_row = applicable_holiday(db, record.user_id, record.attendance_date)
             except Exception:
                 holiday_row = None
             if (is_weekly_off(record.attendance_date, db) or holiday_row) and not _is_working_day(db, record.user_id, record.attendance_date):
@@ -1736,7 +1736,7 @@ def manual_update_by_user_date(
         # as a working day for this employee only.
         if update_data["status"] in ("Present", "Late", "Half Day", "Absent", "Extra Working Day"):
             try:
-                holiday_row = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
+                holiday_row = applicable_holiday(db, user_id, target_date)
             except Exception:
                 holiday_row = None
             if (is_weekly_off(target_date, db) or holiday_row) and not _is_working_day(db, user_id, target_date):

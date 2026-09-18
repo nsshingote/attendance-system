@@ -129,7 +129,9 @@ export default function ReportStructurePage() {
       });
       setDefaultRows(defaultRes.data);
       const existingDefaults = defaultRes.data
-        .filter((r: DefaultRow) => r.is_default === true)
+        // MySQL may serialize the TINYINT flag as 1 instead of true.
+        // Normalize both representations so saved defaults are visibly checked.
+        .filter((r: DefaultRow) => r.is_default === true || Number(r.is_default) === 1)
         .map((r: DefaultRow) => r.subtype_id);
       setSelectedDefaults(existingDefaults);
     } catch (error) {
