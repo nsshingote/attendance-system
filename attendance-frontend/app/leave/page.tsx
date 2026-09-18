@@ -600,7 +600,7 @@ export default function LeavePage() {
                   <>
                     {/* Leave, Half Day, and WFH Requests table */}
                     {unifiedMyRequests.length > 0 && (
-                      <table className="w-full table-fixed text-left text-sm">
+                      <table className="w-full min-w-[760px] table-fixed text-left text-sm">
                         <thead>
                           <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                             <th className="px-4 py-3 font-medium">Type</th>
@@ -662,7 +662,7 @@ export default function LeavePage() {
                         <div className="border-t border-ink-200 px-4 py-2 bg-ink-50/50">
                           <h4 className="text-xs font-semibold text-ink-600 uppercase tracking-wider">Encashment Requests</h4>
                         </div>
-                        <table className="w-full text-left text-sm">
+                        <table className="w-full min-w-[760px] text-left text-sm">
                           <thead>
                             <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                               <th className="px-4 py-3 font-medium">Days</th>
@@ -708,7 +708,7 @@ export default function LeavePage() {
                     <p className="text-sm text-ink-500">No half day requests found.</p>
                   </div>
                 ) : (
-                  <table className="w-full table-fixed text-left text-sm">
+                  <table className="w-full min-w-[820px] table-fixed text-left text-sm">
                     <thead>
                       <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                         <th className="px-4 py-3 font-medium">Employee</th>
@@ -771,7 +771,7 @@ export default function LeavePage() {
                     <p className="text-sm text-ink-500">No WFH requests found.</p>
                   </div>
                 ) : (
-                  <table className="w-full table-fixed text-left text-sm">
+                  <table className="w-full min-w-[820px] table-fixed text-left text-sm">
                     <thead>
                       <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                         <th className="px-4 py-3 font-medium">Employee</th>
@@ -832,7 +832,7 @@ export default function LeavePage() {
                     <p className="text-sm text-ink-500">No pending encashment requests.</p>
                   </div>
                 ) : (
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full min-w-[820px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                         <th className="px-4 py-3 font-medium">Employee</th>

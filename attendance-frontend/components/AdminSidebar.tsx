@@ -101,7 +101,7 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname?.startsWith(`${href}/`);
           return (
@@ -141,7 +141,7 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
   // Mobile: render with overlay
   if (isMobile) {
     return (
-      <div className="h-full w-72 bg-white shadow-xl">
+      <div className="flex h-full min-h-0 w-72 flex-col overflow-hidden bg-white shadow-xl">
         {sidebarContent}
       </div>
     );
@@ -149,7 +149,7 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
 
   // Desktop: render as sidebar
   return (
-    <aside className="hidden lg:flex h-full w-60 shrink-0 flex-col border-r border-ink-200 bg-white">
+    <aside className="hidden h-full min-h-0 w-60 shrink-0 flex-col border-r border-ink-200 bg-white lg:flex">
       {sidebarContent}
     </aside>
   );

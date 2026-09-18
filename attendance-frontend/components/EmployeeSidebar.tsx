@@ -62,7 +62,7 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
     });
 
   return (
-    <aside className="flex h-full w-full lg:w-60 flex-col border-r border-ink-200 bg-white">
+    <aside className="flex h-full min-h-0 w-full flex-col border-r border-ink-200 bg-white lg:w-60">
       <div className="flex h-16 items-center justify-between border-b border-ink-200 px-5">
         <div className="flex items-center gap-2">
           <img src="/logo.jpg" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
@@ -82,7 +82,7 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname?.startsWith(`${href}/`);
           return (
