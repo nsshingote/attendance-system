@@ -15,7 +15,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, hash_password, require_admin, require_superadmin
+from auth import get_current_user, has_permission, hash_password, require_admin, require_admin_permission, require_superadmin
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
 from config import settings
 from database import get_db
@@ -51,6 +51,8 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if current_user.role == "admin" and not has_permission(current_user, "employees.all_view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view all users")
     team_member_ids = require_team_permission(db, current_user, "employees.team_view")
     query = db.query(User)
     if current_user.role == "team_leader":
@@ -193,6 +195,8 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
 def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     profile_query = db.query(EmployeeProfileEditRequest)
     document_query = db.query(PersonalDocumentChangeRequest)
+    if current_user.role == "admin" and not has_permission(current_user, "requests.view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view requests")
     if current_user.role == "team_leader":
         team_ids = [current_user.id, *require_team_permission(db, current_user, "employees.team_view")]
         profile_query = profile_query.filter(EmployeeProfileEditRequest.employee_id.in_(team_ids))
@@ -208,7 +212,7 @@ def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depen
 
 
 @router.post("/profile-edit-requests/{request_id}/decision")
-def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.manage"))):
     item = db.query(EmployeeProfileEditRequest).filter(EmployeeProfileEditRequest.id == request_id).first()
     if not item: raise HTTPException(status_code=404, detail="Profile edit request not found")
     if item.status != "Pending": raise HTTPException(status_code=409, detail="This request has already been decided")
@@ -292,6 +296,8 @@ def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = D
         raise HTTPException(status_code=403, detail="Not authorized to view this user")
     if current_user.role == "team_leader" and current_user.id != user_id:
         require_team_member_access(db, current_user, user_id, "employees.team_view")
+    if current_user.role == "admin" and current_user.id != user_id and not has_permission(current_user, "employees.all_view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view this user")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -303,7 +309,7 @@ def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = D
 def create_user(
     payload: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     if payload.role == "admin" and current_user.role != "superadmin":
         raise HTTPException(status_code=403, detail="Only Super Admin can create Admin accounts")
@@ -356,7 +362,7 @@ def update_user(
     user_id: int,
     payload: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -453,7 +459,7 @@ def deactivate_user(
 def reset_user_device(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     """Clears a user's registered device so they can register a new one on next login."""
     user = db.query(User).filter(User.id == user_id).first()
@@ -490,7 +496,7 @@ def reset_user_device(
 def list_user_departments(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -505,7 +511,7 @@ def assign_user_department(
     user_id: int,
     payload: UserDepartmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -554,7 +560,7 @@ def set_primary_department(
     user_id: int,
     payload: UserDepartmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     assignment = db.query(UserDepartment).filter(
         UserDepartment.user_id == user_id,
@@ -587,7 +593,7 @@ def remove_user_department(
     user_id: int,
     assignment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
     assignment = db.query(UserDepartment).filter(
         UserDepartment.id == assignment_id,

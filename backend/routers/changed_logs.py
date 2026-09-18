@@ -1,13 +1,27 @@
+from datetime import timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from auth import require_admin
+from auth import require_admin_permission
 from database import get_db
 from models import ChangedLog, User
 
 router = APIRouter()
+
+
+def _as_utc_iso(value):
+    """Return database timestamps with an explicit UTC offset for clients.
+
+    MySQL returns TIMESTAMP/DATETIME values without tzinfo.  The database is
+    operated in UTC, so leaving the offset out makes browsers guess the zone.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def record_changed_log(
@@ -35,7 +49,7 @@ def list_changed_logs(
     employee_id: Optional[int] = None,
     limit: int = Query(5000, ge=1, le=5000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("changed_logs.view")),
 ):
     query = db.query(ChangedLog).order_by(ChangedLog.created_at.desc())
     if employee_id is not None:
@@ -52,7 +66,7 @@ def list_changed_logs(
             "item_name": row.item_name,
             "old_value": row.old_value,
             "new_value": row.new_value,
-            "created_at": row.created_at,
+            "created_at": _as_utc_iso(row.created_at),
         }
         for row in rows
     ]

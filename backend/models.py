@@ -962,6 +962,15 @@ def _snapshot_explicit_deletes(session, flush_context, instances):
                 f"Leave request for user #{values.get('user_id')} "
                 f"({values.get('from_date')} to {values.get('to_date')})"
             )
+        elif mapper.local_table.name == "team_members":
+            # These association rows only contain IDs.  Use the relationships
+            # while they are still available during the flush so the bin tells
+            # an administrator exactly who was removed from which team.
+            employee_name = getattr(getattr(obj, "employee", None), "name", None)
+            team_name = getattr(getattr(obj, "team", None), "name", None)
+            employee_label = employee_name or f"User #{values.get('employee_id')}"
+            team_label = team_name or f"team #{values.get('team_id')}"
+            label = f"{employee_label} removed from {team_label}"
         else:
             label = next(
                 (

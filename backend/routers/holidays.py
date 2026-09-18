@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, has_permission, require_admin_permission
 from database import get_db
 from models import Holiday, User, ActivityLog, Team
 from schemas import HolidayCreate, HolidayOut
@@ -53,6 +53,8 @@ def list_holidays(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if current_user.role == "admin" and not has_permission(current_user, "holidays.view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view holidays")
     query = db.query(Holiday)
     if year:
         query = query.filter(Holiday.holiday_date.between(f"{year}-01-01", f"{year}-12-31"))
@@ -63,7 +65,7 @@ def list_holidays(
 def add_holiday(
     payload: HolidayCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
 ):
     if payload.applies_to not in VALID_APPLIES_TO:
         raise HTTPException(status_code=422, detail="Invalid holiday audience")
@@ -95,7 +97,7 @@ def add_holiday(
 def delete_holiday(
     holiday_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
 ):
     holiday = db.query(Holiday).filter(Holiday.id == holiday_id).first()
     if not holiday:

@@ -23,7 +23,7 @@ from schemas import (
     LeaveBalanceResponse, LeaveEncashmentCreate, LeaveEncashmentOut,
     LeaveEncashmentDecision, LeaveCategoryOverride, LeaveAllocationOverride
 )
-from auth import get_current_user, require_roles
+from auth import get_current_user, has_permission, require_roles
 from team_scope import require_team_member_access
 from services.notifications import create_notification, get_approver_user_ids
 from services.recycle_bin import archive_object
@@ -481,6 +481,8 @@ def cancel_leave(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved leave request while retaining it for audit history."""
+    if current_user.role == "admin" and not has_permission(current_user, "leave.cancel", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
     if current_user.role not in {"admin", "superadmin", "team_leader"}:
         raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved leave")
     leave_request = (

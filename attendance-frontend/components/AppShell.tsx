@@ -6,21 +6,38 @@
  */
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import clsx from "clsx";
 import { isAuthenticated, getSession, isAdmin, Role } from "@/lib/auth";
 import Navbar from "@/components/Navbar";
 import AdminSidebar from "@/components/AdminSidebar";
 import EmployeeSidebar from "@/components/EmployeeSidebar";
 import Loading from "@/components/Common/Loading";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface AppShellProps {
   children: React.ReactNode;
   allowedRoles?: Role[];
 }
 
+const ADMIN_ROUTE_PERMISSIONS: Array<{ path: string; permission: string; alternatives?: string[] }> = [
+  { path: "/employee-documents", permission: "employee_documents.letters.view", alternatives: ["employee_documents.salary_slips.view", "employee_documents.letter_templates.view"] },
+  { path: "/admin/report-structure", permission: "report_structure.view" }, { path: "/manage-departments", permission: "departments.view" },
+  { path: "/notification-emails", permission: "notification_emails.view" }, { path: "/device-requests", permission: "device_requests.view" },
+  { path: "/activity-logs", permission: "activity_logs.view" }, { path: "/recycle-bin", permission: "recycle_bin.view" },
+  { path: "/changed-logs", permission: "changed_logs.view" }, { path: "/office-ip", permission: "office_ips.view" },
+  { path: "/admin-reports", permission: "reports.all_view" }, { path: "/attendance", permission: "attendance.all_view" },
+  { path: "/leave", permission: "leave.all_view" }, { path: "/reports", permission: "monthly_summary.view" },
+  { path: "/requests", permission: "requests.view" }, { path: "/holidays", permission: "holidays.view" },
+  { path: "/resources", permission: "resources.view" }, { path: "/teams", permission: "teams.view" },
+  { path: "/users", permission: "employees.all_view" }, { path: "/kundli", permission: "kundli.team_view" },
+  { path: "/feedback", permission: "feedback.view" }, { path: "/settings", permission: "settings.view" },
+];
+
 export default function AppShell({ children, allowedRoles }: AppShellProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { permissions, loading: permissionsLoading } = usePermissions();
   const [ready, setReady] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -37,8 +54,19 @@ export default function AppShell({ children, allowedRoles }: AppShellProps) {
       return;
     }
 
+    // Authentication is established asynchronously after the client session is read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
   }, [router, allowedRoles]);
+
+  useEffect(() => {
+    const session = getSession();
+    if (!ready || permissionsLoading || session?.role !== "admin" || !pathname) return;
+    const rule = ADMIN_ROUTE_PERMISSIONS.find(({ path }) => pathname === path || pathname.startsWith(`${path}/`));
+    if (rule && !hasPermission(permissions, rule.permission) && !rule.alternatives?.some((key) => hasPermission(permissions, key))) {
+      router.replace("/dashboard");
+    }
+  }, [pathname, permissions, permissionsLoading, ready, router]);
 
   // Close sidebar when clicking outside on mobile
   useEffect(() => {
@@ -64,7 +92,7 @@ export default function AppShell({ children, allowedRoles }: AppShellProps) {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isMobileSidebarOpen]);
 
-  if (!ready) {
+  if (!ready || permissionsLoading) {
     return <Loading fullScreen />;
   }
 

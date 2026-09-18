@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth import require_admin
+from auth import require_admin_permission
 from database import get_db
 from models import ActivityLog, Department, Team, TeamMember, User
 from schemas import TeamCreate, TeamMemberOut, TeamOut, TeamUpdate
@@ -55,14 +55,14 @@ def _replace_members(team: Team, member_ids: list[int]) -> None:
 
 
 @router.get("/", response_model=List[TeamOut])
-def list_teams(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def list_teams(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("teams.view"))):
     return [_team_response(team) for team in db.query(Team).order_by(Team.name).all()]
 
 
 @router.get("/eligible-leaders")
 def list_eligible_team_leaders(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("teams.view")),
 ):
     return (
         db.query(User)
@@ -73,7 +73,7 @@ def list_eligible_team_leaders(
 
 
 @router.get("/{team_id}", response_model=TeamOut)
-def get_team(team_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def get_team(team_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("teams.view"))):
     team = db.query(Team).filter(Team.id == team_id).first()
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -81,7 +81,7 @@ def get_team(team_id: int, db: Session = Depends(get_db), current_user: User = D
 
 
 @router.post("/", response_model=TeamOut, status_code=201)
-def create_team(payload: TeamCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def create_team(payload: TeamCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("teams.manage"))):
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Team name is required")
@@ -107,7 +107,7 @@ def update_team(
     team_id: int,
     payload: TeamUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("teams.manage")),
 ):
     team = db.query(Team).filter(Team.id == team_id).first()
     if team is None:
@@ -167,7 +167,7 @@ def update_team(
 def delete_team(
     team_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("teams.manage")),
 ):
     team = db.query(Team).filter(Team.id == team_id).first()
     if team is None:
@@ -191,7 +191,7 @@ def delete_team(
 
 
 @router.get("/{team_id}/members", response_model=List[TeamMemberOut])
-def list_team_members(team_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def list_team_members(team_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("teams.view"))):
     team = db.query(Team).filter(Team.id == team_id).first()
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -203,7 +203,7 @@ def replace_team_members(
     team_id: int,
     member_ids: List[int],
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("teams.manage")),
 ):
     team = db.query(Team).filter(Team.id == team_id).first()
     if team is None:

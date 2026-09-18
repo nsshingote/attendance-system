@@ -9,7 +9,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import require_admin
+from auth import require_admin_permission
 from database import get_db
 from models import OfficeIP, User, ActivityLog
 from schemas import OfficeIPCreate, OfficeIPOut
@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[OfficeIPOut])
-def list_office_ips(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def list_office_ips(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("office_ips.view"))):
     return db.query(OfficeIP).order_by(OfficeIP.created_at.desc()).all()
 
 
@@ -26,7 +26,7 @@ def list_office_ips(db: Session = Depends(get_db), current_user: User = Depends(
 def add_office_ip(
     payload: OfficeIPCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("office_ips.manage")),
 ):
     if db.query(OfficeIP).filter(OfficeIP.ip_address == payload.ip_address).first():
         raise HTTPException(status_code=400, detail="This IP address is already registered")
@@ -47,7 +47,7 @@ def add_office_ip(
 def toggle_office_ip(
     ip_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("office_ips.manage")),
 ):
     entry = db.query(OfficeIP).filter(OfficeIP.id == ip_id).first()
     if not entry:
@@ -64,7 +64,7 @@ def toggle_office_ip(
 def delete_office_ip(
     ip_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("office_ips.manage")),
 ):
     entry = db.query(OfficeIP).filter(OfficeIP.id == ip_id).first()
     if not entry:

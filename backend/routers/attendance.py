@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 
-from auth import get_current_user, require_roles, require_admin
+from auth import get_current_user, has_permission, require_roles, require_admin, require_admin_permission
 from team_scope import require_team_member_access, require_team_permission
 from database import get_db
 from models import (
@@ -1598,7 +1598,7 @@ def manual_update(
     attendance_id: int,
     payload: AttendanceManualUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.manual_override")),
 ):
     """Admin manual override of an attendance record."""
     record = db.query(Attendance).filter(Attendance.id == attendance_id).first()
@@ -1682,7 +1682,7 @@ def manual_update_by_user_date(
     date_value: str,
     payload: AttendanceManualUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.manual_override")),
 ):
     """Admin manual override by user and date. Creates attendance record if missing."""
     try:
@@ -2043,6 +2043,8 @@ def cancel_approved_half_day(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved half-day request while retaining its audit history."""
+    if current_user.role == "admin" and not has_permission(current_user, "leave.cancel", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
     if current_user.role not in {"admin", "superadmin", "team_leader"}:
         raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved half day")
     request = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.id == request_id).first()
@@ -2436,6 +2438,8 @@ def cancel_approved_wfh(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved WFH request while retaining its audit history."""
+    if current_user.role == "admin" and not has_permission(current_user, "leave.cancel", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
     if current_user.role not in {"admin", "superadmin", "team_leader"}:
         raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved WFH")
     request = db.query(WFHRequestModel).filter(WFHRequestModel.id == request_id).first()

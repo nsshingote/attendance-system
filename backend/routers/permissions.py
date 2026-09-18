@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, require_superadmin
 from database import get_db
 from models import Permission, RolePermission, User
 
@@ -14,11 +14,42 @@ class RolePermissionUpdate(BaseModel):
     permission_keys: list[str] | None = None
 
 
+CONFIGURABLE_ROLES = {"admin", "team_leader"}
+# Team Leaders retain exactly the original team/own/action permission model.
+# Do not expose new Admin-only keys merely because they share a module name.
+TEAM_LEADER_PERMISSION_KEYS = {
+    "dashboard.view",
+    "attendance.view_own", "attendance.team_view", "attendance.all_view",
+    "reports.team_view", "reports.all_view",
+    "leave.view_own", "leave.team_view", "leave.all_view", "leave.approve",
+    "corrections.view_own", "corrections.team_view", "corrections.all_view", "corrections.approve",
+    "kundli.team_view", "kundli.create", "kundli.edit", "kundli.delete",
+    "employees.view_own", "employees.team_view", "employees.all_view",
+}
+
+
+def _role_permissions(db: Session, role: str) -> list[int]:
+    return [
+        permission_id
+        for (permission_id,) in db.query(RolePermission.permission_id)
+        .filter(RolePermission.role == role)
+        .all()
+    ]
+
+
+def _validate_role(role: str) -> str:
+    if role not in CONFIGURABLE_ROLES:
+        raise HTTPException(status_code=422, detail="Only admin and team_leader permissions can be configured")
+    return role
+
+
 @router.get("/me", response_model=list[str])
 def get_my_permissions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if current_user.role == "superadmin":
+        return [permission_key for (permission_key,) in db.query(Permission.key).order_by(Permission.key).all()]
     return [
         permission_key
         for (permission_key,) in db.query(Permission.key)
@@ -29,7 +60,7 @@ def get_my_permissions(
     ]
 
 
-@router.get("/", dependencies=[Depends(require_admin)])
+@router.get("/", dependencies=[Depends(require_superadmin)])
 def list_permissions(db: Session = Depends(get_db)):
     return [
         {
@@ -44,23 +75,18 @@ def list_permissions(db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/role/team_leader", dependencies=[Depends(require_admin)])
-def get_team_leader_permissions(db: Session = Depends(get_db)):
-    return [
-        permission.id
-        for (permission_id,) in db.query(RolePermission.permission_id)
-        .filter(RolePermission.role == "team_leader")
-        .all()
-        for permission in [db.query(Permission).filter(Permission.id == permission_id).first()]
-        if permission is not None
-    ]
+@router.get("/role/{role}", dependencies=[Depends(require_superadmin)])
+def get_role_permissions(role: str, db: Session = Depends(get_db)):
+    return _role_permissions(db, _validate_role(role))
 
 
-@router.put("/role/team_leader", dependencies=[Depends(require_admin)])
-def update_team_leader_permissions(
+@router.put("/role/{role}", dependencies=[Depends(require_superadmin)])
+def update_role_permissions(
+    role: str,
     payload: RolePermissionUpdate,
     db: Session = Depends(get_db),
 ):
+    role = _validate_role(role)
     if payload.permission_ids is None and payload.permission_keys is None:
         raise HTTPException(status_code=422, detail="Permission IDs or keys are required")
     if payload.permission_ids is not None and payload.permission_keys is not None:
@@ -80,6 +106,13 @@ def update_team_leader_permissions(
         if len(permissions) != len(permission_ids):
             raise HTTPException(status_code=422, detail="One or more permission IDs are invalid")
 
+    if role == "team_leader":
+        invalid = [permission.key for permission in permissions if permission.key not in TEAM_LEADER_PERMISSION_KEYS]
+        if invalid:
+            raise HTTPException(status_code=422, detail="Team Leader permissions must use existing team-scoped modules")
+    if role == "admin" and any(permission.key == "permissions.manage" for permission in permissions):
+        raise HTTPException(status_code=422, detail="Only Super Admin can manage role permissions")
+
     dashboard = next((permission for permission in permissions if permission.key == "dashboard.view"), None)
     if dashboard is None:
         dashboard = db.query(Permission).filter(Permission.key == "dashboard.view").first()
@@ -87,11 +120,11 @@ def update_team_leader_permissions(
             raise HTTPException(status_code=500, detail="dashboard.view permission is not configured")
         permissions.append(dashboard)
 
-    db.query(RolePermission).filter(RolePermission.role == "team_leader").delete(
+    db.query(RolePermission).filter(RolePermission.role == role).delete(
         synchronize_session=False
     )
     db.add_all(
-        RolePermission(role="team_leader", permission_id=permission.id)
+        RolePermission(role=role, permission_id=permission.id)
         for permission in permissions
     )
     db.commit()

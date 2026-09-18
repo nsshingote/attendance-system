@@ -91,6 +91,8 @@ def require_roles(*allowed_roles: str):
 
 def has_permission(current_user: User, permission_key: str, db: Session) -> bool:
     """Return whether the user's role has the named database-backed permission."""
+    if current_user.role == "superadmin":
+        return True
     if not permission_key.strip():
         return False
     return (
@@ -113,6 +115,25 @@ def require_permission(permission_key: str):
         db: Session = Depends(get_db),
     ) -> User:
         if not has_permission(current_user, permission_key, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action",
+            )
+        return current_user
+
+    return permission_checker
+
+
+def require_admin_permission(permission_key: str):
+    """Require a configurable Admin permission while preserving Super Admin access."""
+
+    def permission_checker(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if current_user.role == "superadmin":
+            return current_user
+        if current_user.role != "admin" or not has_permission(current_user, permission_key, db):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to perform this action",

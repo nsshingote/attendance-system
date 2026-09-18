@@ -40,6 +40,12 @@ def archive_object(
         employee_name = getattr(employee, "name", None)
         if employee_name:
             label = f"Leave request for {employee_name} ({values.get('from_date')} to {values.get('to_date')})"
+    elif mapper.local_table.name == "team_members":
+        employee_name = getattr(getattr(obj, "employee", None), "name", None)
+        team_name = getattr(getattr(obj, "team", None), "name", None)
+        employee_label = employee_name or f"User #{values.get('employee_id')}"
+        team_label = team_name or f"team #{values.get('team_id')}"
+        label = f"{employee_label} removed from {team_label}"
     elif mapper.local_table.name == "employee_personal_documents":
         employee = getattr(obj, "employee", None)
         employee_name = getattr(employee, "name", None)

@@ -34,32 +34,33 @@ import {
   HistoryIcon,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import api from "@/lib/api";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/users", label: "Users", icon: Users },
-  { href: "/teams", label: "Teams", icon: Users },
-  { href: "/permissions", label: "Permissions", icon: UserRoundCog },
-  { href: "/resources", label: "Resources", icon: BookOpen },
-  { href: "/employee-documents", label: "Employee Documents", icon: FolderOpen },
-  { href: "/kundli", label: "Kundli", icon: NotebookPen },
-  { href: "/admin/report-structure", label: "Report Structure", icon: Layers },
-  { href: "/manage-departments", label: "Manage Departments", icon: Layers },
-  { href: "/attendance", label: "Attendance", icon: CalendarCheck },
-  { href: "/leave", label: "Leave", icon: Plane },
-  { href: "/admin-reports", label: "Reports", icon: FileBarChart },
-  { href: "/requests", label: "Requests", icon: ClipboardEdit },
-  { href: "/holidays", label: "Holidays", icon: CalendarDays },
-  { href: "/reports", label: "Monthly Summary", icon: FileBarChart },
-  { href: "/device-requests", label: "Device Requests", icon: Smartphone },
-  { href: "/notification-emails", label: "Notification Emails", icon: Mail },
-  { href: "/office-ip", label: "Office IPs", icon: Wifi },
-  { href: "/activity-logs", label: "Activity Logs", icon: History },
-  { href: "/feedback", label: "Feedback", icon: MessageSquare },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/recycle-bin", label: "Recycle Bin", icon: Trash2 },
-  { href: "/changed-logs", label: "Changed Logs", icon: HistoryIcon },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
+  { href: "/users", label: "Users", icon: Users, permission: "employees.all_view" },
+  { href: "/teams", label: "Teams", icon: Users, permission: "teams.view" },
+  { href: "/permissions", label: "Permissions", icon: UserRoundCog, permission: "permissions.manage" },
+  { href: "/resources", label: "Resources", icon: BookOpen, permission: "resources.view" },
+  { href: "/employee-documents", label: "Employee Documents", icon: FolderOpen, permission: "employee_documents.letters.view", alternatives: ["employee_documents.salary_slips.view", "employee_documents.letter_templates.view"] },
+  { href: "/kundli", label: "Kundli", icon: NotebookPen, permission: "kundli.team_view" },
+  { href: "/admin/report-structure", label: "Report Structure", icon: Layers, permission: "report_structure.view" },
+  { href: "/manage-departments", label: "Manage Departments", icon: Layers, permission: "departments.view" },
+  { href: "/attendance", label: "Attendance", icon: CalendarCheck, permission: "attendance.all_view" },
+  { href: "/leave", label: "Leave", icon: Plane, permission: "leave.all_view" },
+  { href: "/admin-reports", label: "Reports", icon: FileBarChart, permission: "reports.all_view" },
+  { href: "/requests", label: "Requests", icon: ClipboardEdit, permission: "requests.view" },
+  { href: "/holidays", label: "Holidays", icon: CalendarDays, permission: "holidays.view" },
+  { href: "/reports", label: "Monthly Summary", icon: FileBarChart, permission: "monthly_summary.view" },
+  { href: "/device-requests", label: "Device Requests", icon: Smartphone, permission: "device_requests.view" },
+  { href: "/notification-emails", label: "Notification Emails", icon: Mail, permission: "notification_emails.view" },
+  { href: "/office-ip", label: "Office IPs", icon: Wifi, permission: "office_ips.view" },
+  { href: "/activity-logs", label: "Activity Logs", icon: History, permission: "activity_logs.view" },
+  { href: "/feedback", label: "Feedback", icon: MessageSquare, permission: "feedback.view" },
+  { href: "/settings", label: "Settings", icon: Settings, permission: "settings.view" },
+  { href: "/recycle-bin", label: "Recycle Bin", icon: Trash2, permission: "recycle_bin.view" },
+  { href: "/changed-logs", label: "Changed Logs", icon: HistoryIcon, permission: "changed_logs.view" },
 ];
 
 interface AdminSidebarProps {
@@ -70,6 +71,7 @@ interface AdminSidebarProps {
 export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
   const session = getSession();
+  const { permissions } = usePermissions();
   const [pendingCounts, setPendingCounts] = useState({ requests: 0, leave: 0, devices: 0, feedback: 0 });
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.filter((item) => isSuperAdmin(session?.role) || hasPermission(permissions, item.permission) || item.alternatives?.some((key) => hasPermission(permissions, key))).map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <Link

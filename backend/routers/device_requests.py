@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import require_admin
+from auth import require_admin_permission
 from database import get_db
 from models import DeviceRequest, User, ActivityLog
 from schemas import DeviceRequestDecision, DeviceRequestOut
@@ -25,7 +25,7 @@ router = APIRouter()
 def list_device_requests(
     status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("device_requests.view")),
 ):
     query = db.query(DeviceRequest, User.name).join(User, User.id == DeviceRequest.user_id)
     if status_filter:
@@ -51,7 +51,7 @@ def decide_device_request(
     request_id: int,
     payload: DeviceRequestDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("device_requests.approve")),
 ):
     if payload.status not in ("Approved", "Rejected"):
         raise HTTPException(status_code=400, detail="Status must be 'Approved' or 'Rejected'")

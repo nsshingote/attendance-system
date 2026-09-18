@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_admin, require_superadmin
+from auth import get_current_user, require_admin_permission, require_superadmin
 from database import get_db
 from models import Feedback, NotificationEmail, User, ActivityLog
 from schemas import FeedbackCreate
@@ -70,7 +70,7 @@ def list_feedback(
     employee_ids: Optional[List[int]] = Query(None),
     sort: str = Query("newest", pattern="^(newest|oldest)$"),
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db), current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("feedback.view")),
 ):
     query = db.query(Feedback)
     if feedback_type: query = query.filter(Feedback.feedback_type == feedback_type)
@@ -95,7 +95,7 @@ def list_feedback(
     return {"items": [{"id": item.id, "employee_name": None if item.is_anonymous else item.user.name, "description": item.description, "feedback_type": item.feedback_type, "is_anonymous": item.is_anonymous, "viewed_at": iso_with_offset(item.viewed_at) if item.viewed_at else None, "created_at": iso_with_offset(item.created_at)} for item in rows], "total": total, "stats": stats}
 
 @router.post("/{feedback_id}/view")
-def mark_feedback_viewed(feedback_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def mark_feedback_viewed(feedback_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("feedback.manage"))):
     item = db.query(Feedback).filter(Feedback.id == feedback_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Feedback not found")

@@ -9,7 +9,7 @@ from datetime import time, timedelta
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_admin
+from auth import get_current_user, require_admin_permission
 from database import get_db
 from models import CompanySettings, User, ActivityLog
 from routers.changed_logs import record_changed_log
@@ -123,7 +123,7 @@ def get_company_branding(db: Session = Depends(get_db), current_user: User = Dep
 
 
 @router.get("/", response_model=CompanySettingsOut)
-def get_settings(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def get_settings(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("settings.view"))):
     return _read_company_settings_row(db)
 
 
@@ -131,7 +131,7 @@ def get_settings(db: Session = Depends(get_db), current_user: User = Depends(req
 def update_settings(
     payload: CompanySettingsUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("settings.manage")),
 ):
     existing = _read_company_settings_row(db)
     next_payload = {**existing}

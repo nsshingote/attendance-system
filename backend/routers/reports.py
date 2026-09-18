@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
-from auth import require_admin, get_current_user, require_roles
+from auth import has_permission, require_admin, require_admin_permission, get_current_user, require_roles
 from team_scope import require_team_permission, require_team_member_access, get_team_member_ids
 from database import get_db
 from models import (
@@ -362,6 +362,8 @@ def export_attendance_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if current_user.role == "admin" and not has_permission(current_user, "reports.export", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to export reports")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     start_date = date(year, month, 1)
     if month == 12:
@@ -430,6 +432,8 @@ def employee_wise_summary(
     current Carry Forward balance, and whether they have any pending or
     approved Encashment request on record.
     """
+    if current_user.role == "admin" and not has_permission(current_user, "monthly_summary.view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view monthly summary")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     users_query = db.query(User).filter(User.status == "active", User.role != "superadmin")
     if current_user.role == "team_leader":
@@ -535,7 +539,7 @@ def employee_wise_summary(
 def leave_summary(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
-    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("monthly_summary.view"))
 ):
     users = db.query(User).filter(User.status == "active", User.role != "superadmin").all()
     results = []
@@ -1165,6 +1169,8 @@ def list_past_report_submission_requests(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     query = db.query(PastReportSubmissionRequest)
+    if current_user.role == "admin" and not has_permission(current_user, "requests.view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view requests")
     if current_user.role == "team_leader":
         team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
         require_team_permission(db, current_user, "reports.team_view")
@@ -1215,7 +1221,7 @@ def complete_past_report_submission(
 
 @router.put("/past-submission-requests/{request_id}")
 def review_past_report_submission_request(
-    request_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "superadmin"))
+    request_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.manage"))
 ):
     request = db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.id == request_id).first()
     status = payload.get("status")
@@ -1248,7 +1254,7 @@ def review_past_report_submission_request(
 def add_department(
     payload: DepartmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("departments.manage"))
 ):
     """Admin adds a new department."""
     existing = db.query(Department).filter(Department.name == payload.name).first()
@@ -1274,7 +1280,7 @@ def add_department(
 def get_department_assignments(
     department_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("departments.view"))
 ):
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
@@ -1313,7 +1319,7 @@ def reassign_department_users(
     department_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("departments.manage")),
 ):
     """Move users and future report configuration before a department is deleted.
 
@@ -1384,7 +1390,7 @@ def delete_department(
     reassign_department_id: Optional[int] = Query(None),
     remove_assignments: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("departments.manage"))
 ):
     """Delete a department safely by moving references or deactivating if unused."""
     department = db.query(Department).filter(Department.id == department_id, Department.is_active == 1).first()
@@ -1540,7 +1546,7 @@ def delete_department(
 def add_report_type(
     payload: DynamicReportTypeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("report_structure.manage"))
 ):
     """Admin adds a new report type."""
     new_type = DynamicReportType(
@@ -1564,7 +1570,7 @@ def add_report_type(
 def add_report_subtype(
     payload: DynamicReportSubtypeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("report_structure.manage"))
 ):
     """Admin adds a new report subtype."""
     new_subtype = DynamicReportSubtype(
@@ -1591,7 +1597,7 @@ def add_report_subtype(
 def delete_report_type(
     type_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("report_structure.manage"))
 ):
     """Soft-delete a report type so it is no longer used for future reporting."""
     report_type = db.query(DynamicReportType).filter(DynamicReportType.id == type_id).first()
@@ -1620,7 +1626,7 @@ def delete_report_type(
 def delete_report_subtype(
     subtype_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("report_structure.manage"))
 ):
     """Soft-delete a report subtype so it is no longer used for future reporting."""
     subtype = db.query(DynamicReportSubtype).filter(DynamicReportSubtype.id == subtype_id).first()
@@ -1640,7 +1646,7 @@ def delete_report_subtype(
 def add_report_field(
     payload: DynamicReportFieldCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("report_structure.manage"))
 ):
     """Admin adds a new report field."""
     new_field = DynamicReportField(
@@ -1667,7 +1673,7 @@ def add_report_field(
 def set_default_rows(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("report_structure.manage"))
 ):
     """Admin sets default rows for a department."""
     department_id = payload.get("department_id")

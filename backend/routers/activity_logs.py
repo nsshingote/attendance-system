@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from auth import require_admin
+from auth import require_admin_permission
 from database import get_db
 from models import (    
     
@@ -38,7 +38,7 @@ def list_activity_logs(
     employee_ids: Optional[List[int]] = Query(None),
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_permission("activity_logs.view")),
 ):
     query = db.query(ActivityLog)
     if employee_ids:
