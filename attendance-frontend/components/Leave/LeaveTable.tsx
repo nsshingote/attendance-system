@@ -54,8 +54,8 @@ export default function LeaveTable({ requests, canDecide, onDecide, onCancel, on
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-      <table className="w-full min-w-[900px] table-fixed text-left text-xs sm:text-sm">
+    <div className="w-full overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card touch-auto">
+      <table className="w-full max-w-none table-fixed text-left text-xs sm:text-sm" style={{ minWidth: "900px" }}>
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
             {canDecide && <th className="px-3 py-3 font-medium sm:px-4">Employee</th>}

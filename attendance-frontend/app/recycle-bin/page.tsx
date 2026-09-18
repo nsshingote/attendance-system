@@ -49,13 +49,13 @@ export default function RecycleBinPage() {
           {loading ? <p className="p-6 text-ink-500">Loading…</p> :
             entries.length === 0 ? <p className="p-6 text-ink-500">Recycle Bin is empty.</p> :
             <div className="divide-y divide-ink-100">{entries.map((entry) => (
-              <div key={entry.id} className="flex items-center justify-between gap-4 p-4">
-                <div><p className="font-medium text-ink-900">{entry.label}</p>
+              <div key={entry.id} className="flex items-center justify-between gap-3 p-4">
+                <div className="min-w-0"><p className="break-words font-medium text-ink-900">{entry.label}</p>
                   <p className="text-xs text-ink-500">
                     {entry.table_name} · deleted by {entry.deleted_by ?? "System"} · {formatStoredUtc(entry.deleted_at)} · expires {formatStoredUtc(entry.expires_at, false)}
                   </p></div>
-                <div className="flex gap-2"><button onClick={() => restore(entry.id)} className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700"><RotateCcw size={15} /></button>
-                  <button onClick={() => destroy(entry.id)} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"><Trash2 size={15} /></button></div>
+                <div className="flex shrink-0 gap-2"><button onClick={() => restore(entry.id)} className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100" aria-label={`Restore ${entry.label}`} title="Restore"><RotateCcw className="h-4 w-4" strokeWidth={2} aria-hidden="true" /></button>
+                  <button onClick={() => destroy(entry.id)} className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-red-50 text-red-700 hover:bg-red-100" aria-label={`Permanently delete ${entry.label}`} title="Permanently delete"><Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden="true" /></button></div>
               </div>
             ))}</div>}
         </div>

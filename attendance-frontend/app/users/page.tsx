@@ -174,16 +174,18 @@ export default function UsersPage() {
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Users</h1>
             <p className="text-sm text-ink-500">Manage employees, admins, and their access</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Search placeholder="Search by name, email, mobile" onSearch={setSearch} />
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="min-w-0 flex-1 sm:flex-none">
+              <Search placeholder="Search by name, email, mobile" onSearch={setSearch} />
+            </div>
             <button
               onClick={openCreateModal}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
             >
               <Plus size={16} />
               Add User

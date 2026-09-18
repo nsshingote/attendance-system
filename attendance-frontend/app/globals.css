@@ -60,11 +60,18 @@ body {
   @apply bg-ink-50 text-ink-900 antialiased font-sans;
 }
 
-/* Fix for all elements - prevent horizontal overflow */
+/* Keep normal page media within the viewport. Do not apply this to every
+   element: Safari applies it to SVGs and table descendants too, which makes
+   action icons disappear and compresses wide tables into overlapping columns. */
 * {
   border-color: var(--color-ink-200);
-  max-width: 100%;
   box-sizing: border-box;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
 }
 
 /* Main app container - fixes scrolling */
@@ -120,6 +127,12 @@ textarea {
 .overflow-x-auto > table {
   min-width: max-content;
   max-width: none;
+}
+
+/* Keep inline action icons at their declared size in narrow Safari flex rows. */
+button > svg,
+a > svg {
+  flex: none;
 }
 
 /* Keep long table content compact; individual cells expose full text via title. */

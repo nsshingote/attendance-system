@@ -58,8 +58,8 @@ export default function UserTable({
 
   return (
     <div className="w-full rounded-xl border border-ink-200 bg-white shadow-card">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] table-fixed text-left text-xs sm:text-sm">
+      <div className="w-full overflow-x-auto touch-auto">
+        <table className="w-full max-w-none table-fixed text-left text-xs sm:text-sm" style={{ minWidth: "720px" }}>
           <colgroup><col className="w-[8%]" /><col className="w-[20%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[12%]" /><col className="w-[14%]" /><col className="w-[18%]" /></colgroup>
           <thead>
             <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
