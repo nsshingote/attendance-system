@@ -54,6 +54,7 @@ from utils.attendance_status import (
     is_weekly_off,
     determine_attendance_status_for_date,
     update_summary_counts,
+    applicable_holiday,
 )
 from utils.leave_calculator import (
     get_carried_leave_balance,
@@ -284,7 +285,10 @@ def _load_holiday_dates(db: Session, dates: Set[date]) -> Set[date]:
     return set(
         r[0]
         for r in db.query(Holiday.holiday_date)
-        .filter(Holiday.holiday_date.in_(dates))
+        .filter(
+            Holiday.holiday_date.in_(dates),
+            Holiday.applies_to == "all_users",
+        )
         .all()
     )
 
@@ -541,7 +545,7 @@ def check_in(
         status_value = "Present" if onsite else calculate_status(ist_now, db)
     elif is_weekly_off(today, db):
         status_value = "Present"
-    elif db.query(Holiday).filter(Holiday.holiday_date == today).first():
+    elif applicable_holiday(db, user.id, today):
         status_value = "Holiday"
     else:
         status_value = "Present" if onsite else calculate_status(ist_now, db)

@@ -569,12 +569,18 @@ class WFHOut(ORMBase):
 class HolidayCreate(BaseModel):
     holiday_date: date
     holiday_name: str
+    applies_to: str = "all_users"
+    user_ids: list[int] = []
+    team_ids: list[int] = []
 
 
 class HolidayOut(ORMBase):
     id: int
     holiday_date: date
     holiday_name: str
+    applies_to: str
+    user_ids: list[int] = []
+    team_ids: list[int] = []
     created_by: int
     created_at: datetime
 

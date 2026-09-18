@@ -238,6 +238,9 @@ CREATE TABLE IF NOT EXISTS holidays (
     id INT PRIMARY KEY AUTO_INCREMENT,
     holiday_date DATE NOT NULL UNIQUE,
     holiday_name VARCHAR(100) NOT NULL,
+    applies_to VARCHAR(30) NOT NULL DEFAULT 'all_users',
+    target_user_ids_json TEXT NULL,
+    target_team_ids_json TEXT NULL,
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE

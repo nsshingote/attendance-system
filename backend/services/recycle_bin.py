@@ -97,15 +97,8 @@ def list_entries(db: Session):
     entries = db.query(RecycleBinEntry).order_by(RecycleBinEntry.deleted_at.desc()).all()
     visible = []
     for entry in entries:
-        if entry.table_name == "leave_request_allocations":
+        if entry.table_name in {"leave_request_allocations", "attendance"}:
             continue
-        if entry.table_name == "attendance":
-            try:
-                snapshot = json.loads(entry.snapshot)
-            except (TypeError, ValueError):
-                snapshot = {}
-            if snapshot.get("status") == "On Leave" and snapshot.get("reason") == "Leave":
-                continue
         visible.append(entry)
     return visible
 

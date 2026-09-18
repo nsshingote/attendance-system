@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import api, { getErrorMessage } from "@/lib/api";
@@ -77,11 +77,27 @@ export default function TeamsPage() {
         member_ids: form.member_ids,
         status: form.status,
       };
+
       if (editingId) await api.put(`/teams/${editingId}`, payload);
       else await api.post("/teams/", payload);
       toast.success(editingId ? "Team updated" : "Team created");
       setForm(emptyForm);
       setEditingId(null);
+      await load();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const deleteTeam = async (team: Team) => {
+    if (!confirm(`Delete team "${team.name}"? This can be restored from the Recycle Bin.`)) return;
+    try {
+      await api.delete(`/teams/${team.id}`);
+      toast.success("Team deleted");
+      if (editingId === team.id) {
+        setEditingId(null);
+        setForm(emptyForm);
+      }
       await load();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -201,7 +217,7 @@ export default function TeamsPage() {
         </form>
         {loading ? <Loading /> : <div className="space-y-3">{teams.map((team) => (
           <div key={team.id} className="rounded-xl border border-ink-200 bg-white p-4">
-            <div className="flex items-center justify-between"><div><h2 className="font-semibold text-ink-900">{team.name}</h2><p className="text-sm text-ink-500">{team.team_leader?.name || "No Team Leader"} · {team.status}</p></div><button onClick={() => openEdit(team)} className="rounded-lg border border-ink-200 px-3 py-1.5 text-sm">Edit</button></div>
+            <div className="flex items-center justify-between"><div><h2 className="font-semibold text-ink-900">{team.name}</h2><p className="text-sm text-ink-500">{team.team_leader?.name || "No Team Leader"} · {team.status}</p></div><div className="flex gap-2"><button onClick={() => openEdit(team)} className="rounded-lg border border-ink-200 px-3 py-1.5 text-sm">Edit</button><button onClick={() => deleteTeam(team)} aria-label={`Delete ${team.name}`} className="rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-700"><Trash2 size={15} /></button></div></div>
             <p className="mt-2 text-sm text-ink-600">Members: {team.members.length ? team.members.map((member) => member.name).join(", ") : "None"}</p>
           </div>
         ))}</div>}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { XCircle } from "lucide-react";
@@ -740,26 +740,37 @@ export default function UserDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {groupDailyReportsByDate(dailyReports).map((group) => group.reports.map((report, index) => (
-                      <tr key={report.id} className={index === 0 ? "border-t-2 border-ink-300" : "border-t border-ink-100"}>
-                        {index === 0 && (
-                          <>
-                            <td rowSpan={group.reports.length} className="px-5 py-3 align-top font-medium text-ink-900">{user?.name || "-"}</td>
-                            <td rowSpan={group.reports.length} className="px-5 py-3 align-top">{report.department_name || user?.department || "-"}</td>
-                            <td rowSpan={group.reports.length} className="px-5 py-3 align-top whitespace-nowrap">{group.date}</td>
-                          </>
-                        )}
-                        <td className="px-5 py-3">{[report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-"}</td>
-                        <td className="px-5 py-3">{report.description || "-"}</td>
-                        <td className="px-5 py-3 text-right">{report.quantity ?? "-"}</td>
-                        <td className="px-5 py-3 text-right">{report.duration ?? "-"}</td>
-                        {index === 0 && (
-                          <td rowSpan={group.reports.length} className="px-5 py-3 align-top">
-                            <span className="inline-flex rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-200">Submitted</span>
+                    {groupDailyReportsByDate(dailyReports).map((group) => (
+                      <Fragment key={group.date}>
+                        {group.reports.map((report, index) => (
+                          <tr key={report.id} className={index === 0 ? "border-t-2 border-ink-300" : "border-t border-ink-100"}>
+                            {index === 0 && (
+                              <>
+                                <td rowSpan={group.reports.length} className="px-5 py-3 align-top font-medium text-ink-900">{user?.name || "-"}</td>
+                                <td rowSpan={group.reports.length} className="px-5 py-3 align-top">{report.department_name || user?.department || "-"}</td>
+                                <td rowSpan={group.reports.length} className="px-5 py-3 align-top whitespace-nowrap">{group.date}</td>
+                              </>
+                            )}
+                            <td className="px-5 py-3">{[report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-"}</td>
+                            <td className="px-5 py-3">{report.description || "-"}</td>
+                            <td className="px-5 py-3 text-right">{report.quantity ?? "-"}</td>
+                            <td className="px-5 py-3 text-right">{report.duration ?? "-"}</td>
+                            {index === 0 && (
+                              <td rowSpan={group.reports.length} className="px-5 py-3 align-top">
+                                <span className="inline-flex rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-200">Submitted</span>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                        <tr className="border-t border-ink-200 bg-ink-50">
+                          <td colSpan={6} className="px-5 py-2 text-right text-xs font-semibold text-ink-600">Total duration for {group.date}</td>
+                          <td className="px-5 py-2 text-right text-xs font-semibold text-ink-900">
+                            {group.reports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)}
                           </td>
-                        )}
-                      </tr>
-                    )))}
+                          <td />
+                        </tr>
+                      </Fragment>
+                    ))}
                   </tbody>
                   <tfoot className="border-t border-ink-200 bg-ink-50 font-medium text-ink-900">
                     <tr>

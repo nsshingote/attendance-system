@@ -18,7 +18,6 @@ import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Search from "@/components/Common/Search";
 import Modal from "@/components/Common/Modal";
-import Pagination from "@/components/Common/Pagination";
 import UserTable, { UserRow } from "@/components/Users/UserTable";
 
 interface UserFormValues {
@@ -34,14 +33,11 @@ interface UserFormValues {
   password: string;
 }
 
-const PAGE_SIZE = 10;
-
 export default function UsersPage() {
   const session = getSession();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(0);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
@@ -175,9 +171,6 @@ export default function UsersPage() {
     }
   };
   
-  const paginatedUsers = users.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const pageCount = Math.ceil(users.length / PAGE_SIZE);
-
   return (
     <AppShell allowedRoles={["admin", "superadmin"]}>
       <div className="space-y-6">
@@ -187,7 +180,7 @@ export default function UsersPage() {
             <p className="text-sm text-ink-500">Manage employees, admins, and their access</p>
           </div>
           <div className="flex items-center gap-2">
-            <Search placeholder="Search by name, email, mobile" onSearch={(v) => { setSearch(v); setPage(0); }} />
+            <Search placeholder="Search by name, email, mobile" onSearch={setSearch} />
             <button
               onClick={openCreateModal}
               className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
@@ -203,14 +196,11 @@ export default function UsersPage() {
         ) : (
           <>
             <UserTable
-              users={paginatedUsers}
+              users={users}
               onEdit={openEditModal}
               onResetDevice={handleResetDevice}
               onToggleStatus={handleToggleStatus}
             />
-            <div className="flex justify-end">
-              <Pagination pageCount={pageCount} currentPage={page} onPageChange={setPage} />
-            </div>
           </>
         )}
       </div>

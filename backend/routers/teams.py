@@ -10,6 +10,7 @@ from models import ActivityLog, Department, Team, TeamMember, User
 from schemas import TeamCreate, TeamMemberOut, TeamOut, TeamUpdate
 from team_scope import assign_team_leader
 from routers.changed_logs import record_changed_log
+from services.recycle_bin import archive_object
 
 router = APIRouter()
 
@@ -160,6 +161,33 @@ def update_team(
     db.add(ActivityLog(user_id=current_user.id, activity=f"Updated team '{team.name}'"))
     db.commit()
     return _team_response(team)
+
+
+@router.delete("/{team_id}", response_model=dict)
+def delete_team(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if team is None:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    archive_object(
+        db,
+        team,
+        deleted_by=current_user.id,
+        extra_values={
+            "team_leader_name": team.team_leader.name if team.team_leader else None,
+            "member_names": ", ".join(member.employee.name for member in team.members),
+        },
+    )
+    db.info["skip_recycle"] = True
+    db.delete(team)
+    db.info["skip_recycle"] = False
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted team '{team.name}'"))
+    db.commit()
+    return {"message": "Team deleted"}
 
 
 @router.get("/{team_id}/members", response_model=List[TeamMemberOut])

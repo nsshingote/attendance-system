@@ -19,9 +19,15 @@ interface Holiday {
   id: number;
   holiday_date: string;
   holiday_name: string;
+  applies_to: string;
 }
 
 interface UserOption {
+  id: number;
+  name: string;
+}
+
+interface TeamOption {
   id: number;
   name: string;
 }
@@ -32,10 +38,14 @@ export default function HolidaysPage() {
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [newDate, setNewDate] = useState("");
   const [newName, setNewName] = useState("");
+  const [appliesTo, setAppliesTo] = useState("all_users");
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<number | "">("");
   const [selectedWorkDate, setSelectedWorkDate] = useState("");
@@ -68,6 +78,9 @@ export default function HolidaysPage() {
         }
       })
       .catch(() => {});
+    api.get<TeamOption[]>("/teams/")
+      .then(({ data }) => setTeams(data))
+      .catch(() => {});
   }, [admin]);
 
   const handleAdd = async () => {
@@ -77,11 +90,20 @@ export default function HolidaysPage() {
     }
     setSubmitting(true);
     try {
-      await api.post("/holidays/", { holiday_date: newDate, holiday_name: newName });
+      await api.post("/holidays/", {
+        holiday_date: newDate,
+        holiday_name: newName,
+        applies_to: appliesTo,
+        user_ids: appliesTo === "specific_users" ? selectedUserIds : [],
+        team_ids: appliesTo === "specific_teams" ? selectedTeamIds : [],
+      });
       toast.success("Holiday added");
       setModalOpen(false);
       setNewDate("");
       setNewName("");
+      setAppliesTo("all_users");
+      setSelectedUserIds([]);
+      setSelectedTeamIds([]);
       fetchHolidays();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -225,6 +247,7 @@ export default function HolidaysPage() {
                 <div>
                   <p className="font-medium text-ink-900">{h.holiday_name}</p>
                   <p className="text-sm text-ink-500">{format(parseISO(h.holiday_date), "EEEE, dd MMM yyyy")}</p>
+                  <p className="text-xs text-ink-500">{h.applies_to.replace("_", " ")}</p>
                 </div>
                 {admin && (
                   <button
@@ -265,6 +288,32 @@ export default function HolidaysPage() {
             <label className="mb-1.5 block text-sm font-medium text-ink-700">Date</label>
             <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
           </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink-700">Applies To</label>
+            <select value={appliesTo} onChange={(event) => setAppliesTo(event.target.value)} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
+              <option value="all_users">All Users</option>
+              <option value="specific_users">Specific Users</option>
+              <option value="office">Office</option>
+              <option value="onsite">Onsite</option>
+              <option value="specific_teams">Specific Teams</option>
+            </select>
+          </div>
+          {appliesTo === "specific_users" && (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink-700">Users</label>
+              <select multiple value={selectedUserIds.map(String)} onChange={(event) => setSelectedUserIds(Array.from(event.target.selectedOptions, (option) => Number(option.value)))} className="h-28 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
+                {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+              </select>
+            </div>
+          )}
+          {appliesTo === "specific_teams" && (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink-700">Teams</label>
+              <select multiple value={selectedTeamIds.map(String)} onChange={(event) => setSelectedTeamIds(Array.from(event.target.selectedOptions, (option) => Number(option.value)))} className="h-28 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
+                {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-ink-700">Holiday Name</label>
             <input

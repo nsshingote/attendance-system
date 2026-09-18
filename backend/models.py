@@ -363,8 +363,11 @@ class Holiday(Base):
     __tablename__ = "holidays"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    holiday_date = Column(Date, nullable=False, unique=True)
+    holiday_date = Column(Date, nullable=False)
     holiday_name = Column(String(100), nullable=False)
+    applies_to = Column(String(30), nullable=False, default="all_users")
+    target_user_ids_json = Column(Text, nullable=True)
+    target_team_ids_json = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
@@ -940,12 +943,8 @@ def _snapshot_explicit_deletes(session, flush_context, instances):
     existing = {(entry.table_name, entry.record_id) for entry in session.new
                 if isinstance(entry, RecycleBinEntry)}
     for obj in list(session.deleted):
-        if isinstance(obj, RecycleBinEntry) or (
-            obj.__class__.__name__ == "Attendance"
-            and getattr(obj, "status", None) == "On Leave"
-            and getattr(obj, "reason", None) == "Leave"
-        ) or obj.__class__.__name__ in {
-            "RefreshToken", "PasswordResetToken", "Notification",
+        if isinstance(obj, RecycleBinEntry) or obj.__class__.__name__ in {
+            "RefreshToken", "PasswordResetToken", "Notification", "Attendance",
             "LeaveRequestAllocation",
         }:
             continue

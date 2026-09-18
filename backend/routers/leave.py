@@ -45,6 +45,7 @@ from utils.leave_calculator import (
     _get_date_range,
 )
 from utils.logger import log_activity
+from utils.attendance_status import holiday_applies_to_user
 
 router = APIRouter()
 
@@ -723,11 +724,12 @@ def decide_leave(
         # then another request may be deleted or rejected before approval.
         if leave_request.leave_category in {"Privilege", "Emergency", "Sick"}:
             holiday_dates = {
-                holiday_date
-                for (holiday_date,) in db.query(Holiday.holiday_date).filter(
+                holiday.holiday_date
+                for holiday in db.query(Holiday).filter(
                     Holiday.holiday_date >= leave_request.from_date,
                     Holiday.holiday_date <= leave_request.to_date,
                 ).all()
+                if holiday_applies_to_user(db, holiday, target_user.id)
             }
             allocations = [
                 (day, leave_request.leave_category)
@@ -740,6 +742,11 @@ def decide_leave(
                 target_user,
                 leave_request.from_date,
                 leave_request.to_date,
+                submission_date=(
+                    leave_request.created_at.date()
+                    if leave_request.created_at
+                    else date.today()
+                ),
                 exclude_leave_id=leave_request.id,
             )
         # Pending requests can already have allocation rows. Remove them and

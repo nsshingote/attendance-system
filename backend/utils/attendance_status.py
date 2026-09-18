@@ -3,9 +3,39 @@ utils/attendance_status.py
 Helper functions for determining attendance status.
 """
 
+import json
 from datetime import date, datetime, time
 from sqlalchemy.orm import Session
-from models import Attendance, CompanySettings, Holiday, LeaveRequest, User, WFHRequest, WorkingSunday
+from models import Attendance, CompanySettings, Holiday, LeaveRequest, TeamMember, User, WFHRequest, WorkingSunday
+
+
+def holiday_applies_to_user(db: Session, holiday: Holiday, user_id: int) -> bool:
+    if holiday.applies_to == "all_users":
+        return True
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return False
+    if holiday.applies_to == "office":
+        return (user.attendance_mode or "office").lower() == "office"
+    if holiday.applies_to == "onsite":
+        return (user.attendance_mode or "office").lower() == "onsite"
+    if holiday.applies_to == "specific_users":
+        return user_id in json.loads(holiday.target_user_ids_json or "[]")
+    if holiday.applies_to == "specific_teams":
+        team_ids = json.loads(holiday.target_team_ids_json or "[]")
+        return db.query(TeamMember.id).filter(
+            TeamMember.employee_id == user_id,
+            TeamMember.team_id.in_(team_ids),
+        ).first() is not None
+    return False
+
+
+def applicable_holiday(db: Session, user_id: int, target_date: date) -> Holiday | None:
+    return next(
+        (holiday for holiday in db.query(Holiday).filter(Holiday.holiday_date == target_date).all()
+         if holiday_applies_to_user(db, holiday, user_id)),
+        None,
+    )
 
 
 def get_default_office_times(db: Session):
@@ -47,7 +77,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         status = attendance.status
         if status == "Extra Working Day":
             return "Extra Working Day"
-        if holiday := db.query(Holiday).filter(Holiday.holiday_date == target_date).first():
+        if holiday := applicable_holiday(db, user_id, target_date):
             is_assigned_working_day = db.query(WorkingSunday).filter(
                 WorkingSunday.user_id == user_id,
                 WorkingSunday.work_date == target_date,
@@ -74,7 +104,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
 
     # A holiday remains a holiday unless this employee was explicitly assigned
     # to work that date.
-    holiday = db.query(Holiday).filter(Holiday.holiday_date == target_date).first()
+    holiday = applicable_holiday(db, user_id, target_date)
     if holiday and not is_assigned_working_day:
         return "Holiday"
 
