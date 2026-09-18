@@ -720,6 +720,12 @@ def decide_leave(
                 leave_request.to_date,
                 exclude_leave_id=leave_request.id,
             )
+        # Pending requests can already have allocation rows. Remove them and
+        # flush before inserting the approval-time allocation set so the
+        # unique (leave_request_id, allocation_date) constraint is not hit.
+        for existing_allocation in list(leave_request.allocations):
+            db.delete(existing_allocation)
+        db.flush()
         leave_request.allocations = [
             LeaveRequestAllocation(allocation_date=allocation_date, leave_category=leave_category)
             for allocation_date, leave_category in allocations

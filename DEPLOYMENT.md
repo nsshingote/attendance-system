@@ -7,4 +7,24 @@ This project runs the Next.js frontend, FastAPI backend, and MySQL together with
 3. Start or update the stack with `docker compose up -d --build`.
 4. Check readiness with `docker compose ps`, then request `https://api.example.com/health`. Review startup logs with `docker compose logs --tail=100 backend frontend`.
 
+For an existing MySQL volume, apply every SQL file in `database/migrations/` that
+has not already been applied. In particular, the notification table migration
+(`2026_09_16_add_notifications.sql`) is required before approving requests,
+because approval persists an in-app notification in that table.
+
+For Nginx, proxy the notification WebSocket path to the backend with upgrade
+headers. The backend accepts both `/notifications/ws` and
+`/api/notifications/ws`:
+
+```nginx
+location /api/notifications/ws {
+    proxy_pass http://127.0.0.1:8000/notifications/ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600;
+}
+```
+
 The MySQL and upload volumes are named `mysql_data` and `uploads_data`. Back them up before host replacement or any destructive Docker cleanup. Keep `.env` private; it is intentionally ignored by Git and Docker build contexts.

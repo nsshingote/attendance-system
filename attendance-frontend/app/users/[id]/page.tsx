@@ -140,6 +140,18 @@ type DailyReportRow = {
   submitted_at?: string | null;
 };
 
+function groupDailyReportsByDate(reports: DailyReportRow[]) {
+  return reports.reduce<{ date: string; reports: DailyReportRow[] }[]>((groups, report) => {
+    const group = groups.find((item) => item.date === report.attendance_date);
+    if (group) {
+      group.reports.push(report);
+    } else {
+      groups.push({ date: report.attendance_date, reports: [report] });
+    }
+    return groups;
+  }, []);
+}
+
 const defaultAttendanceSummary: AttendanceSummary = {
   Present: 0,
   Late: 0,
@@ -707,30 +719,47 @@ export default function UserDetailPage() {
                 <table className="min-w-full text-sm">
                   <thead className="bg-ink-50 text-left text-xs uppercase text-ink-500">
                     <tr>
-                      <th className="px-5 py-3">Date</th>
+                      <th className="px-5 py-3">Employee</th>
                       <th className="px-5 py-3">Department</th>
+                      <th className="px-5 py-3">Date</th>
                       <th className="px-5 py-3">Report</th>
                       <th className="px-5 py-3">Description</th>
                       <th className="px-5 py-3 text-right">Quantity</th>
                       <th className="px-5 py-3 text-right">Duration</th>
+                      <th className="px-5 py-3">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dailyReports.map((report, index) => {
-                      const previousDate = dailyReports[index - 1]?.attendance_date;
-                      const isNewDate = index > 0 && previousDate !== report.attendance_date;
-                      return (
-                      <tr key={report.id} className={isNewDate ? "border-t-2 border-ink-300" : index > 0 ? "border-t border-ink-100" : ""}>
-                        <td className="px-5 py-3">{report.attendance_date}</td>
-                        <td className="px-5 py-3">{report.department_name || "-"}</td>
+                    {groupDailyReportsByDate(dailyReports).map((group) => group.reports.map((report, index) => (
+                      <tr key={report.id} className={index === 0 ? "border-t-2 border-ink-300" : "border-t border-ink-100"}>
+                        {index === 0 && (
+                          <>
+                            <td rowSpan={group.reports.length} className="px-5 py-3 align-top font-medium text-ink-900">{user?.name || "-"}</td>
+                            <td rowSpan={group.reports.length} className="px-5 py-3 align-top">{report.department_name || user?.department || "-"}</td>
+                            <td rowSpan={group.reports.length} className="px-5 py-3 align-top whitespace-nowrap">{group.date}</td>
+                          </>
+                        )}
                         <td className="px-5 py-3">{[report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-"}</td>
                         <td className="px-5 py-3">{report.description || "-"}</td>
                         <td className="px-5 py-3 text-right">{report.quantity ?? "-"}</td>
                         <td className="px-5 py-3 text-right">{report.duration ?? "-"}</td>
+                        {index === 0 && (
+                          <td rowSpan={group.reports.length} className="px-5 py-3 align-top">
+                            <span className="inline-flex rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-200">Submitted</span>
+                          </td>
+                        )}
                       </tr>
-                      );
-                    })}
+                    )))}
                   </tbody>
+                  <tfoot className="border-t border-ink-200 bg-ink-50 font-medium text-ink-900">
+                    <tr>
+                      <td colSpan={6} className="px-5 py-3 text-right">Total:</td>
+                      <td className="px-5 py-3 text-right">
+                        {dailyReports.reduce((total, report) => total + (report.duration || 0), 0).toFixed(2)}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}

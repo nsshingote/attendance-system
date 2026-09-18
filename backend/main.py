@@ -171,6 +171,14 @@ app.include_router(resources.router, prefix="/resources", tags=["Resources"])
 app.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
 app.include_router(teams.router, prefix="/teams", tags=["Teams"])
 app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+# Some production reverse proxies preserve the `/api` prefix for WebSocket
+# upgrades even when regular API requests are stripped before forwarding.
+# Keep an explicit alias so both deployment layouts reach the same handler.
+app.add_api_websocket_route(
+    "/api/notifications/ws",
+    notifications.notifications_websocket,
+    name="notifications_websocket_api_alias",
+)
 app.include_router(recycle_bin.router, prefix="/recycle-bin", tags=["Recycle Bin"])
 app.include_router(changed_logs.router, prefix="/changed-logs", tags=["Changed Logs"])
 
