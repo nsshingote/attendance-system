@@ -940,8 +940,13 @@ def _snapshot_explicit_deletes(session, flush_context, instances):
     existing = {(entry.table_name, entry.record_id) for entry in session.new
                 if isinstance(entry, RecycleBinEntry)}
     for obj in list(session.deleted):
-        if isinstance(obj, RecycleBinEntry) or obj.__class__.__name__ in {
+        if isinstance(obj, RecycleBinEntry) or (
+            obj.__class__.__name__ == "Attendance"
+            and getattr(obj, "status", None) == "On Leave"
+            and getattr(obj, "reason", None) == "Leave"
+        ) or obj.__class__.__name__ in {
             "RefreshToken", "PasswordResetToken", "Notification",
+            "LeaveRequestAllocation",
         }:
             continue
         mapper = obj.__mapper__
@@ -951,8 +956,22 @@ def _snapshot_explicit_deletes(session, flush_context, instances):
             continue
         values = {column.name: _recycle_value(getattr(obj, column.name))
                   for column in mapper.columns}
-        label = next((str(values[key]) for key in ("name", "title", "holiday_name", "file_name", "document_type", "description")
-                      if values.get(key)), f"{mapper.local_table.name} #{record_id}")
+        if mapper.local_table.name == "attendance":
+            label = f"Attendance for user #{values.get('user_id')} on {values.get('attendance_date')}"
+        elif mapper.local_table.name == "leave_requests":
+            label = (
+                f"Leave request for user #{values.get('user_id')} "
+                f"({values.get('from_date')} to {values.get('to_date')})"
+            )
+        else:
+            label = next(
+                (
+                    str(values[key])
+                    for key in ("name", "title", "holiday_name", "file_name", "document_type", "description")
+                    if values.get(key)
+                ),
+                f"{mapper.local_table.name} #{record_id}",
+            )
         session.add(RecycleBinEntry(
             table_name=mapper.local_table.name,
             record_id=record_id,

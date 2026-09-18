@@ -25,7 +25,7 @@ def get_recycle_bin(db: Session = Depends(get_db), current_user: User = Depends(
         "deleted_by": actors.get(item.deleted_by),
         "deleted_at": item.deleted_at,
         "expires_at": item.expires_at,
-    } for item in list_entries(db)]
+    } for item in entries]
 
 
 @router.post("/{entry_id}/restore")

@@ -135,7 +135,7 @@ type DailyReportRow = {
   type_name?: string | null;
   subtype_name?: string | null;
   quantity?: number | null;
-  duration?: number | null;
+  duration?: number | string | null;
   description?: string | null;
   submitted_at?: string | null;
 };
@@ -148,8 +148,18 @@ function groupDailyReportsByDate(reports: DailyReportRow[]) {
     } else {
       groups.push({ date: report.attendance_date, reports: [report] });
     }
+
     return groups;
   }, []);
+}
+
+function getReportDuration(duration: DailyReportRow["duration"]): number {
+  if (typeof duration === "number" && Number.isFinite(duration)) return duration;
+  if (typeof duration === "string") {
+    const parsed = Number(duration);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 const defaultAttendanceSummary: AttendanceSummary = {
@@ -755,7 +765,7 @@ export default function UserDetailPage() {
                     <tr>
                       <td colSpan={6} className="px-5 py-3 text-right">Total:</td>
                       <td className="px-5 py-3 text-right">
-                        {dailyReports.reduce((total, report) => total + (report.duration || 0), 0).toFixed(2)}
+                        {dailyReports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)}
                       </td>
                       <td />
                     </tr>

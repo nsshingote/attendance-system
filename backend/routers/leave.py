@@ -16,7 +16,7 @@ from typing import Optional, List
 from database import get_db
 from models import (
     User, LeaveRequest, LeaveType, LeaveEncashmentRequest,
-    NotificationEmail, Attendance, LeaveRequestAllocation, ActivityLog
+    NotificationEmail, Attendance, LeaveRequestAllocation, ActivityLog, Holiday
 )
 from schemas import (
     LeaveRequestOut, LeaveRequestCreate, LeaveDecision,
@@ -52,10 +52,19 @@ router = APIRouter()
 # ------------------------------------------------------------
 # Helper function: Mark leave in attendance
 # ------------------------------------------------------------
-def mark_leave_in_attendance(db: Session, user_id: int, from_date: date, to_date: date):
-    """Mark attendance as 'On Leave' for the given date range."""
+def mark_leave_in_attendance(
+    db: Session,
+    user_id: int,
+    from_date: date,
+    to_date: date,
+    leave_dates: set[date] | None = None,
+):
+    """Mark only chargeable approved leave dates as 'On Leave'."""
     current_date = from_date
     while current_date <= to_date:
+        if leave_dates is not None and current_date not in leave_dates:
+            current_date += timedelta(days=1)
+            continue
         # Check if attendance already exists for this date
         existing = db.query(Attendance).filter(
             Attendance.user_id == user_id,
@@ -273,8 +282,6 @@ def apply_leave(
     # Past-date leave requests are now accepted through the normal leave workflow.
 
     # Calculate total days
-    total_days = calculate_total_days(payload.from_date, payload.to_date)
-    
     # The leave category is now auto-allocated for employees.
     # Manual category selection is ignored at submission time.
 
@@ -296,6 +303,7 @@ def apply_leave(
     )
     allocation_summary = summarize_allocations(allocations)
     request_category = compute_request_category_from_allocations(allocations)
+    total_days = len(allocations)
     
     # Check for overlapping leave requests
     overlapping = db.query(LeaveRequest).filter(
@@ -360,7 +368,13 @@ def apply_leave(
 
         # Use the leave_request's from/to (which may have been expanded by the
         # sandwich rule) so any inserted Sundays are also marked in attendance.
-        mark_leave_in_attendance(db, target_user_id, leave_request.from_date, leave_request.to_date)
+        mark_leave_in_attendance(
+            db,
+            target_user_id,
+            leave_request.from_date,
+            leave_request.to_date,
+            {allocation_date for allocation_date, _ in allocations},
+        )
 
     if leave_request.status == "Pending":
         for approver_id in get_approver_user_ids(
@@ -708,9 +722,17 @@ def decide_leave(
         # request may have been created while the monthly Paid slot was used,
         # then another request may be deleted or rejected before approval.
         if leave_request.leave_category in {"Privilege", "Emergency", "Sick"}:
+            holiday_dates = {
+                holiday_date
+                for (holiday_date,) in db.query(Holiday.holiday_date).filter(
+                    Holiday.holiday_date >= leave_request.from_date,
+                    Holiday.holiday_date <= leave_request.to_date,
+                ).all()
+            }
             allocations = [
                 (day, leave_request.leave_category)
                 for day in _get_date_range(leave_request.from_date, leave_request.to_date)
+                if day not in holiday_dates
             ]
         else:
             allocations = allocate_leave_days(
@@ -821,7 +843,13 @@ def decide_leave(
                 pass
 
         # Mark attendance as "On Leave" for the approved leave days
-        mark_leave_in_attendance(db, leave_request.user_id, leave_request.from_date, leave_request.to_date)
+        mark_leave_in_attendance(
+            db,
+            leave_request.user_id,
+            leave_request.from_date,
+            leave_request.to_date,
+            {allocation.allocation_date for allocation in leave_request.allocations},
+        )
 
     if target_user.id != current_user.id:
         create_notification(

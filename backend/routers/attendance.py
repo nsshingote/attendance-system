@@ -982,6 +982,78 @@ def get_all_attendance(
     query = query.order_by(Attendance.attendance_date, User.name)
     
     results = query.all()
+    # The database intentionally does not create synthetic rows for today
+    # until someone checks in. Add an in-memory row so the admin table still
+    # shows every active employee with the canonical Absent/Holiday/Leave
+    # status instead of hiding employees who have not marked attendance.
+    today = date.today()
+    if target_start and target_end and target_start <= today <= target_end:
+        existing_today_ids = {
+            attendance.user_id
+            for attendance, _, _, _ in results
+            if attendance.attendance_date == today
+        }
+        employee_query = db.query(User).filter(User.status == "active")
+        if employee_ids:
+            employee_query = employee_query.filter(User.id.in_(employee_ids))
+        if department_id is not None:
+            employee_query = employee_query.join(
+                UserDepartment,
+                User.id == UserDepartment.user_id,
+            ).filter(UserDepartment.department_id == department_id)
+        for employee in employee_query.all():
+            if employee.id in existing_today_ids:
+                continue
+            results.append((
+                Attendance(
+                    user_id=employee.id,
+                    attendance_date=today,
+                    status="Absent",
+                ),
+                employee.name,
+                employee.department,
+                employee.attendance_mode,
+            ))
+        results.sort(key=lambda row: (row[0].attendance_date, row[1]))
+
+    # Do not show pre-created/synthetic attendance rows for future dates.
+    # Future rows are meaningful only when a leave, WFH, or half-day request
+    # has been filed for that employee and date.
+    result_user_ids = {attendance.user_id for attendance, _, _, _ in results}
+    future_scheduled_keys: Set[Tuple[int, date]] = set()
+    if result_user_ids:
+        future_rows = db.query(
+            LeaveRequest.user_id,
+            LeaveRequest.from_date,
+            LeaveRequest.to_date,
+        ).filter(
+            LeaveRequest.user_id.in_(result_user_ids),
+            LeaveRequest.status.in_(["Pending", "Approved"]),
+            LeaveRequest.to_date >= date.today(),
+        ).all()
+        for user_id, from_date, to_date in future_rows:
+            start = max(from_date, date.today())
+            current = start
+            while current <= to_date:
+                future_scheduled_keys.add((user_id, current))
+                current += timedelta(days=1)
+
+        for model, date_column in (
+            (WFHRequestModel, WFHRequestModel.attendance_date),
+            (HalfDayRequestModel, HalfDayRequestModel.attendance_date),
+        ):
+            request_dates = db.query(model.user_id, date_column).filter(
+                model.user_id.in_(result_user_ids),
+                model.status.in_(["Pending", "Approved"]),
+                date_column >= date.today(),
+            ).all()
+            future_scheduled_keys.update(request_dates)
+
+    results = [
+        row for row in results
+        if row[0].attendance_date <= date.today()
+        or (row[0].user_id, row[0].attendance_date) in future_scheduled_keys
+    ]
     user_ids = {attendance.user_id for attendance, _, _, _ in results}
     attendance_dates = {attendance.attendance_date for attendance, _, _, _ in results}
     report_keys = _load_report_keys_for_users(db, user_ids, attendance_dates)

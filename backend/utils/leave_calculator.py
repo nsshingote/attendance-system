@@ -56,7 +56,7 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract, or_
 
-from models import LeaveRequest, LeaveRequestAllocation, User, LeaveEncashmentRequest
+from models import Holiday, LeaveRequest, LeaveRequestAllocation, User, LeaveEncashmentRequest
 
 MAX_MONTHS_PER_ACCRUAL_RUN = 60
 
@@ -237,6 +237,26 @@ def _get_date_range(from_date: date, to_date: date) -> list[date]:
     return days
 
 
+def _get_chargeable_leave_dates(
+    db: Session,
+    from_date: date,
+    to_date: date,
+) -> list[date]:
+    """Return requested dates that are not company holidays."""
+    holiday_dates = {
+        holiday_date
+        for (holiday_date,) in db.query(Holiday.holiday_date).filter(
+            Holiday.holiday_date >= from_date,
+            Holiday.holiday_date <= to_date,
+        ).all()
+    }
+    return [
+        leave_date
+        for leave_date in _get_date_range(from_date, to_date)
+        if leave_date not in holiday_dates
+    ]
+
+
 def allocate_leave_days(
     db: Session,
     user: User,
@@ -246,16 +266,12 @@ def allocate_leave_days(
     exclude_leave_id: int | None = None,
 ) -> list[tuple[date, str]]:
     submission_date = submission_date or date.today()
-    advanced = (from_date - submission_date).days >= 4
     allocations = []
-
-    if not advanced:
-        return [(day, "Unpaid") for day in _get_date_range(from_date, to_date)]
 
     carried_balance = get_carried_leave_balance(db, user)
     paid_months_used: set[tuple[int, int]] = set()
 
-    for allocation_date in _get_date_range(from_date, to_date):
+    for allocation_date in _get_chargeable_leave_dates(db, from_date, to_date):
         month_key = (allocation_date.year, allocation_date.month)
         if month_key not in paid_months_used and not has_other_approved_or_pending_paid_leave_this_month(
             db,
