@@ -138,7 +138,28 @@ export default function PermissionsPage() {
           ))}
         </div>
         {loading ? <Loading /> : (
-          <div className="space-y-4">
+          <>
+            <section className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+              <div className="table-wrapper">
+                <table className="w-full min-w-180 text-left text-sm">
+                  <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                    <tr><th className="px-5 py-3 font-semibold">Module</th><th className="px-5 py-3 font-semibold">Feature / Permission</th><th className="px-5 py-3 font-semibold">Permission key</th><th className="px-5 py-3 text-center font-semibold">Allowed</th></tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(grouped).map(([module, items]) => items.map((permission, index) => {
+                      const feature = permission.module.includes(".") ? featureLabels[permission.module.split(".")[1]] || permission.module.split(".")[1] : null;
+                      return <tr key={permission.id} className="border-t border-ink-100 hover:bg-ink-50">
+                        <td className="px-5 py-3 font-medium text-ink-800">{index === 0 ? <>{moduleLabels[module] || module}{module === "employee_documents" && <p className="mt-1 text-xs font-normal text-amber-700">Salary Slips are backend-protected.</p>}</> : ""}</td>
+                        <td className="px-5 py-3 font-medium text-ink-800">{feature ? `${feature} · ${permission.name}` : permission.name}</td>
+                        <td className="px-5 py-3 font-mono text-xs text-ink-500">{permission.key}</td>
+                        <td className="px-5 py-3 text-center"><input type="checkbox" aria-label={`Allow ${permission.name}`} checked={selected.includes(permission.id)} disabled={permission.key === "dashboard.view"} onChange={() => toggle(permission)} className="h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500 disabled:opacity-60" /></td>
+                      </tr>;
+                    }))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <div className="hidden">
             {Object.entries(grouped).map(([module, items]) => (
               <section key={module} className="rounded-xl border border-ink-200 bg-white p-5">
                 <h2 className="mb-1 font-semibold text-ink-900">{moduleLabels[module] || module}</h2>
@@ -162,7 +183,8 @@ export default function PermissionsPage() {
                 </div>
               </section>
             ))}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </AppShell>
