@@ -3,14 +3,14 @@ import uuid
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import Base, engine, SessionLocal
-from models import Attendance, Holiday, User, WorkingSunday
+from models import Attendance, Holiday, User, WFHRequest, WorkingSunday
 from routers.attendance import attendance_calendar, manual_update_by_user_date
 from schemas import AttendanceManualUpdate
 from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts
@@ -134,6 +134,34 @@ def test_override_wfh_status():
     attendance = db.query(Attendance).filter(Attendance.user_id == user.id, Attendance.attendance_date == target_date).one()
     assert attendance.status == "WFH"
     assert attendance.manual_override is True
+    db.close()
+
+
+def test_approved_wfh_without_attendance_is_absent():
+    db = get_db_session()
+    user = create_user(db)
+    target_date = date(2026, 8, 15)
+    db.add(WFHRequest(user_id=user.id, attendance_date=target_date, status="Approved"))
+    db.commit()
+
+    assert determine_attendance_status_for_date(db, user.id, target_date) == "Absent"
+    db.close()
+
+
+def test_approved_wfh_with_attendance_is_wfh():
+    db = get_db_session()
+    user = create_user(db)
+    target_date = date(2026, 8, 16)
+    db.add(WFHRequest(user_id=user.id, attendance_date=target_date, status="Approved"))
+    db.add(Attendance(
+        user_id=user.id,
+        attendance_date=target_date,
+        check_in=datetime(2026, 8, 16, 10, 0),
+        status="Present",
+    ))
+    db.commit()
+
+    assert determine_attendance_status_for_date(db, user.id, target_date) == "WFH"
     db.close()
 
 

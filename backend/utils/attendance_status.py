@@ -56,13 +56,15 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                 return "Extra Working Day"
         return status
 
-    # Check if approved WFH exists for this date
+    # An approved WFH request permits remote attendance, but does not by
+    # itself prove that the employee worked. Only classify the day as WFH
+    # after attendance activity has been recorded.
     wfh = db.query(WFHRequest).filter(
         WFHRequest.user_id == user_id,
         WFHRequest.attendance_date == target_date,
         WFHRequest.status == "Approved",
     ).first()
-    if wfh:
+    if wfh and attendance and (attendance.check_in or attendance.check_out):
         return "WFH"
 
     is_assigned_working_day = db.query(WorkingSunday).filter(

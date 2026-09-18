@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import toast from "react-hot-toast";
+import { XCircle } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
@@ -170,7 +171,9 @@ function countLeaveDays(rows: LeaveRow[], categories: string[]) {
 }
 
 export default function UserDetailPage() {
-  const teamLeader = getSession()?.role === "team_leader";
+  const currentRole = getSession()?.role;
+  const teamLeader = currentRole === "team_leader";
+  const canCancelApprovedLeave = currentRole === "admin" || currentRole === "superadmin" || currentRole === "team_leader";
   const params = useParams();
   const userId = Number(params.id);
   const today = new Date();
@@ -200,6 +203,7 @@ export default function UserDetailPage() {
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
   const [leaveFilter, setLeaveFilter] = useState<"All" | "Leave" | "WFH" | "Half Day">("All");
   const [leaveDataLoading, setLeaveDataLoading] = useState(false);
+  const [cancellingLeaveId, setCancellingLeaveId] = useState<number | null>(null);
   const [personalDocs, setPersonalDocs] = useState<PersonalDocument[]>([]);
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
   const [dailyReports, setDailyReports] = useState<DailyReportRow[]>([]);
@@ -311,6 +315,34 @@ export default function UserDetailPage() {
       toast.error(getErrorMessage(error));
     } finally {
       setLeaveDataLoading(false);
+    }
+  };
+
+  const cancelApprovedLeave = async (leaveId: number) => {
+    if (!window.confirm("Cancel this approved leave request? The leave balance and attendance will be restored.")) return;
+    setCancellingLeaveId(leaveId);
+    try {
+      await api.put(`/leave/${leaveId}/cancel`);
+      toast.success("Leave request cancelled");
+      await loadLeaveData();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setCancellingLeaveId(null);
+    }
+  };
+
+  const cancelApprovedRelatedRequest = async (type: "WFH" | "Half Day", requestId: number) => {
+    if (!canCancelApprovedLeave || !window.confirm(`Cancel this approved ${type} request?`)) return;
+    const endpoint = type === "WFH"
+      ? `/attendance/wfh/${requestId}/cancel`
+      : `/attendance/half-day-requests/${requestId}/cancel`;
+    try {
+      await api.put(endpoint);
+      toast.success(`${type} request cancelled`);
+      await loadLeaveData();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -641,19 +673,19 @@ export default function UserDetailPage() {
             </div>
             {leaveDataLoading ? <Loading /> : (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
-                <table className="w-full min-w-[760px] text-left text-sm">
+                <table className="w-full min-w-190 text-left text-sm">
                   <thead><tr className="border-b border-ink-200 bg-ink-50 text-xs uppercase text-ink-500">
-                    <th className="px-4 py-3">Type</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Category / Period</th><th className="px-4 py-3">Reason</th><th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Type</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Category / Period</th><th className="px-4 py-3">Reason</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th>
                   </tr></thead>
                   <tbody className="divide-y divide-ink-100">
                     {(leaveFilter === "All" || leaveFilter === "Leave") && leaveRows.map((row) => (
-                      <tr key={`leave-${row.id}`}><td className="px-4 py-3">Leave</td><td className="px-4 py-3">{row.from_date} to {row.to_date} ({row.total_days ?? "—"} days)</td><td className="px-4 py-3">{row.allocation_summary || row.leave_category}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                      <tr key={`leave-${row.id}`}><td className="px-4 py-3">Leave</td><td className="px-4 py-3">{row.from_date} to {row.to_date} ({row.total_days ?? "—"} days)</td><td className="px-4 py-3">{row.allocation_summary || row.leave_category}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td><td className="px-4 py-3 text-right">{canCancelApprovedLeave && row.status === "Approved" && <button type="button" onClick={() => cancelApprovedLeave(row.id)} disabled={cancellingLeaveId === row.id} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"><XCircle size={14} />{cancellingLeaveId === row.id ? "Cancelling…" : "Cancel"}</button>}</td></tr>
                     ))}
                     {(leaveFilter === "All" || leaveFilter === "WFH") && wfhRows.map((row) => (
-                      <tr key={`wfh-${row.id}`}><td className="px-4 py-3">WFH</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">Work From Home</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                      <tr key={`wfh-${row.id}`}><td className="px-4 py-3">WFH</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">Work From Home</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td><td className="px-4 py-3 text-right">{canCancelApprovedLeave && row.status === "Approved" && <button type="button" onClick={() => cancelApprovedRelatedRequest("WFH", row.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">Cancel</button>}</td></tr>
                     ))}
                     {(leaveFilter === "All" || leaveFilter === "Half Day") && halfDayRows.map((row) => (
-                      <tr key={`half-day-${row.id}`}><td className="px-4 py-3">Half Day</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">{row.slot}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td></tr>
+                      <tr key={`half-day-${row.id}`}><td className="px-4 py-3">Half Day</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">{row.slot}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td><td className="px-4 py-3 text-right">{canCancelApprovedLeave && row.status === "Approved" && <button type="button" onClick={() => cancelApprovedRelatedRequest("Half Day", row.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">Cancel</button>}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -678,18 +710,26 @@ export default function UserDetailPage() {
                       <th className="px-5 py-3">Date</th>
                       <th className="px-5 py-3">Department</th>
                       <th className="px-5 py-3">Report</th>
-                      <th className="px-5 py-3">Details</th>
+                      <th className="px-5 py-3">Description</th>
+                      <th className="px-5 py-3 text-right">Quantity</th>
+                      <th className="px-5 py-3 text-right">Duration</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dailyReports.map((report) => (
-                      <tr key={report.id} className="border-t border-ink-100">
+                    {dailyReports.map((report, index) => {
+                      const previousDate = dailyReports[index - 1]?.attendance_date;
+                      const isNewDate = index > 0 && previousDate !== report.attendance_date;
+                      return (
+                      <tr key={report.id} className={isNewDate ? "border-t-2 border-ink-300" : index > 0 ? "border-t border-ink-100" : ""}>
                         <td className="px-5 py-3">{report.attendance_date}</td>
                         <td className="px-5 py-3">{report.department_name || "-"}</td>
                         <td className="px-5 py-3">{[report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-"}</td>
-                        <td className="px-5 py-3">{report.description || report.quantity || report.duration || "-"}</td>
+                        <td className="px-5 py-3">{report.description || "-"}</td>
+                        <td className="px-5 py-3 text-right">{report.quantity ?? "-"}</td>
+                        <td className="px-5 py-3 text-right">{report.duration ?? "-"}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Plus, Check, X, Trash2, RefreshCw, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Check, X, XCircle, Trash2, RefreshCw, Calendar as CalendarIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
 import { useSession, isAdmin } from "@/lib/auth";
@@ -344,6 +344,20 @@ export default function LeavePage() {
     }
   };
 
+  const handleCancelRelatedRequest = async (type: "WFH" | "Half Day", id: number) => {
+    if (!window.confirm(`Cancel this approved ${type} request?`)) return;
+    const endpoint = type === "WFH"
+      ? `/attendance/wfh/${id}/cancel`
+      : `/attendance/half-day-requests/${id}/cancel`;
+    try {
+      await api.put(endpoint);
+      toast.success(`${type} request cancelled`);
+      fetchAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   const handleDeleteRequest = async (request: UnifiedRequestRow) => {
     if (request.status !== "Pending") return;
     if (!window.confirm(`Delete this pending ${request.type.toLowerCase()} request?`)) return;
@@ -355,6 +369,17 @@ export default function LeavePage() {
     try {
       await api.delete(endpoint);
       toast.success(`${request.type} request deleted`);
+      fetchAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const handleCancelLeave = async (leaveId: number) => {
+    if (!window.confirm("Cancel this approved leave request? The leave balance and attendance will be restored.")) return;
+    try {
+      await api.put(`/leave/${leaveId}/cancel`);
+      toast.success("Leave request cancelled");
       fetchAll();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -670,6 +695,7 @@ export default function LeavePage() {
                 requests={allRequests}
                 canDecide={canApprove}
                 onDecide={handleDecide}
+                onCancel={canApprove ? handleCancelLeave : undefined}
                 onEditAllocations={(id) => openAllocationModal(id)}
               />
             )}
@@ -706,7 +732,9 @@ export default function LeavePage() {
                             <Badge status={r.status} />
                           </td>
                           <td className="px-4 py-3">
-                            {r.status === "Pending" ? (
+                            {r.status === "Approved" ? (
+                              <button onClick={() => handleCancelRelatedRequest("Half Day", r.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"><XCircle size={14} />Cancel</button>
+                            ) : r.status === "Pending" ? (
                               <div className="flex justify-end gap-1.5">
                                 <button
                                   onClick={() => handleDecideHalfDay(r.id, "Approved")}
@@ -765,7 +793,9 @@ export default function LeavePage() {
                             <Badge status={r.status} />
                           </td>
                           <td className="px-4 py-3">
-                            {r.status === "Pending" ? (
+                            {r.status === "Approved" ? (
+                              <button onClick={() => handleCancelRelatedRequest("WFH", r.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"><XCircle size={14} />Cancel</button>
+                            ) : r.status === "Pending" ? (
                               <div className="flex justify-end gap-1.5">
                                 <button
                                   onClick={() => handleDecideWfh(r.id, "Approved")}

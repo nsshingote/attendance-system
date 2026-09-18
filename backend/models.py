@@ -390,7 +390,7 @@ class LeaveRequest(Base):
     to_date = Column(Date, nullable=False)
     total_days = Column(Integer, nullable=True)
     reason = Column(Text, nullable=True)
-    status = Column(Enum("Pending", "Approved", "Rejected", name="leave_status"), default="Pending")
+    status = Column(Enum("Pending", "Approved", "Rejected", "Cancelled", name="leave_status"), default="Pending")
     leave_category = Column(
         Enum("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick", name="leave_category"),
         default="Unpaid",
@@ -518,7 +518,7 @@ class HalfDayRequest(Base):
     attendance_date = Column(Date, nullable=False)
     slot = Column(Enum("morning", "afternoon", name="half_day_slot"), nullable=False)
     reason = Column(String(255), nullable=True)
-    status = Column(Enum("Pending", "Approved", "Rejected", name="half_day_status"), default="Pending")
+    status = Column(Enum("Pending", "Approved", "Rejected", "Cancelled", name="half_day_status"), default="Pending")
     requested_at = Column(TIMESTAMP, server_default=func.now())
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime, nullable=True)
@@ -537,7 +537,7 @@ class WFHRequest(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     attendance_date = Column(Date, nullable=False)
     reason = Column(String(255), nullable=True)
-    status = Column(Enum("Pending", "Approved", "Rejected", name="wfh_status"), default="Pending")
+    status = Column(Enum("Pending", "Approved", "Rejected", "Cancelled", name="wfh_status"), default="Pending")
     requested_at = Column(TIMESTAMP, server_default=func.now())
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime, nullable=True)

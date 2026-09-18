@@ -179,7 +179,7 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
 # ------------------------------------------------------------
 @router.get("/", response_model=List[LeaveRequestOut])
 def get_all_leave_requests_root(
-    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
+    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected|Cancelled)$"),
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
@@ -216,7 +216,7 @@ def get_all_leave_requests_root(
 # ------------------------------------------------------------
 @router.get("/encashment-requests", response_model=List[LeaveEncashmentOut])
 def get_encashment_requests_root(
-    status_filter: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
+    status_filter: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected|Cancelled)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "superadmin"))
 ):
@@ -459,13 +459,92 @@ def delete_pending_leave(
     return {"message": "Leave request deleted"}
 
 
+@router.put("/{leave_id}/cancel", response_model=LeaveRequestOut)
+def cancel_leave(
+    leave_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel an approved leave request while retaining it for audit history."""
+    if current_user.role not in {"admin", "superadmin", "team_leader"}:
+        raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved leave")
+    leave_request = (
+        db.query(LeaveRequest)
+        .filter(LeaveRequest.id == leave_id)
+        .with_for_update()
+        .first()
+    )
+    if not leave_request:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    if leave_request.status != "Approved":
+        raise HTTPException(status_code=400, detail="Only approved leave requests can be cancelled")
+
+    target_user = db.query(User).filter(User.id == leave_request.user_id).with_for_update().first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    require_team_member_access(db, current_user, target_user.id, "leave.approve")
+
+    carried_days = sum(1 for allocation in leave_request.allocations if allocation.leave_category == "Carried")
+    if not leave_request.allocations and leave_request.leave_category == "Carried":
+        carried_days = leave_request.total_days or 0
+    target_user.carried_leave = (target_user.carried_leave or 0) + carried_days
+
+    attendance_dates = {
+        allocation.allocation_date for allocation in leave_request.allocations
+    } or set(_get_date_range(leave_request.from_date, leave_request.to_date))
+    attendance_rows = db.query(Attendance).filter(
+        Attendance.user_id == target_user.id,
+        Attendance.attendance_date.in_(attendance_dates),
+        Attendance.status == "On Leave",
+    ).all()
+    for attendance in attendance_rows:
+        overlapping_approved = db.query(LeaveRequest.id).filter(
+            LeaveRequest.user_id == target_user.id,
+            LeaveRequest.id != leave_request.id,
+            LeaveRequest.status == "Approved",
+            LeaveRequest.from_date <= attendance.attendance_date,
+            LeaveRequest.to_date >= attendance.attendance_date,
+        ).first()
+        if overlapping_approved:
+            continue
+        attendance.status = "Present"
+        if attendance.reason == "Leave":
+            attendance.reason = None
+
+    leave_request.status = "Cancelled"
+    db.commit()
+    refresh_leave_accrual(db, target_user)
+    db.commit()
+    db.refresh(leave_request)
+
+    if target_user.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=target_user.id,
+            actor_user_id=current_user.id,
+            notification_type="leave.cancelled",
+            title="Leave request cancelled",
+            message=f"Your leave from {leave_request.from_date} to {leave_request.to_date} was cancelled.",
+            route="/leave",
+            entity_type="leave_request",
+            entity_id=leave_request.id,
+        )
+    log_activity(
+        db,
+        current_user.id,
+        f"Cancelled leave request #{leave_id} for {target_user.name}",
+    )
+    db.commit()
+    return leave_request
+
+
 # ------------------------------------------------------------
 # Get My Leave Requests
 # ------------------------------------------------------------
 
 @router.get("/me", response_model=List[LeaveRequestOut])
 def get_my_leave_requests(
-    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
+    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected|Cancelled)$"),
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
@@ -496,7 +575,7 @@ def get_my_leave_requests(
 @router.get("/user/{user_id}", response_model=List[LeaveRequestOut])
 def get_user_leave_requests(
     user_id: int,
-    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
+    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected|Cancelled)$"),
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
@@ -566,7 +645,7 @@ def get_pending_leave_requests(
 
 @router.get("/all", response_model=List[LeaveRequestOut])
 def get_all_leave_requests(
-    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
+    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected|Cancelled)$"),
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     db: Session = Depends(get_db),

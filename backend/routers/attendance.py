@@ -1960,6 +1960,40 @@ def delete_pending_half_day(
     return {"message": "Half day request deleted"}
 
 
+@router.put("/half-day-requests/{request_id}/cancel", response_model=HalfDayOut)
+def cancel_approved_half_day(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel an approved half-day request while retaining its audit history."""
+    if current_user.role not in {"admin", "superadmin", "team_leader"}:
+        raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved half day")
+    request = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Half day request not found")
+    if request.status != "Approved":
+        raise HTTPException(status_code=400, detail="Only approved half day requests can be cancelled")
+    require_team_member_access(db, current_user, request.user_id, "leave.approve")
+
+    attendance = db.query(Attendance).filter(
+        Attendance.user_id == request.user_id,
+        Attendance.attendance_date == request.attendance_date,
+    ).order_by(Attendance.id.desc()).first()
+    if attendance and attendance.manual_override and attendance.status == "Half Day":
+        attendance.manual_override = False
+        attendance.manual_override_by = None
+        attendance.manual_override_at = None
+        attendance.status = "Absent"
+        attendance.reason = None
+
+    request.status = "Cancelled"
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Cancelled half day request #{request_id}"))
+    db.commit()
+    db.refresh(request)
+    return request
+
+
 @router.post("/half-day/{user_id}", response_model=HalfDayOut, status_code=201)
 def admin_request_half_day_for_user(
     user_id: int,
@@ -2317,6 +2351,28 @@ def delete_pending_wfh(
     db.delete(request)
     db.commit()
     return {"message": "WFH request deleted"}
+
+
+@router.put("/wfh/{request_id}/cancel", response_model=WFHOut)
+def cancel_approved_wfh(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel an approved WFH request while retaining its audit history."""
+    if current_user.role not in {"admin", "superadmin", "team_leader"}:
+        raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved WFH")
+    request = db.query(WFHRequestModel).filter(WFHRequestModel.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="WFH request not found")
+    if request.status != "Approved":
+        raise HTTPException(status_code=400, detail="Only approved WFH requests can be cancelled")
+    require_team_member_access(db, current_user, request.user_id, "leave.approve")
+    request.status = "Cancelled"
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Cancelled WFH request #{request_id}"))
+    db.commit()
+    db.refresh(request)
+    return request
 
 
 @router.post("/wfh/{user_id}", response_model=WFHOut, status_code=201)
