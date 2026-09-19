@@ -68,6 +68,18 @@ from routers.changed_logs import record_changed_log
 
 router = APIRouter()
 
+
+@router.get("/validation-settings")
+def attendance_validation_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = db.query(CompanySettings).first()
+    return {
+        "location_enabled": bool(getattr(settings, "attendance_location_enabled", False)),
+        "validation_mode": getattr(settings, "attendance_validation_mode", None) or "ip_only",
+    }
+
 # Half-day slot boundaries
 HALF_DAY_SLOTS = {
     "morning": (time(10, 0), time(14, 30)),      # 10:00 AM - 2:30 PM
@@ -107,11 +119,77 @@ def _is_onsite_user(user: User) -> bool:
     return (getattr(user, "attendance_mode", None) or "office").lower() == "onsite"
 
 
-def _require_onsite_location(user: User, latitude: Optional[float], longitude: Optional[float], accuracy: Optional[float], skip: bool = False) -> None:
-    if skip or not _is_onsite_user(user):
-        return
+def _validate_location(latitude: Optional[float], longitude: Optional[float], accuracy: Optional[float]) -> None:
     if latitude is None or longitude is None or not math.isfinite(latitude) or not math.isfinite(longitude) or not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180) or (accuracy is not None and (not math.isfinite(accuracy) or accuracy < 0)):
-        raise HTTPException(status_code=400, detail="LOCATION_REQUIRED: Enable location services and allow GPS access to mark onsite attendance.")
+        raise HTTPException(status_code=400, detail="LOCATION_REQUIRED: Enable location services and allow GPS access to mark attendance.")
+
+
+def _location_distance_meters(latitude: float, longitude: float, office_latitude: float, office_longitude: float) -> float:
+    earth_radius = 6_371_000
+    lat1, lat2 = math.radians(office_latitude), math.radians(latitude)
+    delta_lat = math.radians(latitude - office_latitude)
+    delta_lon = math.radians(longitude - office_longitude)
+    haversine = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    return 2 * earth_radius * math.asin(math.sqrt(haversine))
+
+
+def _attendance_validation(
+    db: Session,
+    ip_address: str,
+    latitude: Optional[float],
+    longitude: Optional[float],
+    accuracy: Optional[float],
+    user: User,
+    skip: bool = False,
+) -> Tuple[Optional[str], Optional[float]]:
+    if skip:
+        return None, None
+    if _is_onsite_user(user):
+        _validate_location(latitude, longitude, accuracy)
+        if accuracy is not None and accuracy > 100:
+            raise HTTPException(status_code=400, detail="LOCATION_INACCURATE: Move to an area with a stronger GPS signal and try again.")
+        return "location", None
+    settings = db.query(CompanySettings).first()
+    mode = getattr(settings, "attendance_validation_mode", None) or "ip_only"
+    location_enabled = bool(getattr(settings, "attendance_location_enabled", False))
+    location_configured = settings and settings.office_latitude is not None and settings.office_longitude is not None
+    location_allowed = False
+    distance = None
+    ip_allowed = _validate_office_ip(ip_address, db)
+    if mode == "ip_only":
+        if not ip_allowed:
+            raise HTTPException(status_code=403, detail=f"Attendance cannot be marked from this network ({ip_address}). Please connect to an approved office network.")
+        return "ip", None
+    if location_enabled and location_configured and mode in {"location_only", "ip_or_location"}:
+        if latitude is not None or longitude is not None or accuracy is not None:
+            try:
+                _validate_location(latitude, longitude, accuracy)
+                if accuracy is not None and accuracy > 100:
+                    raise HTTPException(status_code=400, detail="LOCATION_INACCURATE: Move to an area with a stronger GPS signal and try again.")
+                distance = _location_distance_meters(latitude, longitude, float(settings.office_latitude), float(settings.office_longitude))
+                location_allowed = distance <= (settings.attendance_radius_meters or 200)
+            except HTTPException:
+                if mode == "location_only":
+                    raise
+                if not ip_allowed:
+                    raise
+                distance = None
+                location_allowed = False
+    if mode == "ip_or_location" and ip_allowed:
+        return "ip", None
+    if mode == "location_only" and not location_allowed:
+        if distance is not None:
+            raise HTTPException(status_code=403, detail="LOCATION_OUTSIDE_RADIUS: You must be within the configured office attendance radius.")
+        raise HTTPException(status_code=400, detail="LOCATION_REQUIRED: Enable location services and allow GPS access to mark attendance.")
+    if mode == "location_only":
+        return "location", distance
+    if mode == "ip_or_location" and location_allowed:
+        return "location", distance
+    if mode == "ip_or_location":
+        if distance is not None:
+            raise HTTPException(status_code=403, detail="LOCATION_OUTSIDE_RADIUS: You must be within the configured office attendance radius or use an approved office network.")
+        raise HTTPException(status_code=403, detail=f"Attendance cannot be marked from this network ({ip_address}). Please use an approved office network or enable location access.")
+    return None, None
 
 
 def _has_approved_wfh(db: Session, user_id: int, target_date: date) -> bool:
@@ -494,21 +572,15 @@ def check_in(
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
     onsite = _is_onsite_user(current_user)
     approved_wfh = _has_approved_wfh(db, current_user.id, today)
-    _require_onsite_location(
-        current_user,
-        payload.latitude if payload else None,
-        payload.longitude if payload else None,
-        payload.accuracy if payload else None,
-        skip=approved_wfh,
-    )
-
-    # Skip office IP check only for approved WFH or this employee's assigned working day.
-    if not (onsite or approved_wfh or _is_working_day(db, current_user.id, today)):
-        if not _validate_office_ip(ip_address, db):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Attendance cannot be marked from this network ({ip_address}). Please connect to an approved office network."
-            )
+    validation_method = None
+    distance = None
+    if approved_wfh:
+        pass
+    elif onsite:
+        _validate_location(payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None)
+        validation_method = "location"
+    elif not _is_working_day(db, current_user.id, today):
+        validation_method, distance = _attendance_validation(db, ip_address, payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None, current_user)
     existing = (
         db.query(Attendance)
         .filter(Attendance.user_id == current_user.id, Attendance.attendance_date == today)
@@ -553,9 +625,11 @@ def check_in(
     if existing:
         existing.check_in = ist_now
         existing.ip_address = ip_address
-        existing.check_in_latitude = payload.latitude if onsite and not approved_wfh and payload else None
-        existing.check_in_longitude = payload.longitude if onsite and not approved_wfh and payload else None
-        existing.check_in_accuracy = payload.accuracy if onsite and not approved_wfh and payload else None
+        existing.check_in_latitude = payload.latitude if payload and validation_method == "location" else None
+        existing.check_in_longitude = payload.longitude if payload and validation_method == "location" else None
+        existing.check_in_accuracy = payload.accuracy if payload and validation_method == "location" else None
+        existing.check_in_distance_meters = distance
+        existing.check_in_validation_method = validation_method
         if not getattr(existing, "manual_override", False):
             existing.status = status_value
         # Tag the reason with [LATE_ENTRY] prefix so frontend can distinguish it from early checkout reasons
@@ -571,9 +645,11 @@ def check_in(
             status=status_value,
             reason=f"[LATE_ENTRY] {reason}" if reason else None,
         )
-        record.check_in_latitude = payload.latitude if onsite and not approved_wfh and payload else None
-        record.check_in_longitude = payload.longitude if onsite and not approved_wfh and payload else None
-        record.check_in_accuracy = payload.accuracy if onsite and not approved_wfh and payload else None
+        record.check_in_latitude = payload.latitude if payload and validation_method == "location" else None
+        record.check_in_longitude = payload.longitude if payload and validation_method == "location" else None
+        record.check_in_accuracy = payload.accuracy if payload and validation_method == "location" else None
+        record.check_in_distance_meters = distance
+        record.check_in_validation_method = validation_method
         db.add(record)
 
     # Handle leave cancellation if employee checks in after having approved leave
@@ -648,6 +724,10 @@ def check_in(
         "check_out_latitude": record.check_out_latitude,
         "check_out_longitude": record.check_out_longitude,
         "check_out_accuracy": record.check_out_accuracy,
+        "check_in_distance_meters": record.check_in_distance_meters,
+        "check_out_distance_meters": record.check_out_distance_meters,
+        "check_in_validation_method": record.check_in_validation_method,
+        "check_out_validation_method": record.check_out_validation_method,
     }
 
 
@@ -670,21 +750,15 @@ def check_out(
     ip_address = _get_client_ip(request, payload.ip_address if payload else None)
     onsite = _is_onsite_user(current_user)
     approved_wfh = _has_approved_wfh(db, current_user.id, today)
-    _require_onsite_location(
-        current_user,
-        payload.latitude if payload else None,
-        payload.longitude if payload else None,
-        payload.accuracy if payload else None,
-        skip=approved_wfh,
-    )
-
-    # Skip office IP check only for approved WFH or this employee's assigned working day.
-    if not (onsite or approved_wfh or _is_working_day(db, current_user.id, today)):
-        if not _validate_office_ip(ip_address, db):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Attendance cannot be marked from this network ({ip_address}). Please connect to an approved office network."
-            )
+    validation_method = None
+    distance = None
+    if approved_wfh:
+        pass
+    elif onsite:
+        _validate_location(payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None)
+        validation_method = "location"
+    elif not _is_working_day(db, current_user.id, today):
+        validation_method, distance = _attendance_validation(db, ip_address, payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None, current_user)
 
     record = (
         db.query(Attendance)
@@ -731,9 +805,11 @@ def check_out(
     # =============================================
 
     record.check_out = ist_now
-    record.check_out_latitude = payload.latitude if onsite and not approved_wfh and payload else None
-    record.check_out_longitude = payload.longitude if onsite and not approved_wfh and payload else None
-    record.check_out_accuracy = payload.accuracy if onsite and not approved_wfh and payload else None
+    record.check_out_latitude = payload.latitude if payload and validation_method == "location" else None
+    record.check_out_longitude = payload.longitude if payload and validation_method == "location" else None
+    record.check_out_accuracy = payload.accuracy if payload and validation_method == "location" else None
+    record.check_out_distance_meters = distance
+    record.check_out_validation_method = validation_method
     if reason and not onsite:
         # Append early checkout reason, tagged with [EARLY_CHECKOUT] prefix for frontend clarity
         tagged_reason = f"[EARLY_CHECKOUT] {reason}"
@@ -775,6 +851,10 @@ def check_out(
         "check_out_latitude": record.check_out_latitude,
         "check_out_longitude": record.check_out_longitude,
         "check_out_accuracy": record.check_out_accuracy,
+        "check_in_distance_meters": record.check_in_distance_meters,
+        "check_out_distance_meters": record.check_out_distance_meters,
+        "check_in_validation_method": record.check_in_validation_method,
+        "check_out_validation_method": record.check_out_validation_method,
     }
 
 
@@ -839,6 +919,10 @@ def my_attendance(
             "check_out_latitude": attendance.check_out_latitude,
             "check_out_longitude": attendance.check_out_longitude,
             "check_out_accuracy": attendance.check_out_accuracy,
+            "check_in_distance_meters": attendance.check_in_distance_meters,
+            "check_out_distance_meters": attendance.check_out_distance_meters,
+            "check_in_validation_method": attendance.check_in_validation_method,
+            "check_out_validation_method": attendance.check_out_validation_method,
         })
     return results
 

@@ -42,11 +42,22 @@ export default function CheckInButton({ disabled, onSuccess }: CheckInButtonProp
         ? await api.get<{ attendance_date: string; status: string }[]>("/attendance/wfh/me", { params: { month: today.getMonth() + 1, year: today.getFullYear() } })
         : { data: [] };
       const approvedWfh = wfhRequests.some((request) => request.attendance_date === todayIso && request.status === "Approved");
-      if (user.attendance_mode === "onsite" && !approvedWfh) {
-        const position = await getLocation();
-        payload.latitude = position.coords.latitude;
-        payload.longitude = position.coords.longitude;
-        payload.accuracy = position.coords.accuracy;
+      const { data: validationSettings } = await api.get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings");
+      const needsLocation = user.attendance_mode === "onsite" || (
+        validationSettings.location_enabled &&
+        ["location_only", "ip_or_location"].includes(validationSettings.validation_mode)
+      );
+      if (needsLocation && !approvedWfh) {
+        try {
+          const position = await getLocation();
+          payload.latitude = position.coords.latitude;
+          payload.longitude = position.coords.longitude;
+          payload.accuracy = position.coords.accuracy;
+        } catch (error) {
+          if (user.attendance_mode === "onsite" || validationSettings.validation_mode === "location_only") {
+            throw error;
+          }
+        }
       }
       const { data } = await api.post("/attendance/check-in", payload);
       toast.success(`Checked in — marked as ${data.status}`);

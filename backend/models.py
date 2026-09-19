@@ -303,6 +303,10 @@ class Attendance(Base):
     check_out_latitude = Column(DECIMAL(10, 7), nullable=True)
     check_out_longitude = Column(DECIMAL(10, 7), nullable=True)
     check_out_accuracy = Column(DECIMAL(10, 2), nullable=True)
+    check_in_distance_meters = Column(DECIMAL(10, 2), nullable=True)
+    check_out_distance_meters = Column(DECIMAL(10, 2), nullable=True)
+    check_in_validation_method = Column(Enum("ip", "location", name="attendance_validation_method"), nullable=True)
+    check_out_validation_method = Column(Enum("ip", "location", name="attendance_validation_method"), nullable=True)
 
     user = relationship("User", back_populates="attendance_records", foreign_keys=[user_id])
     corrections = relationship("AttendanceCorrection", back_populates="attendance")
@@ -340,6 +344,16 @@ class CompanySettings(Base):
     weekly_off_day = Column(String(20), default="Sunday")
     company_name = Column(String(255), default="Your Company Name")
     company_address = Column(Text, default="")
+    attendance_location_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    office_latitude = Column(DECIMAL(10, 7), nullable=True)
+    office_longitude = Column(DECIMAL(10, 7), nullable=True)
+    attendance_radius_meters = Column(Integer, nullable=False, default=200, server_default="200")
+    attendance_validation_mode = Column(
+        Enum("ip_only", "location_only", "ip_or_location", name="attendance_validation_mode"),
+        nullable=False,
+        default="ip_only",
+        server_default="ip_only",
+    )
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 

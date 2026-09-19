@@ -359,6 +359,10 @@ class AttendanceOut(ORMBase):
     check_out_latitude: Optional[float] = None
     check_out_longitude: Optional[float] = None
     check_out_accuracy: Optional[float] = None
+    check_in_distance_meters: Optional[float] = None
+    check_out_distance_meters: Optional[float] = None
+    check_in_validation_method: Optional[Literal["ip", "location"]] = None
+    check_out_validation_method: Optional[Literal["ip", "location"]] = None
 
 
 class AttendanceManualUpdate(BaseModel):
@@ -597,6 +601,11 @@ class CompanySettingsUpdate(BaseModel):
     weekly_off_day: Optional[str] = None
     company_name: Optional[str] = None
     company_address: Optional[str] = None
+    attendance_location_enabled: Optional[bool] = None
+    office_latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    office_longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    attendance_radius_meters: Optional[int] = Field(default=None, ge=1, le=10000)
+    attendance_validation_mode: Optional[Literal["ip_only", "location_only", "ip_or_location"]] = None
 
 
 class CompanySettingsOut(ORMBase):
@@ -607,6 +616,11 @@ class CompanySettingsOut(ORMBase):
     weekly_off_day: str
     company_name: str
     company_address: str
+    attendance_location_enabled: bool = False
+    office_latitude: Optional[float] = None
+    office_longitude: Optional[float] = None
+    attendance_radius_meters: int = 200
+    attendance_validation_mode: Literal["ip_only", "location_only", "ip_or_location"] = "ip_only"
 
 
 # =========================================================

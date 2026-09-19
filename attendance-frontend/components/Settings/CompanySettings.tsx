@@ -21,6 +21,11 @@ interface Settings {
   weekly_off_day: string;
   company_name: string;
   company_address: string;
+  attendance_location_enabled: boolean;
+  office_latitude: number | null;
+  office_longitude: number | null;
+  attendance_radius_meters: number;
+  attendance_validation_mode: "ip_only" | "location_only" | "ip_or_location";
 }
 
 export default function CompanySettings() {
@@ -69,6 +74,34 @@ export default function CompanySettings() {
       )}
 
       <div className="max-w-lg space-y-4 rounded-xl border border-ink-200 bg-white p-6 shadow-card">
+        <div className="border-t border-ink-100 pt-4">
+          <h2 className="font-semibold text-ink-900">Attendance Location</h2>
+          <p className="mt-1 text-xs text-ink-500">The backend recalculates distance from these coordinates. GPS readings above 100 metres accuracy are rejected.</p>
+          <label className="mt-4 flex items-center gap-2 text-sm font-medium text-ink-700">
+            <input type="checkbox" checked={form.attendance_location_enabled} onChange={(e) => setForm({ ...form, attendance_location_enabled: e.target.checked })} className="h-4 w-4 rounded border-ink-300 text-brand-600" />
+            Enable location attendance
+          </label>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <label className="text-sm font-medium text-ink-700">Office latitude
+              <input type="number" step="0.000001" value={form.office_latitude ?? ""} onChange={(e) => setForm({ ...form, office_latitude: e.target.value === "" ? null : Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+            </label>
+            <label className="text-sm font-medium text-ink-700">Office longitude
+              <input type="number" step="0.000001" value={form.office_longitude ?? ""} onChange={(e) => setForm({ ...form, office_longitude: e.target.value === "" ? null : Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+            </label>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <label className="text-sm font-medium text-ink-700">Allowed radius (metres)
+              <input type="number" min={1} max={10000} value={form.attendance_radius_meters} onChange={(e) => setForm({ ...form, attendance_radius_meters: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+            </label>
+            <label className="text-sm font-medium text-ink-700">Validation method
+              <select value={form.attendance_validation_mode} onChange={(e) => setForm({ ...form, attendance_validation_mode: e.target.value as Settings["attendance_validation_mode"] })} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
+                <option value="ip_only">IP only</option>
+                <option value="location_only">Location only</option>
+                <option value="ip_or_location">IP or Location</option>
+              </select>
+            </label>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-ink-700">Office Start Time</label>

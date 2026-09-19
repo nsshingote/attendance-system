@@ -3,8 +3,9 @@ routers/company_settings.py
 Office start/end time, late-grace period, and weekly-off-day configuration.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from datetime import time, timedelta
+import math
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -29,6 +30,11 @@ def _settings_default_payload():
         "weekly_off_day": "Sunday",
         "company_name": DEFAULT_COMPANY_NAME,
         "company_address": DEFAULT_COMPANY_ADDRESS,
+        "attendance_location_enabled": False,
+        "office_latitude": None,
+        "office_longitude": None,
+        "attendance_radius_meters": 200,
+        "attendance_validation_mode": "ip_only",
     }
 
 
@@ -60,6 +66,9 @@ def _read_company_settings_row(db: Session):
         select_columns.append("company_name")
     if "company_address" in columns:
         select_columns.append("company_address")
+    for field in ("attendance_location_enabled", "office_latitude", "office_longitude", "attendance_radius_meters", "attendance_validation_mode"):
+        if field in columns:
+            select_columns.append(field)
 
     raw_row = db.execute(
         text(f"SELECT {', '.join(select_columns)} FROM company_settings ORDER BY id DESC LIMIT 1")
@@ -80,6 +89,11 @@ def _read_company_settings_row(db: Session):
         "weekly_off_day": raw_row.get("weekly_off_day") or "Sunday",
         "company_name": raw_row.get("company_name") or DEFAULT_COMPANY_NAME,
         "company_address": raw_row.get("company_address") or DEFAULT_COMPANY_ADDRESS,
+        "attendance_location_enabled": bool(raw_row.get("attendance_location_enabled", False)),
+        "office_latitude": raw_row.get("office_latitude"),
+        "office_longitude": raw_row.get("office_longitude"),
+        "attendance_radius_meters": raw_row.get("attendance_radius_meters") or 200,
+        "attendance_validation_mode": raw_row.get("attendance_validation_mode") or "ip_only",
     }
     return payload
 
@@ -96,6 +110,14 @@ def _upsert_company_settings_row(db: Session, payload: dict):
         normalized["company_name"] = payload.get("company_name") or DEFAULT_COMPANY_NAME
     if "company_address" in columns:
         normalized["company_address"] = payload.get("company_address") or DEFAULT_COMPANY_ADDRESS
+    location_fields = ("attendance_location_enabled", "office_latitude", "office_longitude", "attendance_radius_meters", "attendance_validation_mode")
+    for field in location_fields:
+        if field in columns:
+            normalized[field] = payload.get(field)
+    if "attendance_location_enabled" in columns:
+        normalized["attendance_location_enabled"] = bool(normalized.get("attendance_location_enabled", False))
+        normalized["attendance_radius_meters"] = normalized.get("attendance_radius_meters") or 200
+        normalized["attendance_validation_mode"] = normalized.get("attendance_validation_mode") or "ip_only"
 
     existing = db.execute(text("SELECT id FROM company_settings ORDER BY id DESC LIMIT 1")).scalar()
     if existing is None:
@@ -138,6 +160,19 @@ def update_settings(
     for field, value in payload.model_dump(exclude_none=True).items():
         if value is not None:
             next_payload[field] = value
+
+    location_enabled = bool(next_payload.get("attendance_location_enabled", False))
+    validation_mode = next_payload.get("attendance_validation_mode", "ip_only")
+    radius = next_payload.get("attendance_radius_meters", 200)
+    latitude = next_payload.get("office_latitude")
+    longitude = next_payload.get("office_longitude")
+    if radius is None or radius <= 0:
+        raise HTTPException(status_code=400, detail="Attendance radius must be positive.")
+    if location_enabled and validation_mode in {"location_only", "ip_or_location"}:
+        if latitude is None or longitude is None or not math.isfinite(latitude) or not math.isfinite(longitude):
+            raise HTTPException(status_code=400, detail="Office latitude and longitude are required for location attendance.")
+        if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+            raise HTTPException(status_code=400, detail="Office latitude or longitude is outside the valid range.")
 
     for field, value in payload.model_dump(exclude_none=True).items():
         if str(existing.get(field)) != str(value):

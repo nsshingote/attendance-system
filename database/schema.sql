@@ -101,6 +101,11 @@ CREATE TABLE IF NOT EXISTS company_settings (
     weekly_off_day VARCHAR(20) DEFAULT 'Sunday',
     company_name VARCHAR(255) DEFAULT 'Your Company Name',
     company_address TEXT DEFAULT '',
+    attendance_location_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    office_latitude DECIMAL(10, 7) NULL,
+    office_longitude DECIMAL(10, 7) NULL,
+    attendance_radius_meters INT NOT NULL DEFAULT 200,
+    attendance_validation_mode ENUM('ip_only', 'location_only', 'ip_or_location') NOT NULL DEFAULT 'ip_only',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -127,6 +132,10 @@ CREATE TABLE IF NOT EXISTS attendance (
     check_out_latitude DECIMAL(10, 7),
     check_out_longitude DECIMAL(10, 7),
     check_out_accuracy DECIMAL(10, 2),
+    check_in_distance_meters DECIMAL(10, 2),
+    check_out_distance_meters DECIMAL(10, 2),
+    check_in_validation_method ENUM('ip', 'location'),
+    check_out_validation_method ENUM('ip', 'location'),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE KEY uq_attendance_user_date (user_id, attendance_date)
 );
