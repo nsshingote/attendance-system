@@ -15,12 +15,12 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, has_permission, hash_password, require_admin, require_admin_permission, require_superadmin
+from auth import get_current_user, has_permission, hash_password, require_admin, require_admin_permission, require_superadmin, is_superadmin, effective_role_key
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
 from config import settings
 from database import get_db
 from models import (
-    User, ActivityLog, ChangedLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, PersonalDocumentChangeRequest,
+    User, ActivityLog, ChangedLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, PersonalDocumentChangeRequest, Role,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
@@ -51,11 +51,14 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role == "admin" and not has_permission(current_user, "employees.all_view", db):
+    role_key = effective_role_key(current_user)
+    if role_key not in ("admin", "superadmin", "team_leader") and not has_permission(current_user, "employees.all_view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view users")
+    if role_key == "admin" and not has_permission(current_user, "employees.all_view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view all users")
-    team_member_ids = require_team_permission(db, current_user, "employees.team_view")
+    team_member_ids = require_team_permission(db, current_user, "employees.team_view") if role_key == "team_leader" else []
     query = db.query(User)
-    if current_user.role == "team_leader":
+    if role_key == "team_leader":
         query = query.filter(User.id.in_(team_member_ids))
     if search:
         like = f"%{search}%"
@@ -195,13 +198,11 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
 def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     profile_query = db.query(EmployeeProfileEditRequest)
     document_query = db.query(PersonalDocumentChangeRequest)
-    if current_user.role == "admin" and not has_permission(current_user, "requests.view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view requests")
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         team_ids = [current_user.id, *require_team_permission(db, current_user, "employees.team_view")]
         profile_query = profile_query.filter(EmployeeProfileEditRequest.employee_id.in_(team_ids))
         document_query = document_query.filter(PersonalDocumentChangeRequest.employee_id.in_(team_ids))
-    elif current_user.role not in ("admin", "superadmin"):
+    elif not has_permission(current_user, "requests.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     if status:
         profile_query = profile_query.filter(EmployeeProfileEditRequest.status == status)
@@ -292,11 +293,14 @@ def get_profile_photo(current_user: User = Depends(get_current_user)):
 @router.get("/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Employees may only view their own profile; Admin/SuperAdmin can view any.
-    if current_user.role == "user" and current_user.id != user_id:
+    role_key = effective_role_key(current_user)
+    if role_key == "user" and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to view this user")
-    if current_user.role == "team_leader" and current_user.id != user_id:
+    if role_key == "team_leader" and current_user.id != user_id:
         require_team_member_access(db, current_user, user_id, "employees.team_view")
-    if current_user.role == "admin" and current_user.id != user_id and not has_permission(current_user, "employees.all_view", db):
+    if role_key not in ("admin", "superadmin", "team_leader", "user") and current_user.id != user_id and not has_permission(current_user, "employees.all_view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view this user")
+    if role_key == "admin" and current_user.id != user_id and not has_permission(current_user, "employees.all_view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view this user")
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -311,9 +315,15 @@ def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_permission("employees.manage")),
 ):
-    if payload.role == "admin" and current_user.role != "superadmin":
+    role_record = db.query(Role).filter(Role.id == payload.role_id).first() if payload.role_id else db.query(Role).filter(Role.key == payload.role).first()
+    if payload.role_id and not role_record:
+        raise HTTPException(422, "Role not found")
+    if role_record and not role_record.is_active:
+        raise HTTPException(422, "Role is inactive")
+    role_key = role_record.key if role_record else payload.role
+    if role_key == "admin" and not is_superadmin(current_user):
         raise HTTPException(status_code=403, detail="Only Super Admin can create Admin accounts")
-    if payload.role == "superadmin":
+    if role_key == "superadmin":
         raise HTTPException(status_code=403, detail="Super Admin accounts cannot be created via this endpoint")
 
     if db.query(User).filter(User.mobile == payload.mobile).first():
@@ -326,7 +336,8 @@ def create_user(
         mobile=payload.mobile,
         email=payload.email,
         password_hash=hash_password(payload.password),
-        role=payload.role,
+        role=role_key if role_key in {"superadmin", "admin", "team_leader", "user"} else "user",
+        role_id=role_record.id if role_record else None,
         attendance_mode=payload.attendance_mode,
         department=payload.department,
         designation=payload.designation,
@@ -368,12 +379,24 @@ def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.role == "superadmin" and current_user.role != "superadmin":
+    current_role = db.query(Role).filter(Role.id == user.role_id).first() if user.role_id else None
+    if (current_role.key if current_role else user.role) == "superadmin" and not is_superadmin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized to modify a Super Admin account")
-    if payload.role == "admin" and current_user.role != "superadmin":
+    requested_role = db.query(Role).filter(Role.id == payload.role_id).first() if payload.role_id else (
+        db.query(Role).filter(Role.key == payload.role).first() if payload.role else None
+    )
+    if payload.role_id and not requested_role:
+        raise HTTPException(422, "Role not found")
+    if requested_role and not requested_role.is_active:
+        raise HTTPException(422, "Role is inactive")
+    requested_key = requested_role.key if requested_role else payload.role
+    if requested_key == "admin" and not is_superadmin(current_user):
         raise HTTPException(status_code=403, detail="Only Super Admin can promote users to Admin")
 
     update_data = payload.model_dump(exclude_unset=True)
+    if requested_role:
+        update_data["role_id"] = requested_role.id
+        update_data["role"] = requested_role.key if requested_role.key in {"superadmin", "admin", "team_leader", "user"} else "user"
     for field, value in update_data.items():
         old_value = getattr(user, field)
         if str(old_value or "") != str(value or ""):
@@ -646,7 +669,7 @@ def permanently_delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.role == "superadmin":
+    if effective_role_key(user) == "superadmin":
         raise HTTPException(
             status_code=403,
             detail="Super Admin cannot be deleted"

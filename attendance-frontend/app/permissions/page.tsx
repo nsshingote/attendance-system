@@ -14,103 +14,130 @@ type Permission = {
   action: string;
   description: string | null;
 };
-
-const moduleLabels: Record<string, string> = {
-  attendance: "Attendance",
-  reports: "Reports",
-  leave: "Leave",
-  corrections: "Corrections",
-  employees: "Employees",
-  kundli: "Kundli",
-  dashboard: "Dashboard",
-  teams: "Teams",
-  resources: "Resources",
-  report_structure: "Report Structure",
-  departments: "Manage Departments",
-  requests: "Requests",
-  holidays: "Holidays",
-  monthly_summary: "Monthly Summary",
-  device_requests: "Device Requests",
-  notification_emails: "Notification Emails",
-  office_ips: "Office IPs",
-  activity_logs: "Activity Logs",
-  feedback: "Feedback",
-  settings: "Settings",
-  recycle_bin: "Recycle Bin",
-  changed_logs: "Changed Logs",
-  employee_documents: "Employee Documents",
+type Role = {
+  id: number;
+  key: string;
+  name: string;
+  description?: string | null;
+  is_system: boolean;
+  is_active: boolean;
+  permission_ids: number[];
 };
-
-const featureLabels: Record<string, string> = {
-  letters: "Letters",
-  salary_slips: "Salary Slips",
-  letter_templates: "Letter Templates",
-};
-
-type ConfigurableRole = "admin" | "team_leader";
-
-const teamLeaderPermissionKeys = new Set([
-  "dashboard.view",
-  "attendance.view_own", "attendance.team_view", "attendance.all_view",
-  "reports.team_view", "reports.all_view",
-  "leave.view_own", "leave.team_view", "leave.all_view", "leave.approve",
-  "corrections.view_own", "corrections.team_view", "corrections.all_view", "corrections.approve",
-  "kundli.team_view", "kundli.create", "kundli.edit", "kundli.delete",
-  "employees.view_own", "employees.team_view", "employees.all_view",
-]);
+type User = { id: number; name: string; email?: string | null; mobile: string; status: string };
+type Effect = "allow" | "deny";
+type Override = { permission_id: number; effect: Effect };
 
 export default function PermissionsPage() {
   const [permissions, setPermissions] = useState<Permission[]>([]);
-  const [selected, setSelected] = useState<number[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assignmentType, setAssignmentType] = useState<"role" | "user">("role");
+  const [target, setTarget] = useState("");
+  const [rolePermissionIds, setRolePermissionIds] = useState<number[]>([]);
+  const [overrides, setOverrides] = useState<Record<number, Effect>>({});
+  const [dirtyOverrides, setDirtyOverrides] = useState<Set<number>>(new Set());
+  const [newRole, setNewRole] = useState({ key: "", name: "", description: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [role, setRole] = useState<ConfigurableRole>("admin");
 
-  const grouped = useMemo(() => permissions
-    .filter((permission) => role === "admin"
-      ? permission.key !== "permissions.manage"
-      : teamLeaderPermissionKeys.has(permission.key))
-    .reduce<Record<string, Permission[]>>((result, permission) => {
-    const moduleKey = permission.module.split(".")[0];
-    (result[moduleKey] ||= []).push(permission);
-    return result;
-  }, {}), [permissions, role]);
+  const activeRoles = useMemo(() => roles.filter((role) => role.is_active), [roles]);
+  const grouped = useMemo(() => permissions.reduce<Record<string, Permission[]>>((groups, permission) => {
+    (groups[permission.module] ||= []).push(permission);
+    return groups;
+  }, {}), [permissions]);
 
-  const load = useCallback(async () => {
+  const loadTargets = useCallback(async () => {
     try {
-      const [allResponse, assignedResponse] = await Promise.all([
+      const [permissionResponse, roleResponse, userResponse] = await Promise.all([
         api.get<Permission[]>("/permissions/"),
-        api.get<number[]>(`/permissions/role/${role}`),
+        api.get<Role[]>("/permissions/roles"),
+        api.get<User[]>("/users/?status=active"),
       ]);
-      setPermissions(allResponse.data);
-      const dashboard = allResponse.data.find((permission) => permission.key === "dashboard.view");
-      setSelected(dashboard && !assignedResponse.data.includes(dashboard.id)
-        ? [...assignedResponse.data, dashboard.id]
-        : assignedResponse.data);
+      setPermissions(permissionResponse.data);
+      setRoles(roleResponse.data);
+      setUsers(userResponse.data.filter((user) => user.status === "active"));
+      const available = assignmentType === "role"
+        ? roleResponse.data.filter((role) => role.is_active)
+        : userResponse.data.filter((user) => user.status === "active");
+      if (!available.some((item) => String(item.id) === target)) {
+        setTarget(available[0] ? String(available[0].id) : "");
+      }
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [role]);
+  }, [assignmentType, target]);
 
-  // Loading the selected role is an external API synchronization.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(); }, [load]);
+  const loadAssignment = useCallback(async () => {
+    if (!target) {
+      setRolePermissionIds([]);
+      setOverrides({});
+      setDirtyOverrides(new Set());
+      return;
+    }
+    try {
+      if (assignmentType === "role") {
+        const role = roles.find((item) => String(item.id) === target);
+        setRolePermissionIds(role?.permission_ids || []);
+      } else {
+        const { data } = await api.get<Override[]>(`/permissions/users/${target}/overrides`);
+        setOverrides(Object.fromEntries(data.map((item) => [item.permission_id, item.effect])));
+        setDirtyOverrides(new Set());
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }, [assignmentType, roles, target]);
 
-  const toggle = (permission: Permission) => {
-    if (permission.key === "dashboard.view") return;
-    setSelected((current) => current.includes(permission.id)
-      ? current.filter((id) => id !== permission.id)
-      : [...current, permission.id]);
+  useEffect(() => { void loadTargets(); }, [loadTargets]);
+  useEffect(() => { void loadAssignment(); }, [loadAssignment]);
+
+  const changeType = (type: "role" | "user") => {
+    setAssignmentType(type);
+    setTarget("");
+    setRolePermissionIds([]);
+    setOverrides({});
+    setDirtyOverrides(new Set());
+  };
+
+  const toggleRolePermission = (id: number) => {
+    setRolePermissionIds((current) => current.includes(id)
+      ? current.filter((permissionId) => permissionId !== id)
+      : [...current, id]);
+  };
+
+  const setUserEffect = (id: number, value: string) => {
+    setOverrides((current) => {
+      const next = { ...current };
+      if (value === "inherit") delete next[id];
+      else next[id] = value as Effect;
+      return next;
+    });
+    setDirtyOverrides((current) => new Set(current).add(id));
   };
 
   const save = async () => {
+    if (!target) return;
     setSaving(true);
     try {
-      await api.put(`/permissions/role/${role}`, { permission_ids: selected });
-      toast.success(`${role === "admin" ? "Admin" : "Team Leader"} permissions updated`);
-      await load();
+      if (assignmentType === "role") {
+        await api.put(`/permissions/role/${activeRoles.find((role) => String(role.id) === target)?.key}`, {
+          permission_ids: rolePermissionIds,
+        });
+        toast.success("Role permissions updated");
+      } else {
+        await Promise.all([...dirtyOverrides].map((permissionId) => {
+          const effect = overrides[permissionId];
+          return effect
+            ? api.put(`/permissions/users/${target}/overrides`, { permission_id: permissionId, effect })
+            : api.delete(`/permissions/users/${target}/overrides/${permissionId}`);
+        }));
+        setDirtyOverrides(new Set());
+        toast.success("User permission overrides updated");
+      }
+      await loadTargets();
+      await loadAssignment();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -118,73 +145,110 @@ export default function PermissionsPage() {
     }
   };
 
+  const createRole = async () => {
+    if (!newRole.key || !newRole.name) return;
+    try {
+      await api.post("/permissions/roles", newRole);
+      setNewRole({ key: "", name: "", description: "" });
+      await loadTargets();
+      toast.success("Role created");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const deactivateRole = async (role: Role) => {
+    if (role.is_system || !confirm(`Deactivate ${role.name}?`)) return;
+    try {
+      await api.put(`/permissions/roles/${role.key}`, { is_active: false });
+      await loadTargets();
+      toast.success("Role deactivated");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const selectedTarget = assignmentType === "role"
+    ? activeRoles.find((role) => String(role.id) === target)?.name
+    : users.find((user) => String(user.id) === target)?.name;
+
   return (
     <AppShell allowedRoles={["superadmin"]}>
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-ink-900">Role Permissions</h1>
-            <p className="text-sm text-ink-500">Configure detailed Admin and Team Leader access. Salary Slip access is sensitive.</p>
+            <h1 className="text-xl font-semibold text-ink-900">Permissions</h1>
+            <p className="text-sm text-ink-500">Assign every master permission to a role or an individual user.</p>
           </div>
-          <button onClick={save} disabled={saving || loading} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+          <button onClick={save} disabled={saving || loading || !target} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
             {saving ? "Saving..." : "Save Permissions"}
           </button>
         </div>
-        <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-1">
-          {(["admin", "team_leader"] as ConfigurableRole[]).map((option) => (
-            <button key={option} onClick={() => setRole(option)} className={`rounded-md px-4 py-2 text-sm font-medium ${role === option ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"}`}>
-              {option === "admin" ? "Admin" : "Team Leader"}
-            </button>
+
+        <section className="rounded-xl border border-ink-200 bg-white p-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-medium text-ink-700">Assignment type
+              <select value={assignmentType} onChange={(event) => changeType(event.target.value as "role" | "user")} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2">
+                <option value="role">Role</option>
+                <option value="user">Individual User</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-ink-700">Target
+              <select value={target} onChange={(event) => setTarget(event.target.value)} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2">
+                <option value="">Select {assignmentType === "role" ? "a role" : "a user"}</option>
+                {assignmentType === "role"
+                  ? activeRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)
+                  : users.map((user) => <option key={user.id} value={user.id}>{user.name}{user.email ? ` (${user.email})` : ""}</option>)}
+              </select>
+            </label>
+          </div>
+          {selectedTarget && <p className="mt-3 text-xs text-ink-500">Editing permissions for {selectedTarget}.</p>}
+        </section>
+        <section className="flex flex-wrap items-center gap-2 rounded-xl border border-ink-200 bg-white p-4">
+          <input value={newRole.key} onChange={(event) => setNewRole({ ...newRole, key: event.target.value })} placeholder="role-key" className="rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+          <input value={newRole.name} onChange={(event) => setNewRole({ ...newRole, name: event.target.value })} placeholder="Role name" className="rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+          <input value={newRole.description} onChange={(event) => setNewRole({ ...newRole, description: event.target.value })} placeholder="Description" className="min-w-50 rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+          <button onClick={createRole} className="rounded-lg bg-ink-800 px-3 py-2 text-sm font-semibold text-white">Create role</button>
+          {activeRoles.filter((role) => !role.is_system).map((role) => (
+            <button key={role.key} onClick={() => deactivateRole(role)} className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700">Deactivate {role.name}</button>
           ))}
-        </div>
+        </section>
+
         {loading ? <Loading /> : (
-          <>
-            <section className="overflow-hidden rounded-xl border border-ink-200 bg-white">
-              <div className="table-wrapper">
-                <table className="w-full min-w-180 text-left text-sm">
-                  <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
-                    <tr><th className="px-5 py-3 font-semibold">Module</th><th className="px-5 py-3 font-semibold">Feature / Permission</th><th className="px-5 py-3 font-semibold">Permission key</th><th className="px-5 py-3 text-center font-semibold">Allowed</th></tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(grouped).map(([module, items]) => items.map((permission, index) => {
-                      const feature = permission.module.includes(".") ? featureLabels[permission.module.split(".")[1]] || permission.module.split(".")[1] : null;
-                      return <tr key={permission.id} className="border-t border-ink-100 hover:bg-ink-50">
-                        <td className="px-5 py-3 font-medium text-ink-800">{index === 0 ? <>{moduleLabels[module] || module}{module === "employee_documents" && <p className="mt-1 text-xs font-normal text-amber-700">Salary Slips are backend-protected.</p>}</> : ""}</td>
-                        <td className="px-5 py-3 font-medium text-ink-800">{feature ? `${feature} · ${permission.name}` : permission.name}</td>
-                        <td className="px-5 py-3 font-mono text-xs text-ink-500">{permission.key}</td>
-                        <td className="px-5 py-3 text-center"><input type="checkbox" aria-label={`Allow ${permission.name}`} checked={selected.includes(permission.id)} disabled={permission.key === "dashboard.view"} onChange={() => toggle(permission)} className="h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500 disabled:opacity-60" /></td>
-                      </tr>;
-                    }))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-            <div className="hidden">
-            {Object.entries(grouped).map(([module, items]) => (
-              <section key={module} className="rounded-xl border border-ink-200 bg-white p-5">
-                <h2 className="mb-1 font-semibold text-ink-900">{moduleLabels[module] || module}</h2>
-                {module === "employee_documents" && <p className="mb-3 text-xs text-amber-700">Salary Slips contain sensitive compensation data and are enforced by the backend.</p>}
-                <div className="grid gap-3 md:grid-cols-2">
-                  {items.map((permission) => (
-                    <label key={permission.id} className="flex items-start gap-3 rounded-lg border border-ink-100 p-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(permission.id)}
-                        disabled={permission.key === "dashboard.view"}
-                        onChange={() => toggle(permission)}
-                        className="mt-1"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium text-ink-800">{permission.module.includes(".") ? `${featureLabels[permission.module.split(".")[1]] || permission.module.split(".")[1]} · ${permission.name}` : permission.name}</span>
-                        <span className="block text-xs text-ink-500">{permission.key}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </section>
-            ))}
+          <section className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+            <div className="table-wrapper">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
+                  <tr>
+                    <th className="px-5 py-3 font-semibold">Module</th>
+                    <th className="px-5 py-3 font-semibold">Permission</th>
+                    <th className="px-5 py-3 font-semibold">Key</th>
+                    <th className="px-5 py-3 text-center font-semibold">{assignmentType === "role" ? "Allowed" : "User override"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(grouped).map(([module, items]) => items.map((permission, index) => (
+                    <tr key={permission.id} className="border-t border-ink-100 hover:bg-ink-50">
+                      <td className="px-5 py-3 font-medium text-ink-800">{index === 0 ? module : ""}</td>
+                      <td className="px-5 py-3 font-medium text-ink-800">{permission.name}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-ink-500">{permission.key}</td>
+                      <td className="px-5 py-3 text-center">
+                        {assignmentType === "role" ? (
+                          <input type="checkbox" aria-label={`Allow ${permission.name}`} checked={rolePermissionIds.includes(permission.id)} disabled={!target} onChange={() => toggleRolePermission(permission.id)} className="h-4 w-4 rounded border-ink-300 text-brand-600" />
+                        ) : (
+                          <select aria-label={`${permission.name} override`} value={overrides[permission.id] || "inherit"} disabled={!target} onChange={(event) => setUserEffect(permission.id, event.target.value)} className="rounded border border-ink-200 px-2 py-1 text-sm">
+                            <option value="inherit">Inherit role</option>
+                            <option value="allow">Allow</option>
+                            <option value="deny">Deny</option>
+                          </select>
+                        )}
+                      </td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
             </div>
-          </>
+          </section>
         )}
       </div>
     </AppShell>

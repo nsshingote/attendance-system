@@ -12,7 +12,7 @@ from secrets import token_urlsafe
 from fastapi import APIRouter, Depends, HTTPException, Response, Cookie, status
 from sqlalchemy.orm import Session
 
-from auth import verify_password, create_access_token, get_current_user
+from auth import verify_password, create_access_token, get_current_user, effective_role_key
 from services.notifications import create_notification, get_admin_user_ids
 from config import settings
 from database import get_db
@@ -33,7 +33,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
         raise HTTPException(status_code=403, detail="Your account has been deactivated")
 
     # Admins / Super Admins can log in from any device — no restriction.
-    if user.role in ("admin", "superadmin"):
+    if effective_role_key(user) in ("admin", "superadmin"):
         return _issue_token(user, db, response)
 
     # ---- Employee device restriction ----
@@ -105,7 +105,8 @@ def _issue_token(user: User, db: Session, response: Response) -> TokenResponse:
     db.add(ActivityLog(user_id=user.id, activity="Logged in"))
     db.commit()
 
-    access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    role_key = effective_role_key(user)
+    access_token = create_access_token(data={"sub": str(user.id), "role": role_key})
     refresh_token = token_urlsafe(48)
     db.add(RefreshToken(
         user_id=user.id,
@@ -122,7 +123,7 @@ def _issue_token(user: User, db: Session, response: Response) -> TokenResponse:
     )
     return TokenResponse(
         access_token=access_token,
-        role=user.role,
+        role=role_key,
         user_id=user.id,
         name=user.name,
     )

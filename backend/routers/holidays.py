@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, has_permission, require_admin_permission
+from auth import get_current_user, has_permission, require_admin_permission, effective_role_key
 from database import get_db
 from models import Holiday, User, ActivityLog, Team
 from schemas import HolidayCreate, HolidayOut
@@ -53,7 +53,7 @@ def list_holidays(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role == "admin" and not has_permission(current_user, "holidays.view", db):
+    if effective_role_key(current_user) == "admin" and not has_permission(current_user, "holidays.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view holidays")
     query = db.query(Holiday)
     if year:

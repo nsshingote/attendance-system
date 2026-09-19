@@ -9,7 +9,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, has_permission, require_admin_permission
+from auth import get_current_user, has_permission, require_admin_permission, effective_role_key
 from database import get_db
 from models import NotificationEmail, User, ActivityLog
 from schemas import NotificationEmailCreate, NotificationEmailOut
@@ -20,7 +20,7 @@ router = APIRouter()
 @router.get("/", response_model=List[NotificationEmailOut])
 def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Authenticated users can view notification emails for composing leave emails."""
-    if current_user.role == "admin" and not has_permission(current_user, "notification_emails.view", db):
+    if effective_role_key(current_user) == "admin" and not has_permission(current_user, "notification_emails.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view notification emails")
     return db.query(NotificationEmail).filter(
         NotificationEmail.is_active == 1

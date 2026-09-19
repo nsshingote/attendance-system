@@ -10,7 +10,7 @@ import CompanySettings from "@/components/Settings/CompanySettings";
 
 export default function SettingsPage() {
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="settings.view">
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Company Settings</h1>

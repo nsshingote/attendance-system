@@ -13,7 +13,7 @@ from models import User, Attendance, AttendanceCorrection
 from schemas import (
     CorrectionOut, CorrectionCreate, CorrectionDecision
 )
-from auth import get_current_user, require_roles
+from auth import get_current_user, has_permission, require_roles, require_admin_permission, effective_role_key
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
 from utils.attendance_status import applicable_holiday, determine_attendance_status_for_date
 from utils.logger import log_activity
@@ -35,11 +35,11 @@ def get_all_corrections(
 ):
     """Admin gets all correction requests."""
     query = db.query(AttendanceCorrection).options(joinedload(AttendanceCorrection.requester))
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
         require_team_permission(db, current_user, "corrections.team_view")
         query = query.filter(AttendanceCorrection.requested_by.in_(team_ids))
-    elif current_user.role not in ("admin", "superadmin"):
+    elif not has_permission(current_user, "corrections.all_view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     if status:
         query = query.filter(AttendanceCorrection.status == status)
@@ -63,7 +63,7 @@ def request_correction(
     # Determine target user (admin can request for others)
     target_user_id = payload.user_id if hasattr(payload, 'user_id') and payload.user_id else current_user.id
     
-    if current_user.role not in ["admin", "superadmin"] and target_user_id != current_user.id:
+    if not has_permission(current_user, "corrections.all_view", db) and target_user_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only request corrections for yourself")
     
     target_user = db.query(User).filter(User.id == target_user_id).first()
@@ -187,7 +187,7 @@ def get_my_corrections(
 @router.get("/pending", response_model=List[CorrectionOut])
 def get_pending_corrections(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("corrections.approve"))
 ):
     """Admin gets all pending correction requests."""
     return (

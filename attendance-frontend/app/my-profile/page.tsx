@@ -520,7 +520,7 @@ export default function MyProfilePage() {
   };
 
   return (
-    <AppShell allowedRoles={["user", "team_leader"]}>
+    <AppShell>
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
           <h1 className="text-xl font-semibold">My Profile</h1>

@@ -25,6 +25,8 @@ from models import (
     LeaveRequest,
     User,
     WFHRequest,
+    Team,
+    TeamMember,
 )
 from schemas import ActivityLogOut
 
@@ -36,13 +38,17 @@ IST = ZoneInfo("Asia/Kolkata")
 def list_activity_logs(
     user_id: Optional[int] = None,
     employee_ids: Optional[List[int]] = Query(None),
+    team_ids: Optional[List[int]] = Query(None),
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_permission("activity_logs.view")),
 ):
     query = db.query(ActivityLog)
-    if employee_ids:
-        query = query.filter(ActivityLog.user_id.in_(employee_ids))
+    team_employee_ids = []
+    if team_ids:
+        team_employee_ids = [employee_id for (employee_id,) in db.query(TeamMember.employee_id).filter(TeamMember.team_id.in_(team_ids)).all()]
+    if employee_ids or team_employee_ids:
+        query = query.filter(ActivityLog.user_id.in_(set(employee_ids or []) | set(team_employee_ids)))
     elif user_id:
         query = query.filter(ActivityLog.user_id == user_id)
     logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 5000)).all()

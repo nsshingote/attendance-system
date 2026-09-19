@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import get_db
-from models import Permission, RolePermission, User
+from models import Permission, Role, RolePermission, User, UserPermission
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -79,7 +79,7 @@ def require_roles(*allowed_roles: str):
     """
 
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in allowed_roles:
+        if effective_role_key(current_user) not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to perform this action",
@@ -89,22 +89,41 @@ def require_roles(*allowed_roles: str):
     return role_checker
 
 
+def effective_role_key(current_user: User) -> str:
+    """Return the configured role key, falling back to the legacy role column."""
+    return (current_user.role_record.key if current_user.role_record else None) or current_user.role
+
+
+def is_superadmin(current_user: User) -> bool:
+    return effective_role_key(current_user) == "superadmin"
+
+
 def has_permission(current_user: User, permission_key: str, db: Session) -> bool:
-    """Return whether the user's role has the named database-backed permission."""
-    if current_user.role == "superadmin":
+    """Resolve explicit user overrides before the configured role (legacy-compatible)."""
+    if is_superadmin(current_user):
         return True
+    if current_user.role_record is not None and not current_user.role_record.is_active:
+        return False
     if not permission_key.strip():
         return False
-    return (
-        db.query(RolePermission.id)
-        .join(Permission, Permission.id == RolePermission.permission_id)
-        .filter(
-            RolePermission.role == current_user.role,
-            Permission.key == permission_key,
+    permission = db.query(Permission).filter(Permission.key == permission_key).first()
+    if permission is None:
+        return False
+    override = db.query(UserPermission.effect).filter(
+        UserPermission.user_id == current_user.id,
+        UserPermission.permission_id == permission.id,
+    ).first()
+    if override:
+        return override[0] == "allow"
+    role_query = db.query(RolePermission.id).filter(RolePermission.permission_id == permission.id)
+    if current_user.role_id:
+        role_query = role_query.filter(
+            (RolePermission.role_id == current_user.role_id) |
+            ((RolePermission.role_id.is_(None)) & (RolePermission.role == effective_role_key(current_user)))
         )
-        .first()
-        is not None
-    )
+    else:
+        role_query = role_query.filter(RolePermission.role == current_user.role)
+    return role_query.first() is not None
 
 
 def require_permission(permission_key: str):
@@ -131,9 +150,9 @@ def require_admin_permission(permission_key: str):
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> User:
-        if current_user.role == "superadmin":
+        if is_superadmin(current_user):
             return current_user
-        if current_user.role != "admin" or not has_permission(current_user, permission_key, db):
+        if not has_permission(current_user, permission_key, db):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to perform this action",

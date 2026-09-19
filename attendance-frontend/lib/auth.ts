@@ -7,7 +7,7 @@
 import { jwtDecode } from "jwt-decode";
 import { useState, useEffect } from "react";
 
-export type Role = "superadmin" | "admin" | "team_leader" | "user";
+export type Role = string;
 
 interface JwtPayload {
   sub: string;

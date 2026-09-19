@@ -29,6 +29,7 @@ interface UserFormValues {
   place_of_posting: string;
   date_of_joining: string;
   role: string;
+  role_id?: number;
   attendance_mode: "office" | "onsite";
   password: string;
 }
@@ -44,6 +45,9 @@ export default function UsersPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
+  const [roles, setRoles] = useState<{ id: number; key: string; name: string; is_active: boolean }[]>([]);
+  const [overridePermissions, setOverridePermissions] = useState<{ id: number; key: string; name: string }[]>([]);
+  const [overrides, setOverrides] = useState<{ permission_id: number; permission_key: string; effect: string }[]>([]);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<UserFormValues>();
 
@@ -76,6 +80,12 @@ export default function UsersPage() {
       .catch(() => toast.error("Failed to load departments"));
   }, []);
 
+  useEffect(() => {
+    api.get<typeof roles>("/permissions/roles")
+      .then(({ data }) => setRoles(data.filter((role) => role.is_active)))
+      .catch(() => toast.error("Failed to load roles"));
+  }, []);
+
   const openCreateModal = () => {
     setEditingUser(null);
     reset({ name: "", mobile: "", email: "", department: "", designation: "", place_of_posting: "", date_of_joining: "", role: "user", attendance_mode: "office", password: "" });
@@ -104,10 +114,30 @@ export default function UsersPage() {
       place_of_posting: user.place_of_posting ?? "",
       date_of_joining: user.date_of_joining ?? "",
       role: user.role,
+      role_id: user.role_id,
       attendance_mode: user.attendance_mode || "office",
       password: "",
     });
     setModalOpen(true);
+    if (session?.role === "superadmin") {
+      Promise.all([
+        api.get<typeof overridePermissions>("/permissions/"),
+        api.get<typeof overrides>(`/permissions/users/${user.id}/overrides`),
+      ]).then(([permissionsResponse, overridesResponse]) => {
+        setOverridePermissions(permissionsResponse.data);
+        setOverrides(overridesResponse.data);
+      }).catch(() => toast.error("Failed to load permission overrides"));
+    }
+  };
+
+  const setOverride = async (permissionId: number, effect: string) => {
+    if (!editingUser) return;
+    try {
+      if (effect === "inherit") await api.delete(`/permissions/users/${editingUser.id}/overrides/${permissionId}`);
+      else await api.put(`/permissions/users/${editingUser.id}/overrides`, { permission_id: permissionId, effect });
+      const { data } = await api.get<typeof overrides>(`/permissions/users/${editingUser.id}/overrides`);
+      setOverrides(data);
+    } catch (error) { toast.error(getErrorMessage(error)); }
   };
 
   const onSubmit = async (values: UserFormValues) => {
@@ -122,6 +152,7 @@ export default function UsersPage() {
           place_of_posting: values.place_of_posting || undefined,
           date_of_joining: values.date_of_joining || undefined,
           role: values.role,
+          role_id: roles.find((role) => role.key === values.role)?.id,
           attendance_mode: values.attendance_mode,
         });
         toast.success("User updated");
@@ -135,6 +166,7 @@ export default function UsersPage() {
           place_of_posting: values.place_of_posting || undefined,
           date_of_joining: values.date_of_joining || undefined,
           role: values.role,
+          role_id: roles.find((role) => role.key === values.role)?.id,
           attendance_mode: values.attendance_mode,
           password: values.password,
         });
@@ -172,7 +204,7 @@ export default function UsersPage() {
   };
   
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="employees.all_view">
       <div className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
@@ -275,9 +307,7 @@ export default function UsersPage() {
           <div>
             <label className="mb-1 block text-sm font-medium text-ink-700">Role</label>
             <select {...register("role")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
-              <option value="user">Employee</option>
-              <option value="team_leader">Team Leader</option>
-              {session?.role === "superadmin" && <option value="admin">Admin</option>}
+              {roles.map((role) => <option key={role.id} value={role.key}>{role.name}</option>)}
             </select>
           </div>
           <div>
@@ -296,6 +326,22 @@ export default function UsersPage() {
                 className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
               />
               {errors.password && <p className="mt-1 text-xs text-red-600">Minimum 6 characters</p>}
+            </div>
+          )}
+          {editingUser && session?.role === "superadmin" && (
+            <div className="border-t border-ink-100 pt-3">
+              <p className="mb-2 text-sm font-medium text-ink-700">Per-user permission overrides</p>
+              <div className="max-h-40 space-y-2 overflow-auto">
+                {overridePermissions.map((permission) => {
+                  const override = overrides.find((item) => item.permission_id === permission.id);
+                  return <div key={permission.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span>{permission.name}</span>
+                    <select value={override?.effect || "inherit"} onChange={(event) => void setOverride(permission.id, event.target.value)} className="rounded border border-ink-200 px-2 py-1">
+                      <option value="inherit">Inherit</option><option value="allow">Allow</option><option value="deny">Deny</option>
+                    </select>
+                  </div>;
+                })}
+              </div>
             </div>
           )}
         </form>

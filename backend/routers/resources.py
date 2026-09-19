@@ -15,7 +15,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from auth import get_current_user, has_permission, require_admin_permission
+from auth import get_current_user, has_permission, require_admin_permission, is_superadmin
 from config import settings
 from database import get_db
 from models import ActivityLog, Resource, ResourceDepartmentAccess, ResourceEmployeeAccess, User, Department
@@ -80,11 +80,12 @@ def _external_base_url(request: Request) -> str:
 
 def user_has_resource_access(user: User, resource: Resource, db: Session) -> bool:
     """Check if user has access to a resource based on visibility rules"""
-    # Superadmins always have access; Admins need resource view permission.
-    if user.role == "superadmin":
+    # Superadmins retain unrestricted access. Any role or user explicitly
+    # granted resource-view permission can see all shared resources.
+    if is_superadmin(user):
         return True
-    if user.role == "admin":
-        return has_permission(user, "resources.view", db)
+    if has_permission(user, "resources.view", db):
+        return True
 
     # Check visibility type
     if resource.visibility_type == "all_employees":
@@ -129,10 +130,8 @@ def list_resources(
     - Admins/Superadmins see all resources
     - Employees see only resources they're authorized to access
     """
-    if current_user.role == "admin" and not has_permission(current_user, "resources.view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view resources")
-    if current_user.role in {"admin", "superadmin"}:
-        # Admins see all resources
+    if has_permission(current_user, "resources.view", db):
+        # Explicit resource-view permission grants access to all resources.
         resources = db.query(Resource).order_by(Resource.created_at.desc()).all()
     else:
         # Employees see only resources they can access
@@ -190,7 +189,7 @@ def get_resource(
 
     # Get access details (only for admin)
     detail = ResourceDetailOut.model_validate(resource)
-    if current_user.role in {"admin", "superadmin"}:
+    if has_permission(current_user, "resources.view", db):
         dept_access = db.query(ResourceDepartmentAccess).filter(
             ResourceDepartmentAccess.resource_id == resource_id
         ).all()

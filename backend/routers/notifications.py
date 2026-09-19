@@ -6,7 +6,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
 
-from auth import decode_access_token, get_current_user, has_permission
+from auth import decode_access_token, get_current_user, has_permission, effective_role_key
 from database import SessionLocal, get_db
 from models import (
     User,
@@ -37,7 +37,7 @@ router = APIRouter()
 
 @router.get("/pending-request-count")
 def get_pending_request_count(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role in ("admin", "superadmin"):
+    if effective_role_key(current_user) in ("admin", "superadmin"):
         return {
             "requests": (
                 db.query(AttendanceCorrection).filter(AttendanceCorrection.status == "Pending").count()
@@ -53,7 +53,7 @@ def get_pending_request_count(db: Session = Depends(get_db), current_user: User 
             "devices": db.query(DeviceRequest).filter(DeviceRequest.status == "Pending").count(),
             "feedback": db.query(Feedback).filter(Feedback.viewed_at.is_(None)).count(),
         }
-    if current_user.role != "team_leader":
+    if effective_role_key(current_user) != "team_leader":
         return {"requests": 0, "leave": 0, "devices": 0, "feedback": 0}
     team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
     count = 0

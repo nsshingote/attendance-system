@@ -23,6 +23,7 @@ import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
 import Badge from "@/components/Common/Badge";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 import LeaveForm from "@/components/Leave/LeaveForm";
 import LeaveTable, { LeaveRow } from "@/components/Leave/LeaveTable";
 import LeaveSummary from "@/components/Leave/LeaveSummary";
@@ -132,6 +133,8 @@ export default function LeavePage() {
 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
+  const [teamEmployeeIds, setTeamEmployeeIds] = useState<number[]>([]);
   const [fromDate, setAdminFromDate] = useState<string>("");
   const [toDate, setAdminToDate] = useState<string>("");
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
@@ -152,6 +155,7 @@ export default function LeavePage() {
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
   const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string }[]>([]);
   const [attendanceMode, setAttendanceMode] = useState("office");
+  const effectiveEmployeeIds = Array.from(new Set([...selectedUserIds, ...teamEmployeeIds]));
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
@@ -181,10 +185,10 @@ export default function LeavePage() {
       let params: any = {};
       
       // For admin viewing all employees with date range filter
-      if (admin && selectedUserIds.length === 0 && fromDate && toDate) {
+      if (admin && effectiveEmployeeIds.length === 0 && fromDate && toDate) {
         params.from_date = fromDate;
         params.to_date = toDate;
-      } else if ((admin || teamView) && selectedUserIds.length > 0) {
+      } else if ((admin || teamView) && effectiveEmployeeIds.length > 0) {
         // For admin filtering by specific employees with date range
         if (fromDate) params.from_date = fromDate;
         if (toDate) params.to_date = toDate;
@@ -194,7 +198,7 @@ export default function LeavePage() {
         params.month = selectedMonth;
       }
 
-      if (admin && selectedUserIds.length === 0) {
+      if (admin && effectiveEmployeeIds.length === 0) {
         // Admin viewing all employees - show approval tabs
         const [allLeaveRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
           api.get<LeaveRow[]>("/leave/", { params }),
@@ -212,9 +216,9 @@ export default function LeavePage() {
         setMyHalfDayRequests([]);
         setMyEncashmentRequests([]);
         setMyWfhRequests([]);
-      } else if ((admin || teamView) && selectedUserIds.length > 0) {
+      } else if ((admin || teamView) && effectiveEmployeeIds.length > 0) {
         // Admin filtering by specific employees
-        const userLeavePromises = selectedUserIds.map((userId) =>
+        const userLeavePromises = effectiveEmployeeIds.map((userId) =>
           api.get<LeaveRow[]>(`/leave/user/${userId}`, {
             params: fromDate || toDate ? params : { ...params, year: selectedYear, month: selectedMonth },
           }).catch(() => ({ data: [] }))
@@ -226,8 +230,8 @@ export default function LeavePage() {
         setWfhRequests([]);
         setEncashmentRequests([]);
         setMyRequests([]);
-        if (admin && selectedUserIds.length === 1) {
-          const { data } = await api.get<LeaveBalance>(`/leave/balance/${selectedUserIds[0]}`);
+        if (admin && effectiveEmployeeIds.length === 1) {
+          const { data } = await api.get<LeaveBalance>(`/leave/balance/${effectiveEmployeeIds[0]}`);
           setBalance(data);
         } else {
           setBalance(null);
@@ -257,7 +261,7 @@ export default function LeavePage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.userId, admin, teamView, selectedUserIds, fromDate, toDate, selectedYear, selectedMonth]);
+  }, [session?.userId, admin, teamView, selectedUserIds, teamEmployeeIds, fromDate, toDate, selectedYear, selectedMonth]);
 
   useEffect(() => {
     fetchAll();
@@ -453,6 +457,7 @@ export default function LeavePage() {
                   onChange={setSelectedUserIds}
                   allLabel="All Employees"
                 />
+                <TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} />
                 <input
                   type="date"
                   value={fromDate}

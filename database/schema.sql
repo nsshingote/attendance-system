@@ -5,6 +5,17 @@
 -- ============================================================
 -- 1. USERS TABLE
 -- ============================================================
+CREATE TABLE IF NOT EXISTS roles (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    `key` VARCHAR(40) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(255) NULL,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -12,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('superadmin', 'admin', 'team_leader', 'user') NOT NULL DEFAULT 'user',
+    role_id INT NULL,
     attendance_mode ENUM('office', 'onsite') NOT NULL DEFAULT 'office',
     department VARCHAR(100) NOT NULL,
     designation VARCHAR(100) NOT NULL,
@@ -37,7 +49,9 @@ CREATE TABLE IF NOT EXISTS users (
     leave_encashed INT DEFAULT 0,
     last_leave_accrual_date DATE,
     paid_leave_available INT DEFAULT 1,
-    carried_leave INT DEFAULT 0
+    carried_leave INT DEFAULT 0,
+    CONSTRAINT fk_users_role_id FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE RESTRICT,
+    INDEX ix_users_role_id (role_id)
 );
 
 -- ============================================================
@@ -84,10 +98,29 @@ CREATE TABLE IF NOT EXISTS permissions (
 CREATE TABLE IF NOT EXISTS role_permissions (
     id INT PRIMARY KEY AUTO_INCREMENT,
     role VARCHAR(40) NOT NULL,
+    role_id INT NULL,
     permission_id INT NOT NULL,
     FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
     UNIQUE KEY uq_role_permissions_role_permission (role, permission_id),
+    UNIQUE KEY uq_role_permissions_role_id_permission (role_id, permission_id),
     INDEX ix_role_permissions_role (role)
+);
+
+CREATE TABLE IF NOT EXISTS user_permissions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    permission_id INT NOT NULL,
+    effect ENUM('allow', 'deny') NOT NULL,
+    created_by INT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY uq_user_permissions_user_permission (user_id, permission_id),
+    INDEX ix_user_permissions_user_id (user_id),
+    INDEX ix_user_permissions_permission_id (permission_id)
 );
 
 -- ============================================================

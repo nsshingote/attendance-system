@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 import api, { getErrorMessage } from "@/lib/api";
 import { parseISTDateTime } from "@/lib/date";
 import { formatInTimeZone } from "date-fns-tz";
@@ -25,13 +26,15 @@ export default function ChangedLogsPage() {
   const [logs, setLogs] = useState<ChangedLog[]>([]);
   const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
     try {
       const { data } = await api.get<ChangedLog[]>("/changed-logs/", {
-        params: { employee_id: selected.length === 1 ? selected[0] : undefined },
+        params: { employee_ids: selected.length ? selected : undefined, team_ids: selectedTeamIds.length ? selectedTeamIds : undefined },
+        paramsSerializer: { indexes: null },
       });
       setLogs(data);
     } catch (error) {
@@ -44,10 +47,10 @@ export default function ChangedLogsPage() {
   useEffect(() => {
     api.get<{ id: number; name: string }[]>("/users/").then(({ data }) => setUsers(data)).catch(() => {});
   }, []);
-  useEffect(() => { load(); }, [selected]);
+  useEffect(() => { load(); }, [selected, selectedTeamIds]);
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="changed_logs.view">
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -55,6 +58,7 @@ export default function ChangedLogsPage() {
             <p className="text-sm text-ink-500">Old and new values for approved profile and document changes.</p>
           </div>
           <EmployeeMultiSelect employees={users} value={selected} onChange={setSelected} allLabel="All Users" />
+          <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} />
         </div>
         {loading ? <Loading /> : logs.length === 0 ? (
           <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center text-sm text-ink-500">No changes recorded yet.</div>

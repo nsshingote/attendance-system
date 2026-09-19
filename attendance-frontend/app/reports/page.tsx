@@ -100,8 +100,7 @@ export default function ReportsPage() {
           r["Carried Leave Used"],
           r.LWP,
           r["Privilege Leave"],
-          r["Carry Forward Balance"],
-          r["Used Paid Leave This Month"] ? "Yes" : "No",
+          r["Carried Leave Used"],
           r.Encashed,
         ])
       : leaveSummary.map((r) => [
@@ -121,7 +120,7 @@ export default function ReportsPage() {
     }
 
     const headers = tab === "attendance"
-      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Extra Working Day", "Paid Leave", "Carried Leave Used", "LWP", "Privilege Leave", "Carry Forward Balance", "Used Paid Leave This Month", "Encashed"]
+      ? ["Employee Name", "Department", "Present", "Absent", "Half Day", "Late", "WFH", "Extra Working Day", "Paid Leave", "LWP", "Privilege Leave", "Carried Leave", "Encashed"]
       : ["Name", "Department", "Paid Leave", "Unpaid Leave", "Privilege Leave", "Carried Leave", "Encashed", "Remaining"];
     const escapeCsv = (value: string | number) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
@@ -151,11 +150,9 @@ export default function ReportsPage() {
         WFH: r.WFH,
         "Extra Working Day": r["Extra Working Day"],
         "Paid Leave": r["Paid Leave"],
-        "Carried Leave Used": r["Carried Leave Used"],
         LWP: r.LWP,
         "Privilege Leave": r["Privilege Leave"],
-        "Carry Forward Balance": r["Carry Forward Balance"],
-        "Used Paid Leave This Month": r["Used Paid Leave This Month"] ? "Yes" : "No",
+        "Carried Leave": r["Carried Leave Used"],
         Encashed: r.Encashed,
       }));
       const worksheet = XLSX.utils.json_to_sheet(rows);
@@ -201,11 +198,9 @@ export default function ReportsPage() {
         "WFH",
         "Extra Working Day",
         "Paid Leave",
-        "Carried Leave Used",
         "LWP",
         "Privilege Leave",
-        "Carry Forward Balance",
-        "Used Paid Leave This Month",
+        "Carried Leave",
         "Encashed",
       ];
       const rows = employeeSummary.map((r) => [
@@ -218,11 +213,9 @@ export default function ReportsPage() {
         r.WFH,
         r["Extra Working Day"],
         r["Paid Leave"],
-        r["Carried Leave Used"],
         r.LWP,
         r["Privilege Leave"],
-        r["Carry Forward Balance"],
-        r["Used Paid Leave This Month"] ? "Yes" : "No",
+        r["Carried Leave Used"],
         r.Encashed,
       ]);
       autoTable(doc, {
@@ -260,7 +253,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+    <AppShell requiredPermission="monthly_summary.view" alternativePermissions={["reports.team_view"]}>
       <div className="space-y-6">
         <div className="rounded-1rem border border-ink-200 bg-white p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -328,7 +321,7 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 font-medium">Paid Leave</th>
                   <th className="px-4 py-3 font-medium">LWP</th>
                   <th className="px-4 py-3 font-medium">Privilege</th>
-                  <th className="px-4 py-3 font-medium">Carry Fwd Bal.</th>
+                  <th className="px-4 py-3 font-medium">Carried Leave</th>
                   <th className="px-4 py-3 font-medium">Encashed</th>
                 </tr>
               </thead>
@@ -345,7 +338,7 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-ink-700">{r["Paid Leave"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.LWP}</td>
                     <td className="px-4 py-3 text-ink-700">{r["Privilege Leave"]}</td>
-                    <td className="px-4 py-3 text-ink-700">{r["Carry Forward Balance"]}</td>
+                    <td className="px-4 py-3 text-ink-700">{r["Carried Leave Used"]}</td>
                     <td className="px-4 py-3 text-ink-700">{r.Encashed}</td>
                   </tr>
                 ))}

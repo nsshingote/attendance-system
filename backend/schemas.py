@@ -108,6 +108,7 @@ class UserBase(BaseModel):
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     role: str = "user"
+    role_id: Optional[int] = None
     status: str = "active"
     attendance_mode: Literal["office", "onsite"] = "office"
     annual_leave: int = 6
@@ -134,6 +135,7 @@ class UserUpdate(BaseModel):
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     role: Optional[str] = None
+    role_id: Optional[int] = None
     status: Optional[str] = None
     attendance_mode: Optional[Literal["office", "onsite"]] = None
     annual_leave: Optional[int] = None
@@ -152,6 +154,8 @@ class UserOut(ORMBase):
     mobile: str
     email: Optional[EmailStr] = None
     role: str
+    role_id: Optional[int] = None
+    role_key: Optional[str] = None
     attendance_mode: Literal["office", "onsite"]
     department: str
     designation: str

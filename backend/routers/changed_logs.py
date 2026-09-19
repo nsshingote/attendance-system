@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from auth import require_admin_permission
 from database import get_db
-from models import ChangedLog, User
+from models import ChangedLog, User, TeamMember
 
 router = APIRouter()
 
@@ -47,13 +47,20 @@ def record_changed_log(
 @router.get("/")
 def list_changed_logs(
     employee_id: Optional[int] = None,
+    employee_ids: Optional[list[int]] = Query(None),
+    team_ids: Optional[list[int]] = Query(None),
     limit: int = Query(5000, ge=1, le=5000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_permission("changed_logs.view")),
 ):
     query = db.query(ChangedLog).order_by(ChangedLog.created_at.desc())
+    selected_ids = set(employee_ids or [])
     if employee_id is not None:
-        query = query.filter(ChangedLog.employee_id == employee_id)
+        selected_ids.add(employee_id)
+    if team_ids:
+        selected_ids.update(employee_id for (employee_id,) in db.query(TeamMember.employee_id).filter(TeamMember.team_id.in_(team_ids)).all())
+    if selected_ids:
+        query = query.filter(ChangedLog.employee_id.in_(selected_ids))
     rows = query.limit(limit).all()
     return [
         {

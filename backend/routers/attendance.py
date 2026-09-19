@@ -15,7 +15,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 
-from auth import get_current_user, has_permission, require_roles, require_admin, require_admin_permission
+from auth import (
+    get_current_user,
+    has_permission,
+    require_roles,
+    require_admin,
+    require_admin_permission,
+    effective_role_key,
+    is_superadmin,
+)
 from team_scope import require_team_member_access, require_team_permission
 from database import get_db
 from models import (
@@ -793,7 +801,7 @@ def check_out(
     # REPORT VALIDATION BEFORE CHECKOUT
     # =============================================
     # SuperAdmin is exempt from writing reports
-    if current_user.role != "superadmin":
+    if not is_superadmin(current_user):
         # Use the attendance record date rather than server local today
         attendance_date = record.attendance_date
         has_report = _has_report_for_date(db, current_user.id, attendance_date)
@@ -1017,7 +1025,7 @@ def get_all_attendance(
 ):
     """Get attendance for all employees (admin only)"""
     team_member_ids = require_team_permission(db, current_user, "attendance.team_view")
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         team_member_ids = list(dict.fromkeys([current_user.id, *team_member_ids]))
         if employee_ids:
             if not set(employee_ids).issubset(set(team_member_ids)):
@@ -1202,8 +1210,9 @@ def attendance_calendar(
     Admin users may request a specific user calendar by user_id, or an aggregated
     all-employees calendar by passing user_id=-1.
     """
-    is_admin_user = current_user.role in ("admin", "superadmin")
-    is_team_leader = current_user.role == "team_leader"
+    role_key = effective_role_key(current_user)
+    is_admin_user = role_key in ("admin", "superadmin")
+    is_team_leader = role_key == "team_leader"
     aggregated_all = (user_id == -1 or bool(employee_ids)) and is_admin_user
     target_user_id = None
 
@@ -1985,7 +1994,7 @@ def all_half_day_requests(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """Admin gets all half day requests with optional month filter."""
     query = db.query(HalfDayRequestModel).options(joinedload(HalfDayRequestModel.user))
@@ -2051,7 +2060,7 @@ def decide_half_day(
     request_id: int,
     payload: HalfDayDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """Admin approves or rejects a half day request."""
     if payload.status not in ("Approved", "Rejected"):
@@ -2127,16 +2136,17 @@ def cancel_approved_half_day(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved half-day request while retaining its audit history."""
-    if current_user.role == "admin" and not has_permission(current_user, "leave.cancel", db):
+    if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "leave.cancel", db):
         raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
-    if current_user.role not in {"admin", "superadmin", "team_leader"}:
+    if effective_role_key(current_user) == "team_leader" and not has_permission(current_user, "leave.approve", db):
         raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved half day")
     request = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="Half day request not found")
     if request.status != "Approved":
         raise HTTPException(status_code=400, detail="Only approved half day requests can be cancelled")
-    require_team_member_access(db, current_user, request.user_id, "leave.approve")
+    if effective_role_key(current_user) == "team_leader":
+        require_team_member_access(db, current_user, request.user_id, "leave.approve")
 
     attendance = db.query(Attendance).filter(
         Attendance.user_id == request.user_id,
@@ -2161,7 +2171,7 @@ def admin_request_half_day_for_user(
     user_id: int,
     payload: HalfDayCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """
     Admin/SuperAdmin requests a half day on behalf of an employee.
@@ -2234,7 +2244,7 @@ def admin_request_half_day_for_user(
 def mark_working_sunday(
     payload: WorkingSundayCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """Mark a specific employee/date as a remote-eligible working day."""
     user_id = payload.user_id
@@ -2259,7 +2269,7 @@ def unmark_working_sunday(
     user_id: int = Query(...),
     work_date: str = Query(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     try:
         work_date_parsed = date.fromisoformat(work_date)
@@ -2381,7 +2391,7 @@ def all_wfh_requests(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """Admin gets all WFH requests, optional status/month filter."""
     query = db.query(WFHRequestModel).options(joinedload(WFHRequestModel.user))
@@ -2428,7 +2438,7 @@ def decide_wfh(
     request_id: int,
     payload: WFHDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """Admin approves or rejects a WFH request."""
     if payload.status not in ("Approved", "Rejected"):
@@ -2522,16 +2532,17 @@ def cancel_approved_wfh(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved WFH request while retaining its audit history."""
-    if current_user.role == "admin" and not has_permission(current_user, "leave.cancel", db):
+    if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "leave.cancel", db):
         raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
-    if current_user.role not in {"admin", "superadmin", "team_leader"}:
+    if effective_role_key(current_user) == "team_leader" and not has_permission(current_user, "leave.approve", db):
         raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved WFH")
     request = db.query(WFHRequestModel).filter(WFHRequestModel.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="WFH request not found")
     if request.status != "Approved":
         raise HTTPException(status_code=400, detail="Only approved WFH requests can be cancelled")
-    require_team_member_access(db, current_user, request.user_id, "leave.approve")
+    if effective_role_key(current_user) == "team_leader":
+        require_team_member_access(db, current_user, request.user_id, "leave.approve")
     request.status = "Cancelled"
     db.add(ActivityLog(user_id=current_user.id, activity=f"Cancelled WFH request #{request_id}"))
     db.commit()
@@ -2544,7 +2555,7 @@ def admin_request_wfh_for_user(
     user_id: int,
     payload: WFHCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin")),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
 ):
     """
     Admin/SuperAdmin requests WFH on behalf of an employee.

@@ -66,7 +66,7 @@ export default function KundliPage() {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+    <AppShell requiredPermission="kundli.team_view">
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
           <h1 className="text-xl font-semibold">Kundli</h1>

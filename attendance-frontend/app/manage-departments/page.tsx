@@ -271,7 +271,7 @@ export default function ManageDepartmentsPage() {
   if (loading) return <Loading fullScreen />;
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="departments.view">
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Manage Departments</h1>

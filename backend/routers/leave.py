@@ -23,7 +23,7 @@ from schemas import (
     LeaveBalanceResponse, LeaveEncashmentCreate, LeaveEncashmentOut,
     LeaveEncashmentDecision, LeaveCategoryOverride, LeaveAllocationOverride
 )
-from auth import get_current_user, has_permission, require_roles
+from auth import get_current_user, has_permission, require_roles, require_admin_permission, effective_role_key
 from team_scope import require_team_member_access
 from services.notifications import create_notification, get_approver_user_ids
 from services.recycle_bin import archive_object
@@ -194,7 +194,7 @@ def get_all_leave_requests_root(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.all_view"))
 ):
     """Admin gets all leave requests with optional month filter."""
     query = db.query(LeaveRequest)
@@ -228,7 +228,7 @@ def get_all_leave_requests_root(
 def get_encashment_requests_root(
     status_filter: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected|Cancelled)$"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.all_view"))
 ):
     """Admin gets all encashment requests."""
     query = db.query(LeaveEncashmentRequest).options(joinedload(LeaveEncashmentRequest.user))
@@ -260,9 +260,9 @@ def apply_leave(
     target_user_id = payload.user_id if payload.user_id else current_user.id
     
     # Validate: non-admin can only apply for themselves
-    if current_user.role == "team_leader" and target_user_id != current_user.id:
+    if effective_role_key(current_user) == "team_leader" and target_user_id != current_user.id:
         require_team_member_access(db, current_user, target_user_id, "leave.approve")
-    elif current_user.role not in ["superadmin", "admin"] and target_user_id != current_user.id:
+    elif effective_role_key(current_user) not in ["superadmin", "admin"] and target_user_id != current_user.id:
         raise HTTPException(
             status_code=403,
             detail="You can only apply for leave for yourself"
@@ -324,7 +324,7 @@ def apply_leave(
     
     # Auto-approve when an admin applies leave on behalf of another employee.
     auto_approve = (
-        current_user.role in ["admin", "superadmin"]
+        effective_role_key(current_user) in ["admin", "superadmin"]
         and target_user_id != current_user.id
     )
     approved_by = current_user.id if auto_approve else None
@@ -481,9 +481,9 @@ def cancel_leave(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved leave request while retaining it for audit history."""
-    if current_user.role == "admin" and not has_permission(current_user, "leave.cancel", db):
+    if effective_role_key(current_user) == "admin" and not has_permission(current_user, "leave.cancel", db):
         raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
-    if current_user.role not in {"admin", "superadmin", "team_leader"}:
+    if effective_role_key(current_user) not in {"admin", "superadmin", "team_leader"}:
         raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved leave")
     leave_request = (
         db.query(LeaveRequest)
@@ -639,7 +639,7 @@ def get_pending_leave_requests(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.all_view"))
 ):
     """Admin gets all pending leave requests with optional month filter."""
     query = db.query(LeaveRequest).filter(LeaveRequest.status == "Pending")
@@ -666,7 +666,7 @@ def get_all_leave_requests(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.all_view"))
 ):
     """Admin gets all leave requests with optional month filter."""
     query = db.query(LeaveRequest)
@@ -895,9 +895,9 @@ def get_leave_balance(
     current_user: User = Depends(get_current_user)
 ):
     """Get leave balance for a user."""
-    if current_user.role == "team_leader" and user_id != current_user.id:
+    if effective_role_key(current_user) == "team_leader" and user_id != current_user.id:
         require_team_member_access(db, current_user, user_id, "leave.team_view")
-    elif current_user.role not in ["admin", "superadmin"] and user_id != current_user.id:
+    elif effective_role_key(current_user) not in ["admin", "superadmin"] and user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to view this user's balance")
     
     user = db.query(User).filter(User.id == user_id).first()
@@ -931,7 +931,7 @@ def request_encashment(
     """Employee requests leave encashment."""
     target_user_id = payload.user_id if hasattr(payload, 'user_id') and payload.user_id else current_user.id
     
-    if current_user.role not in ["admin", "superadmin"] and target_user_id != current_user.id:
+    if effective_role_key(current_user) not in ["admin", "superadmin"] and target_user_id != current_user.id:
         raise HTTPException(
             status_code=403,
             detail="You can only request encashment for yourself"
@@ -983,7 +983,7 @@ def request_encashment(
 @router.get("/encash/pending", response_model=List[LeaveEncashmentOut])
 def get_pending_encashment_requests(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.approve"))
 ):
     """Admin gets all pending encashment requests."""
     return db.query(LeaveEncashmentRequest).filter(
@@ -995,7 +995,7 @@ def get_pending_encashment_requests(
 def get_user_encashment_requests(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.approve"))
 ):
     """Admin gets encashment requests for a specific user."""
     user = db.query(User).filter(User.id == user_id).first()
@@ -1039,7 +1039,7 @@ def decide_encashment(
     request_id: int,
     payload: LeaveEncashmentDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.approve"))
 ):
     """Admin approves or rejects an encashment request."""
     # ✅ FIXED: Added .with_for_update() to prevent double-spending race condition
@@ -1095,7 +1095,7 @@ def override_leave_category(
     leave_id: int,
     payload: LeaveCategoryOverride,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.approve"))
 ):
     """Admin changes a leave request's category summary."""
     leave_request = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
@@ -1134,7 +1134,7 @@ def override_leave_allocations(
     leave_id: int,
     payload: LeaveAllocationOverride,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("leave.approve"))
 ):
     """Admin edits the per-day allocation for a leave request."""
     # Lock the leave request and user rows to avoid concurrent modifications.

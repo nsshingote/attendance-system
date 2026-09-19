@@ -20,7 +20,7 @@ from schemas import (
     EmployeeDashboardStats,
     TodayAttendanceOut
 )
-from auth import get_current_user, require_roles
+from auth import get_current_user, require_admin_permission
 from utils.attendance_status import get_today_attendance_status, determine_attendance_status_for_date, applicable_holiday
 from utils.logger import log_activity
 from utils.date_helpers import iso_with_offset
@@ -101,7 +101,7 @@ def get_employee_dashboard(
 @router.get("/admin", response_model=AdminDashboardStats)
 def get_admin_dashboard(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "superadmin"))
+    current_user: User = Depends(require_admin_permission("attendance.all_view"))
 ):
     """Admin dashboard stats with today's attendance table including report info."""
     today = date.today()

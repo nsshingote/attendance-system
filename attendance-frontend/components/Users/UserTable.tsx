@@ -17,6 +17,7 @@ export interface UserRow {
   mobile: string;
   email: string | null;
   role: string;
+  role_id?: number;
   department: string;
   designation: string;
   place_of_posting?: string | null;

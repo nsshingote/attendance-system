@@ -5,7 +5,7 @@ from typing import List
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from auth import has_permission
+from auth import has_permission, effective_role_key
 from models import Team, TeamMember, User
 
 
@@ -53,9 +53,10 @@ def require_team_member_access(
     permission_key: str,
 ) -> None:
     """Authorize a Team Leader for one employee in an active assigned team."""
-    if current_user.role in ("admin", "superadmin"):
+    role_key = effective_role_key(current_user)
+    if role_key in ("admin", "superadmin"):
         return
-    if current_user.role != "team_leader":
+    if role_key != "team_leader":
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
     if not has_permission(current_user, permission_key, db):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
@@ -65,9 +66,10 @@ def require_team_member_access(
 
 def require_team_permission(db: Session, current_user: User, permission_key: str) -> List[int]:
     """Authorize a Team Leader for team-wide reads and return scoped IDs."""
-    if current_user.role in ("admin", "superadmin"):
+    role_key = effective_role_key(current_user)
+    if role_key in ("admin", "superadmin"):
         return []
-    if current_user.role != "team_leader" or not has_permission(current_user, permission_key, db):
+    if role_key != "team_leader" or not has_permission(current_user, permission_key, db):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
     return get_team_member_ids(db, current_user)
 

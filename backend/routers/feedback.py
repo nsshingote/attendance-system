@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_admin_permission, require_superadmin
 from database import get_db
-from models import Feedback, NotificationEmail, User, ActivityLog
+from models import Feedback, NotificationEmail, User, ActivityLog, TeamMember
 from schemas import FeedbackCreate
 from utils.date_helpers import iso_with_offset
 from utils.email_service import send_feedback_submission_confirmation
@@ -68,6 +68,7 @@ def list_feedback(
     start_date: Optional[datetime] = Query(None), end_date: Optional[datetime] = Query(None),
     search: Optional[str] = Query(None, max_length=200),
     employee_ids: Optional[List[int]] = Query(None),
+    team_ids: Optional[List[int]] = Query(None),
     sort: str = Query("newest", pattern="^(newest|oldest)$"),
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("feedback.view")),
@@ -81,8 +82,11 @@ def list_feedback(
     if end_date: query = query.filter(Feedback.created_at <= end_date)
     # Do not return anonymous feedback for an employee filter: doing so could
     # reveal an anonymous sender by inference.
-    if employee_ids:
-        query = query.filter(Feedback.is_anonymous.is_(False), Feedback.user_id.in_(employee_ids))
+    selected_employee_ids = set(employee_ids or [])
+    if team_ids:
+        selected_employee_ids.update(employee_id for (employee_id,) in db.query(TeamMember.employee_id).filter(TeamMember.team_id.in_(team_ids)).all())
+    if selected_employee_ids:
+        query = query.filter(Feedback.is_anonymous.is_(False), Feedback.user_id.in_(selected_employee_ids))
     if search:
         term = f"%{search.strip()}%"
         query = query.outerjoin(User, Feedback.user_id == User.id).filter(

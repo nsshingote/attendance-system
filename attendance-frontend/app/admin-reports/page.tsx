@@ -18,6 +18,7 @@ import Badge from "@/components/Common/Badge";
 import MonthSelector from "@/components/Calendar/MonthSelector";
 import ExpandableText from "@/components/Common/ExpandableText";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 import { getSession } from "@/lib/auth";
 import { DailyReportContent } from "@/app/daily-report/page";
 
@@ -49,6 +50,7 @@ interface ReportRow {
   status: string;
   report_display: string;
   created_at: string;
+  day_label?: string;
 }
 
 interface ReportGroup {
@@ -83,6 +85,7 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -113,8 +116,9 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
     const requestId = ++latestRequestId.current;
     setLoading(true);
     try {
-      const params: { employee_ids?: number[]; department_id?: number; from_date?: string; to_date?: string } = {};
+      const params: { employee_ids?: number[]; team_ids?: number[]; department_id?: number; from_date?: string; to_date?: string } = {};
       if (selectedUserIds.length) params.employee_ids = selectedUserIds;
+      if (selectedTeamIds.length) params.team_ids = selectedTeamIds;
       if (selectedDepartmentId) params.department_id = selectedDepartmentId;
       if (fromDate && toDate) { params.from_date = fromDate; params.to_date = toDate; }
 
@@ -126,8 +130,8 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
       const filteredData = data.filter((report) => {
         return (
           !isHiddenMonthlyReportUser(report.user_name) &&
-          (selectedUserIds.length === 0 || selectedUserIds.includes(report.user_id)) &&
-          (!selectedDepartmentId || report.department_id === selectedDepartmentId) &&
+          (report.day_label || (selectedUserIds.length === 0 || selectedUserIds.includes(report.user_id))) &&
+          (report.day_label || !selectedDepartmentId || report.department_id === selectedDepartmentId) &&
           (!fromDate || !toDate || (report.attendance_date >= fromDate && report.attendance_date <= toDate))
         );
       });
@@ -169,7 +173,7 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
 
   useEffect(() => {
     fetchReports();
-  }, [selectedUserIds, selectedDepartmentId, fromDate, toDate]);
+  }, [selectedUserIds, selectedTeamIds, selectedDepartmentId, fromDate, toDate]);
 
   useEffect(() => {
     const handleProfileUpdate = () => fetchReports();
@@ -284,6 +288,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-amber-900">Report approvals</h2>
             <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
+            <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="min-w-52" />
           </div>
           <div className="mt-2 space-y-2">
             {pastSubmissionRequests.filter((request) => selectedUserIds.length === 0 || selectedUserIds.includes(request.user_id)).length > 0 ? (
@@ -310,6 +315,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
 
             <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto sm:flex-nowrap">
               <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
+              <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="order-1 min-w-52" />
               <label className="order-3 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
               <label className="order-4 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
               <select
@@ -383,24 +389,28 @@ const getTotalDuration = (activities: ReportRow[]) => {
                         <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
                           {index === 0 && (
                             <>
-                              <td rowSpan={group.activities.length + 1} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>
-                              <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
-                              <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
+                              <td rowSpan={group.activities.length + (group.activities[0]?.day_label ? 0 : 1)} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>
+                              <td rowSpan={group.activities.length + (group.activities[0]?.day_label ? 0 : 1)} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
+                              <td rowSpan={group.activities.length + (group.activities[0]?.day_label ? 0 : 1)} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
                             </>
                           )}
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.type_name || "—"}</td>
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.subtype_name || "—"}</td>
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.quantity ?? "—"}</td>
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.duration || "—"}</td>
-                          <td className="max-w-64 px-3 py-2 text-ink-700"><ExpandableText text={activity.description} limit={52} /></td>
-                          {index === 0 && <td rowSpan={group.activities.length + 1} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={group.status} /></td>}
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.type_name || "—")}</td>
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.subtype_name || "—")}</td>
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.quantity ?? "—")}</td>
+                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.duration || "—")}</td>
+                          <td className="max-w-64 px-3 py-2 text-ink-700">
+                            {activity.day_label ? <span className="font-medium text-amber-700">{activity.day_label}</span> : <ExpandableText text={activity.description} limit={52} />}
+                          </td>
+                          {index === 0 && <td rowSpan={group.activities.length + (activity.day_label ? 0 : 1)} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={activity.day_label || group.status} /></td>}
                         </tr>
                       ))}
-                      <tr className="border-t border-ink-200 bg-ink-50/40">
-                        <td colSpan={3} />
-                        <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(group.activities)}</td>
-                        <td />
-                      </tr>
+                      {!group.activities[0]?.day_label && (
+                        <tr className="border-t border-ink-200 bg-ink-50/40">
+                          <td colSpan={3} />
+                          <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(group.activities)}</td>
+                          <td />
+                        </tr>
+                      )}
                     </Fragment>
                   ))}
                 </tbody>
@@ -416,7 +426,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
 export default function AdminReportsPage(props: AdminReportsPageProps) {
   const [tab, setTab] = useState<"my" | "team">("team");
   return (
-    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+    <AppShell requiredPermission="reports.all_view" alternativePermissions={["reports.team_view"]}>
       <div className="space-y-5">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Reports</h1>

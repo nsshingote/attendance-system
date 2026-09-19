@@ -16,15 +16,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
-from auth import has_permission, require_admin, require_admin_permission, get_current_user, require_roles
+from auth import has_permission, require_admin, require_admin_permission, get_current_user, require_roles, effective_role_key
 from team_scope import require_team_permission, require_team_member_access, get_team_member_ids
 from database import get_db
 from models import (
-    Attendance, User, LeaveRequest, LeaveEncashmentRequest,
+    Attendance, User, LeaveRequest, LeaveEncashmentRequest, Holiday,
     DailyReport, ReportDepartment, ReportType, ReportSubtype,
     Department, DynamicReportType, DynamicReportSubtype, DynamicReportField,
     ReportDefaultRow, UserDailyRow, DailyReportData, UserDepartment, ActivityLog, WFHRequest,
-    PastReportSubmissionRequest
+    PastReportSubmissionRequest, TeamMember
 )
 from utils.leave_calculator import (
     get_used_paid_leave_days,
@@ -34,7 +34,7 @@ from utils.leave_calculator import (
 )
 from utils.logger import log_activity
 from services.notifications import create_notification, get_admin_user_ids
-from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts
+from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts, holiday_applies_to_user, is_weekly_off
 from utils.date_helpers import iso_with_offset
 from routers.changed_logs import record_changed_log
 from zoneinfo import ZoneInfo
@@ -317,7 +317,7 @@ def attendance_report(
         Attendance.attendance_date >= start_date,
         Attendance.attendance_date < end_date,
     )
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         query = query.filter(Attendance.user_id.in_(team_member_ids))
     if department_id is not None:
         query = query.join(UserDepartment, User.id == UserDepartment.user_id).filter(
@@ -362,7 +362,7 @@ def export_attendance_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role == "admin" and not has_permission(current_user, "reports.export", db):
+    if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "reports.export", db):
         raise HTTPException(status_code=403, detail="You do not have permission to export reports")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     start_date = date(year, month, 1)
@@ -376,7 +376,7 @@ def export_attendance_csv(
         .join(User)
         .filter(Attendance.attendance_date >= start_date, Attendance.attendance_date < end_date)
     )
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         records_query = records_query.filter(Attendance.user_id.in_(team_member_ids))
     records = records_query.all()
 
@@ -432,11 +432,11 @@ def employee_wise_summary(
     current Carry Forward balance, and whether they have any pending or
     approved Encashment request on record.
     """
-    if current_user.role == "admin" and not has_permission(current_user, "monthly_summary.view", db):
+    if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "monthly_summary.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view monthly summary")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     users_query = db.query(User).filter(User.status == "active", User.role != "superadmin")
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         users_query = users_query.filter(User.id.in_(team_member_ids))
     users = users_query.all()
     results = []
@@ -598,6 +598,7 @@ def get_all_reports(
     month: Optional[int] = Query(None, ge=1, le=12),
     user_id: Optional[int] = Query(None),
     employee_ids: Optional[List[int]] = Query(None),
+    team_ids: Optional[List[int]] = Query(None),
     department_id: Optional[int] = Query(None),
     date_value: Optional[date] = Query(None),
     from_date: Optional[date] = Query(None),
@@ -607,13 +608,21 @@ def get_all_reports(
 ):
     """Admin gets all reports from daily_report_data table."""
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         team_member_ids = list(dict.fromkeys([current_user.id, *team_member_ids]))
         if user_id is not None and user_id not in set(team_member_ids):
             raise HTTPException(status_code=403, detail="Employee is outside your active team")
         if employee_ids and not set(employee_ids).issubset(set(team_member_ids)):
             raise HTTPException(status_code=403, detail="Employee is outside your active team")
-        employee_ids = employee_ids or team_member_ids
+        employee_ids = employee_ids or (None if team_ids else team_member_ids)
+        if team_ids:
+            requested_team_employee_ids = {
+                employee_id for (employee_id,) in db.query(TeamMember.employee_id)
+                .filter(TeamMember.team_id.in_(team_ids))
+                .all()
+            }
+            if not requested_team_employee_ids.issubset(set(team_member_ids)):
+                raise HTTPException(status_code=403, detail="Team is outside your active team")
     
     # Join once up front so every selected filter is applied to the same result
     # set.  In particular, do not silently ignore an unknown department ID.
@@ -637,8 +646,11 @@ def get_all_reports(
             DailyReportData.attendance_date < end_date
         )
     
-    if employee_ids:
-        query = query.filter(DailyReportData.user_id.in_(employee_ids))
+    selected_employee_ids = set(employee_ids or [])
+    if team_ids:
+        selected_employee_ids.update(employee_id for (employee_id,) in db.query(TeamMember.employee_id).filter(TeamMember.team_id.in_(team_ids)).all())
+    if selected_employee_ids:
+        query = query.filter(DailyReportData.user_id.in_(selected_employee_ids))
     elif user_id is not None:
         query = query.filter(DailyReportData.user_id == user_id)
 
@@ -704,6 +716,89 @@ def get_all_reports(
             "status": "submitted",
             "submitted_at": iso_with_offset(report.submitted_at) if report.submitted_at else None,
         })
+
+    # Add visible markers for non-working dates between submitted reports.
+    # This preserves report rows while making weekend/holiday gaps auditable.
+    report_dates_by_user: dict[int, set[date]] = {}
+    report_bounds_by_user: dict[int, tuple[date, date]] = {}
+    for row in result:
+        report_date = date.fromisoformat(row["attendance_date"])
+        report_dates_by_user.setdefault(row["user_id"], set()).add(report_date)
+        current_bounds = report_bounds_by_user.get(row["user_id"])
+        if current_bounds is None:
+            report_bounds_by_user[row["user_id"]] = (report_date, report_date)
+        else:
+            report_bounds_by_user[row["user_id"]] = (
+                min(current_bounds[0], report_date),
+                max(current_bounds[1], report_date),
+            )
+
+    holiday_rows = db.query(Holiday).all()
+    existing_marker_dates = {
+        (row["user_id"], date.fromisoformat(row["attendance_date"]))
+        for row in result
+        if row.get("status") == "non_working_day"
+    }
+    common_marker_dates: set[date] = set()
+    common_marker_candidates: dict[date, str] = {}
+    for user_id, (first_date, last_date) in report_bounds_by_user.items():
+        employee = db.query(User).filter(User.id == user_id).first()
+        if not employee:
+            continue
+        current_date = first_date
+        while current_date <= last_date:
+            if current_date not in report_dates_by_user[user_id] and (user_id, current_date) not in existing_marker_dates:
+                holiday = next(
+                    (item for item in holiday_rows
+                     if item.holiday_date == current_date and holiday_applies_to_user(db, item, user_id)),
+                    None,
+                )
+                is_common_holiday = holiday is not None and holiday.applies_to == "all_users"
+                label = holiday.holiday_name if holiday else ("Weekoff" if is_weekly_off(current_date, db) else None)
+                if label:
+                    if is_weekly_off(current_date, db) or is_common_holiday:
+                        common_marker_dates.add(current_date)
+                        common_marker_candidates[current_date] = label
+                        current_date += timedelta(days=1)
+                        continue
+                    result.append({
+                        "id": -((user_id * 1000000) + current_date.toordinal()),
+                        "user_id": user_id,
+                        "user_name": employee.name,
+                        "department_id": 0,
+                        "department_name": employee.department or "",
+                        "attendance_date": current_date.isoformat(),
+                        "type_name": None,
+                        "subtype_name": None,
+                        "quantity": None,
+                        "duration": None,
+                        "description": label,
+                        "report_display": label,
+                        "status": label,
+                        "day_label": label,
+                        "submitted_at": None,
+                    })
+            current_date += timedelta(days=1)
+
+    for marker_date in common_marker_dates:
+        label = common_marker_candidates[marker_date]
+        result.append({
+            "id": -(marker_date.toordinal()),
+            "user_id": 0,
+            "user_name": "All employees",
+            "department_id": 0,
+            "department_name": "",
+            "attendance_date": marker_date.isoformat(),
+            "type_name": None,
+            "subtype_name": None,
+            "quantity": None,
+            "duration": None,
+            "description": label,
+            "report_display": label,
+            "status": label,
+            "day_label": label,
+            "submitted_at": None,
+        })
     
     return result
 
@@ -768,9 +863,9 @@ def submit_report(
     current_user: User = Depends(get_current_user)
 ):
     """Submit a daily report."""
-    user_id = payload.get("user_id") if current_user.role in ["admin", "superadmin"] else current_user.id
+    user_id = payload.get("user_id") if has_permission(current_user, "reports.all_view", db) else current_user.id
     
-    if current_user.role not in ["admin", "superadmin"]:
+    if not has_permission(current_user, "reports.all_view", db):
         user_id = current_user.id
     
     attendance_date = payload.get("attendance_date")
@@ -1060,7 +1155,7 @@ def get_report_history(
     """Get user's report history with optional month/date filters."""
     target_user_id = current_user.id
     if user_id is not None and user_id != current_user.id:
-        if current_user.role in ("admin", "superadmin"):
+        if has_permission(current_user, "reports.all_view", db):
             target_user_id = user_id
         else:
             require_team_member_access(db, current_user, user_id, "reports.team_view")
@@ -1108,6 +1203,45 @@ def get_report_history(
             "description": report.description,
             "submitted_at": report.submitted_at.isoformat() if report.submitted_at else None,
         })
+
+    # Include non-working dates between this employee's submitted reports so
+    # the individual user view does not hide calendar gaps.
+    if result:
+        report_dates = {date.fromisoformat(row["attendance_date"]) for row in result}
+        first_date = min(report_dates)
+        last_date = max(report_dates)
+        holiday_rows = db.query(Holiday).filter(
+            Holiday.holiday_date >= first_date,
+            Holiday.holiday_date <= last_date,
+        ).all()
+        current_date = first_date
+        while current_date <= last_date:
+            if current_date not in report_dates:
+                holiday = next(
+                    (item for item in holiday_rows
+                     if item.holiday_date == current_date and holiday_applies_to_user(db, item, target_user_id)),
+                    None,
+                )
+                label = holiday.holiday_name if holiday else (
+                    "Weekoff" if is_weekly_off(current_date, db) else None
+                )
+                if label:
+                    result.append({
+                        "id": -((target_user_id * 1000000) + current_date.toordinal()),
+                        "user_id": target_user_id,
+                        "department_id": None,
+                        "department_name": "",
+                        "attendance_date": current_date.isoformat(),
+                        "subtype_id": None,
+                        "type_name": None,
+                        "subtype_name": None,
+                        "quantity": None,
+                        "duration": None,
+                        "description": label,
+                        "day_label": label,
+                        "submitted_at": None,
+                    })
+            current_date += timedelta(days=1)
     
     return result
 
@@ -1169,13 +1303,11 @@ def list_past_report_submission_requests(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     query = db.query(PastReportSubmissionRequest)
-    if current_user.role == "admin" and not has_permission(current_user, "requests.view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view requests")
-    if current_user.role == "team_leader":
+    if effective_role_key(current_user) == "team_leader":
         team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
         require_team_permission(db, current_user, "reports.team_view")
         query = query.filter(PastReportSubmissionRequest.user_id.in_(team_ids))
-    elif current_user.role not in ("admin", "superadmin"):
+    elif not has_permission(current_user, "requests.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     rows = query.order_by(PastReportSubmissionRequest.requested_at.desc()).all()
     return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]

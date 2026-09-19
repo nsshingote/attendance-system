@@ -16,6 +16,22 @@ from decimal import Decimal
 from database import Base
 
 
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    key = Column(String(40), nullable=False, unique=True)
+    name = Column(String(100), nullable=False)
+    description = Column(String(255), nullable=True)
+    is_system = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    users = relationship("User", back_populates="role_record", foreign_keys="User.role_id")
+    role_permissions = relationship("RolePermission", back_populates="role_record")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -25,6 +41,7 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum("superadmin", "admin", "team_leader", "user", name="user_role"), nullable=False, default="user")
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="RESTRICT"), nullable=True, index=True)
     attendance_mode = Column(Enum("office", "onsite", name="attendance_mode"), nullable=False, default="office", server_default="office")
     department = Column(String(100), nullable=False)
     designation = Column(String(100), nullable=False)
@@ -74,6 +91,12 @@ class User(Base):
         foreign_keys="Notification.recipient_user_id",
         cascade="all, delete-orphan",
     )
+    role_record = relationship("Role", back_populates="users", foreign_keys=[role_id])
+    user_permissions = relationship("UserPermission", back_populates="user", foreign_keys="UserPermission.user_id")
+
+    @property
+    def role_key(self):
+        return self.role_record.key if self.role_record else self.role
 
 
 class Permission(Base):
@@ -85,6 +108,8 @@ class Permission(Base):
     module = Column(String(80), nullable=False)
     action = Column(String(80), nullable=False)
     description = Column(String(255), nullable=True)
+    role_permissions = relationship("RolePermission", back_populates="permission")
+    user_permissions = relationship("UserPermission", back_populates="permission")
 
 
 class RolePermission(Base):
@@ -92,10 +117,34 @@ class RolePermission(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     role = Column(String(40), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=True, index=True)
     permission_id = Column(Integer, ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False)
 
-    permission = relationship("Permission")
-    __table_args__ = (UniqueConstraint("role", "permission_id", name="uq_role_permissions_role_permission"),)
+    permission = relationship("Permission", back_populates="role_permissions")
+    role_record = relationship("Role", back_populates="role_permissions")
+    __table_args__ = (
+        UniqueConstraint("role", "permission_id", name="uq_role_permissions_role_permission"),
+        UniqueConstraint("role_id", "permission_id", name="uq_role_permissions_role_id_permission"),
+    )
+
+
+class UserPermission(Base):
+    __tablename__ = "user_permissions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    permission_id = Column(Integer, ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False, index=True)
+    effect = Column(Enum("allow", "deny", name="user_permission_effect"), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="user_permissions", foreign_keys=[user_id])
+    permission = relationship("Permission", back_populates="user_permissions")
+    creator = relationship("User", foreign_keys=[created_by])
+    __table_args__ = (
+        UniqueConstraint("user_id", "permission_id", name="uq_user_permissions_user_permission"),
+    )
 
 
 class Team(Base):

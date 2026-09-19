@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, has_permission, require_admin, require_admin_permission
+from auth import get_current_user, has_permission, require_admin, require_admin_permission, effective_role_key
 from team_scope import require_team_member_access
 from config import settings
 from database import get_db
@@ -51,6 +51,15 @@ def _external_base_url(request: Request) -> str:
     scheme = forwarded_proto or request.url.scheme
     host = forwarded_host or request.headers.get("host") or request.url.netloc
     return f"{scheme}://{host}{request.scope.get('root_path', '')}".rstrip("/")
+
+
+def _can_access_personal_document(user: User, item: EmployeePersonalDocument, db: Session) -> bool:
+    if user.id == item.employee_id:
+        return True
+    if effective_role_key(user) == "team_leader":
+        require_team_member_access(db, user, item.employee_id, "employees.team_view")
+        return True
+    return has_permission(user, "employee_documents.letters.view", db)
 
 
 def _personal_document_request_dict(item: PersonalDocumentChangeRequest):
@@ -444,12 +453,11 @@ def list_my_documents(db: Session = Depends(get_db), current_user: User = Depend
 
 @router.get("/documents/{employee_id}")
 def list_employee_documents(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role == "admin" and not has_permission(current_user, "employee_documents.letters.view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view employee letters")
-    if current_user.role == "user" and current_user.id != employee_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if current_user.role == "team_leader" and current_user.id != employee_id:
-        require_team_member_access(db, current_user, employee_id, "employees.team_view")
+    if current_user.id != employee_id:
+        if effective_role_key(current_user) == "team_leader":
+            require_team_member_access(db, current_user, employee_id, "employees.team_view")
+        elif not has_permission(current_user, "employee_documents.letters.view", db):
+            raise HTTPException(status_code=403, detail="Not authorized")
     return [_document_dict(item) for item in db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee_id).order_by(EmployeeDocument.created_at.desc()).all()]
 
 
@@ -483,10 +491,11 @@ def list_my_personal_documents(db: Session = Depends(get_db), current_user: User
 
 @router.get("/personal-documents/{employee_id}")
 def list_employee_personal_documents(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role == "user" and current_user.id != employee_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if current_user.role == "team_leader" and current_user.id != employee_id:
-        require_team_member_access(db, current_user, employee_id, "employees.team_view")
+    if current_user.id != employee_id:
+        if effective_role_key(current_user) == "team_leader":
+            require_team_member_access(db, current_user, employee_id, "employees.team_view")
+        else:
+            raise HTTPException(status_code=403, detail="Not authorized")
     return [
         {
             "id": item.id,
@@ -559,7 +568,7 @@ def download_personal_document(document_id: int, db: Session = Depends(get_db), 
     item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Document not found")
-    if current_user.role == "user" and current_user.id != item.employee_id:
+    if not _can_access_personal_document(current_user, item, db):
         raise HTTPException(status_code=403, detail="Not authorized")
     file_path = _personal_document_path(item)
     if not file_path.is_file():
@@ -578,7 +587,7 @@ def create_personal_document_download_url(
     item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Document not found")
-    if current_user.role == "user" and current_user.id != item.employee_id:
+    if not _can_access_personal_document(current_user, item, db):
         raise HTTPException(status_code=403, detail="Not authorized")
     token = jwt.encode(
         {
@@ -608,7 +617,7 @@ def browser_download_personal_document(document_id: int, download_token: str, db
     if not item:
         raise HTTPException(status_code=404, detail="Document not found")
     user = db.query(User).filter(User.id == user_id, User.status == "active").first()
-    if not user or (user.role == "user" and user.id != item.employee_id):
+    if not user or not _can_access_personal_document(user, item, db):
         raise HTTPException(status_code=403, detail="Not authorized")
     file_path = _personal_document_path(item)
     if not file_path.is_file():
@@ -758,9 +767,9 @@ def delete_personal_document(document_id: int, db: Session = Depends(get_db), cu
     item = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == document_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Document not found")
-    if current_user.role == "user":
+    if effective_role_key(current_user) == "user":
         raise HTTPException(status_code=403, detail="Submit a delete request for approval")
-    if current_user.role not in {"admin", "superadmin"} and current_user.id != item.employee_id:
+    if effective_role_key(current_user) not in {"admin", "superadmin"} and current_user.id != item.employee_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     archive_object(db, item, deleted_by=current_user.id)
     db.delete(item)

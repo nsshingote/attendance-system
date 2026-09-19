@@ -18,6 +18,7 @@ import CorrectionForm from "@/components/Corrections/Correctionform";
 import CorrectionTable, { CorrectionRow } from "@/components/Corrections/CorrectionTable";
 import EmployeeMultiSelect, { EmployeeOption } from "@/components/Common/EmployeeMultiSelect";
 import { hasPermission, usePermissions } from "@/lib/permissions";
+import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 
 export function CorrectionsContent() {
   const session = getSession();
@@ -33,6 +34,8 @@ export function CorrectionsContent() {
   const [tab, setTab] = useState<"mine" | "all">(admin || teamView ? "all" : "mine");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
+  const [teamEmployeeIds, setTeamEmployeeIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
 
@@ -53,13 +56,13 @@ export function CorrectionsContent() {
 
       const results = await Promise.all(requests);
       setMine(results[0].data);
-      if (admin || teamView) setAll(results[1].data.filter((row: CorrectionRow) => selectedEmployeeIds.length === 0 || selectedEmployeeIds.includes(row.requested_by)));
+      if (admin || teamView) setAll(results[1].data.filter((row: CorrectionRow) => (selectedEmployeeIds.length === 0 && teamEmployeeIds.length === 0) || selectedEmployeeIds.includes(row.requested_by) || teamEmployeeIds.includes(row.requested_by)));
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [admin, teamView, selectedEmployeeIds]);
+  }, [admin, teamView, selectedEmployeeIds, teamEmployeeIds]);
 
   useEffect(() => {
     fetchData();
@@ -90,7 +93,7 @@ export function CorrectionsContent() {
           <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {(admin || teamView) && <EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} />}
+          {(admin || teamView) && <><EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} /><TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} /></>}
           <button
             type="button"
             onClick={fetchData}

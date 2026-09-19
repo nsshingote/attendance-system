@@ -233,7 +233,7 @@ export default function ReportStructurePage() {
   const selectedDeptName = departments.find(d => d.id === selectedDept)?.name || "";
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="report_structure.view">
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Report Structure</h1>

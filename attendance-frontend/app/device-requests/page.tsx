@@ -55,7 +55,7 @@ export default function DeviceRequestsPage() {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="device_requests.view">
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Device Requests</h1>

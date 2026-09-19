@@ -15,6 +15,7 @@ import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
+import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 
 interface ActivityLog {
   id: number;
@@ -32,6 +33,7 @@ export default function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,6 +50,7 @@ export default function ActivityLogsPage() {
         params: {
           limit: 5000,
           employee_ids: selectedUserIds.length ? selectedUserIds : undefined,
+          team_ids: selectedTeamIds.length ? selectedTeamIds : undefined,
         },
         paramsSerializer: { indexes: null },
       });
@@ -57,7 +60,7 @@ export default function ActivityLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedUserIds]);
+  }, [selectedUserIds, selectedTeamIds]);
 
   useEffect(() => {
     fetchLogs();
@@ -66,7 +69,7 @@ export default function ActivityLogsPage() {
   const userNameById = (id: number) => users.find((u) => u.id === id)?.name ?? `User #${id}`;
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin"]}>
+    <AppShell requiredPermission="activity_logs.view">
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -77,6 +80,7 @@ export default function ActivityLogsPage() {
           </div>
 
           <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} allLabel="All Users" />
+          <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} />
         </div>
 
         {loading ? (

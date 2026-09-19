@@ -178,7 +178,7 @@ export default function HolidaysPage() {
   };
 
   return (
-    <AppShell>
+    <AppShell requiredPermission="holidays.view">
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

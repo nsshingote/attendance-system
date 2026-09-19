@@ -5,7 +5,6 @@ import toast from "react-hot-toast";
 import { RotateCcw, Trash2 } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
-import { Role } from "@/lib/auth";
 
 type Entry = {
   id: number;
@@ -41,7 +40,7 @@ export default function RecycleBinPage() {
     catch (error) { toast.error(getErrorMessage(error)); }
   };
   return (
-    <AppShell allowedRoles={["admin", "superadmin"] as Role[]}>
+    <AppShell requiredPermission="recycle_bin.view">
       <div className="space-y-5">
         <div><h1 className="text-2xl font-bold text-ink-900">Recycle Bin</h1>
           <p className="text-sm text-ink-500">Deleted records are retained for 30 days.</p></div>

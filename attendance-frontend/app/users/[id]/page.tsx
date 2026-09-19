@@ -138,6 +138,7 @@ type DailyReportRow = {
   duration?: number | string | null;
   description?: string | null;
   submitted_at?: string | null;
+  day_label?: string;
 };
 
 function groupDailyReportsByDate(reports: DailyReportRow[]) {
@@ -544,7 +545,7 @@ export default function UserDetailPage() {
 
   if (loading) {
     return (
-      <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+      <AppShell requiredPermission="employees.all_view" alternativePermissions={["employees.team_view"]}>
         <Loading fullScreen />
       </AppShell>
     );
@@ -552,14 +553,14 @@ export default function UserDetailPage() {
 
   if (!user) {
     return (
-      <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+      <AppShell requiredPermission="employees.all_view" alternativePermissions={["employees.team_view"]}>
         <p className="text-sm text-ink-500">User not found.</p>
       </AppShell>
     );
   }
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+    <AppShell requiredPermission="employees.all_view" alternativePermissions={["employees.team_view"]}>
       <div className="space-y-6">
         <UserSummary user={user} />
 
@@ -751,24 +752,26 @@ export default function UserDetailPage() {
                                 <td rowSpan={group.reports.length} className="px-5 py-3 align-top whitespace-nowrap">{group.date}</td>
                               </>
                             )}
-                            <td className="px-5 py-3">{[report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-"}</td>
-                            <td className="px-5 py-3">{report.description || "-"}</td>
-                            <td className="px-5 py-3 text-right">{report.quantity ?? "-"}</td>
-                            <td className="px-5 py-3 text-right">{report.duration ?? "-"}</td>
+                            <td className="px-5 py-3">{report.day_label ? "-" : ([report.type_name, report.subtype_name].filter(Boolean).join(" / ") || "-")}</td>
+                            <td className="px-5 py-3">{report.day_label ? <span className="font-medium text-amber-700">{report.day_label}</span> : (report.description || "-")}</td>
+                            <td className="px-5 py-3 text-right">{report.day_label ? "-" : (report.quantity ?? "-")}</td>
+                            <td className="px-5 py-3 text-right">{report.day_label ? "-" : (report.duration ?? "-")}</td>
                             {index === 0 && (
                               <td rowSpan={group.reports.length} className="px-5 py-3 align-top">
-                                <span className="inline-flex rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-200">Submitted</span>
+                                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${report.day_label ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-green-50 text-green-700 ring-green-200"}`}>{report.day_label || "Submitted"}</span>
                               </td>
                             )}
                           </tr>
                         ))}
-                        <tr className="border-t border-ink-200 bg-ink-50">
-                          <td colSpan={6} className="px-5 py-2 text-right text-xs font-semibold text-ink-600">Total duration for {group.date}</td>
-                          <td className="px-5 py-2 text-right text-xs font-semibold text-ink-900">
-                            {group.reports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)}
-                          </td>
-                          <td />
-                        </tr>
+                        {!group.reports[0]?.day_label && (
+                          <tr className="border-t border-ink-200 bg-ink-50">
+                            <td colSpan={6} className="px-5 py-2 text-right text-xs font-semibold text-ink-600">Total duration for {group.date}</td>
+                            <td className="px-5 py-2 text-right text-xs font-semibold text-ink-900">
+                              {group.reports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)}
+                            </td>
+                            <td />
+                          </tr>
+                        )}
                       </Fragment>
                     ))}
                   </tbody>

@@ -5,7 +5,7 @@ from datetime import date
 import models
 import schemas
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_admin_permission
 from utils.attendance_status import determine_attendance_status_for_date
 
 
@@ -20,18 +20,11 @@ router = APIRouter(
     response_model=schemas.DashboardResponse
 )
 def dashboard(
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_permission("attendance.all_view")),
     db: Session = Depends(get_db)
 ):
 
     # Role check
-    if current_user.role not in ["admin", "superadmin"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required"
-        )
-
-
     today = date.today()
 
 
@@ -82,16 +75,9 @@ def dashboard(
     response_model=list[schemas.AttendanceReportResponse]
 )
 def attendance_report(
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_permission("attendance.all_view")),
     db: Session = Depends(get_db)
 ):
-
-    if current_user.role not in ["admin", "superadmin"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required"
-        )
-
 
     records = (
         db.query(
@@ -138,18 +124,11 @@ def attendance_report(
 def attendance_filter(
     employee_id: int = None,
     attendance_date: date = None,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_permission("attendance.all_view")),
     db: Session = Depends(get_db)
 ):
 
     # Role check
-    if current_user.role not in ["admin", "superadmin"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required"
-        )
-
-
     query = (
         db.query(
             models.Attendance,
