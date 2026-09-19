@@ -123,12 +123,10 @@ const SLOT_LABELS: Record<string, string> = {
 
 export default function LeavePage() {
   const session = useSession();
-  const admin = isAdmin(session?.role);
   const { permissions } = usePermissions();
+  const admin = isAdmin(session?.role) && hasPermission(permissions, "leave.all_view");
   const teamView = session?.role === "team_leader" && hasPermission(permissions, "leave.team_view");
-  const canApprove = session?.role === "team_leader"
-    ? hasPermission(permissions, "leave.approve")
-    : admin;
+  const canApprove = hasPermission(permissions, "leave.approve");
   const today = new Date();
 
   const [users, setUsers] = useState<UserOption[]>([]);

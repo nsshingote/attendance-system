@@ -288,7 +288,7 @@ async def create_resource(
         try:
             emp_ids = json.loads(employee_ids)
             for emp_id in emp_ids:
-                emp = db.query(User).filter(User.id == emp_id, User.role == "user").first()
+                emp = db.query(User).filter(User.id == emp_id, User.status == "active").first()
                 if not emp:
                     db.rollback()
                     raise HTTPException(status_code=400, detail=f"Employee {emp_id} not found")
@@ -378,7 +378,7 @@ async def update_resource(
             try:
                 emp_ids = json.loads(employee_ids)
                 for emp_id in emp_ids:
-                    emp = db.query(User).filter(User.id == emp_id, User.role == "user").first()
+                    emp = db.query(User).filter(User.id == emp_id, User.status == "active").first()
                     if not emp:
                         db.rollback()
                         raise HTTPException(status_code=400, detail=f"Employee {emp_id} not found")

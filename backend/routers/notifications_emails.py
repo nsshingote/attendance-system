@@ -18,10 +18,8 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[NotificationEmailOut])
-def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Authenticated users can view notification emails for composing leave emails."""
-    if effective_role_key(current_user) == "admin" and not has_permission(current_user, "notification_emails.view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view notification emails")
+def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("notification_emails.view"))):
+    """Users with notification-email view permission can view recipients for leave composition."""
     return db.query(NotificationEmail).filter(
         NotificationEmail.is_active == 1
     ).order_by(NotificationEmail.id.desc()).all()

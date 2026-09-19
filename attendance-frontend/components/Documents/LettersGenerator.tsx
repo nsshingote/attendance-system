@@ -23,9 +23,9 @@ export default function LettersGenerator() {
   const [employeeId, setEmployeeId] = useState(""); const [templateId, setTemplateId] = useState(""); const [saving, setSaving] = useState(false); const [placeholderValues, setPlaceholderValues] = useState<Record<string, string>>({});
   const previewRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    Promise.all([api.get<Employee[]>("/users/"), api.get<Template[]>("/employee-documents/letter-templates"), api.get<Company>("/settings/branding")])
+    Promise.all([api.get<Employee[]>("/users/employee-selector"), api.get<Template[]>("/employee-documents/letter-templates"), api.get<Company>("/settings/branding")])
       .then(([users, letters, settings]) => {
-        setEmployees(users.data.filter(user => user.role === "user"));
+        setEmployees(users.data);
         setTemplates(letters.data);
         setCompany(settings.data);
       })

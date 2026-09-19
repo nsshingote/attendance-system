@@ -424,9 +424,14 @@ const getTotalDuration = (activities: ReportRow[]) => {
 }
 
 export default function AdminReportsPage(props: AdminReportsPageProps) {
+  const session = getSession();
+  const teamLeader = session?.role === "team_leader";
   const [tab, setTab] = useState<"my" | "team">("team");
   return (
-    <AppShell requiredPermission="reports.all_view" alternativePermissions={["reports.team_view"]}>
+    <AppShell
+      allowedRoles={["admin", "superadmin", "team_leader"]}
+      requiredPermission={teamLeader ? "reports.team_view" : "reports.all_view"}
+    >
       <div className="space-y-5">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Reports</h1>

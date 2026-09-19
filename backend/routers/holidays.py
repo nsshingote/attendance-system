@@ -53,7 +53,7 @@ def list_holidays(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if effective_role_key(current_user) == "admin" and not has_permission(current_user, "holidays.view", db):
+    if not has_permission(current_user, "holidays.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view holidays")
     query = db.query(Holiday)
     if year:

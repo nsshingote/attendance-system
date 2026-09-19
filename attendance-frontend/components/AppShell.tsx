@@ -8,11 +8,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
-import { isAuthenticated, getSession, Role } from "@/lib/auth";
+import { isAuthenticated, getSession, isAdmin, Role } from "@/lib/auth";
 import Navbar from "@/components/Navbar";
+import AdminSidebar from "@/components/AdminSidebar";
 import EmployeeSidebar from "@/components/EmployeeSidebar";
 import Loading from "@/components/Common/Loading";
-import { hasPermission, usePermissions } from "@/lib/permissions";
+import { hasPermission, refreshPermissions, usePermissions } from "@/lib/permissions";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -23,7 +24,7 @@ interface AppShellProps {
 
 export default function AppShell({ children, allowedRoles, requiredPermission, alternativePermissions = [] }: AppShellProps) {
   const router = useRouter();
-  const { permissions, loading: permissionsLoading } = usePermissions();
+  const { permissions, loading: permissionsLoading, error: permissionsError } = usePermissions();
   const [ready, setReady] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -47,14 +48,14 @@ export default function AppShell({ children, allowedRoles, requiredPermission, a
 
   useEffect(() => {
     const session = getSession();
-    if (!ready || permissionsLoading) return;
+    if (!ready || permissionsLoading || permissionsError) return;
     if (session?.role === "superadmin") return;
     if (requiredPermission && !hasPermission(permissions, requiredPermission) &&
       !alternativePermissions.some((key) => hasPermission(permissions, key))) {
       router.replace("/dashboard");
       return;
     }
-  }, [permissions, permissionsLoading, ready, requiredPermission, alternativePermissions, router]);
+  }, [permissions, permissionsLoading, permissionsError, ready, requiredPermission, alternativePermissions, router]);
 
   // Close sidebar when clicking outside on mobile
   useEffect(() => {
@@ -83,8 +84,21 @@ export default function AppShell({ children, allowedRoles, requiredPermission, a
   if (!ready || permissionsLoading) {
     return <Loading fullScreen />;
   }
+  if (permissionsError) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-ink-50 p-6">
+        <div className="rounded-xl border border-ink-200 bg-white p-6 text-center shadow-card">
+          <p className="text-sm text-ink-700">Unable to load permissions.</p>
+          <button onClick={() => void refreshPermissions()} className="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const SidebarComponent = EmployeeSidebar;
+  const session = getSession();
+  const SidebarComponent = isAdmin(session?.role) ? AdminSidebar : EmployeeSidebar;
 
   const toggleMobileSidebar = () => {
     setIsMobileSidebarOpen(!isMobileSidebarOpen);

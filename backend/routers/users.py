@@ -23,7 +23,7 @@ from models import (
     User, ActivityLog, ChangedLog, Department, UserDepartment, DynamicReportType, EmployeeProfileEditRequest, PersonalDocumentChangeRequest, Role,
     DynamicReportSubtype, DynamicReportField, ReportDefaultRow
 )
-from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
+from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, EmployeeSelectorOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
 from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
 from services.notifications import create_notification, get_admin_user_ids
@@ -84,6 +84,26 @@ def list_users(
     if status_filter:
         query = query.filter(User.status == status_filter)
     return query.order_by(User.name).all()
+
+
+@router.get("/employee-selector", response_model=List[EmployeeSelectorOut])
+def list_document_employee_selector(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    role_key = effective_role_key(current_user)
+    can_view_documents = (
+        has_permission(current_user, "employee_documents.letters.view", db)
+        or has_permission(current_user, "employee_documents.salary_slips.view", db)
+    )
+    if not can_view_documents:
+        raise HTTPException(status_code=403, detail="You do not have permission to select document employees")
+    if role_key == "team_leader":
+        employee_ids = require_team_permission(db, current_user, "employees.team_view")
+        query = db.query(User).filter(User.id.in_(employee_ids))
+    else:
+        query = db.query(User)
+    return query.filter(User.status == "active").order_by(User.name).all()
 
 
 @router.get("/me", response_model=UserOut)
@@ -292,16 +312,15 @@ def get_profile_photo(current_user: User = Depends(get_current_user)):
 
 @router.get("/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # Employees may only view their own profile; Admin/SuperAdmin can view any.
+    # Self access remains available; broader access is permission- and scope-controlled.
     role_key = effective_role_key(current_user)
-    if role_key == "user" and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this user")
-    if role_key == "team_leader" and current_user.id != user_id:
-        require_team_member_access(db, current_user, user_id, "employees.team_view")
-    if role_key not in ("admin", "superadmin", "team_leader", "user") and current_user.id != user_id and not has_permission(current_user, "employees.all_view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view this user")
-    if role_key == "admin" and current_user.id != user_id and not has_permission(current_user, "employees.all_view", db):
-        raise HTTPException(status_code=403, detail="You do not have permission to view this user")
+    if current_user.id != user_id:
+        if has_permission(current_user, "employees.all_view", db):
+            pass
+        elif role_key == "team_leader":
+            require_team_member_access(db, current_user, user_id, "employees.team_view")
+        else:
+            raise HTTPException(status_code=403, detail="You do not have permission to view this user")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

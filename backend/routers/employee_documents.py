@@ -494,7 +494,7 @@ def list_employee_personal_documents(employee_id: int, db: Session = Depends(get
     if current_user.id != employee_id:
         if effective_role_key(current_user) == "team_leader":
             require_team_member_access(db, current_user, employee_id, "employees.team_view")
-        else:
+        elif not has_permission(current_user, "employee_documents.letters.view", db):
             raise HTTPException(status_code=403, detail="Not authorized")
     return [
         {

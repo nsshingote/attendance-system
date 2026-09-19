@@ -101,8 +101,8 @@ export default function OfferLetterGenerator() {
 
   useEffect(() => {
     api
-      .get("/users/")
-      .then(({ data }) => setEmployees(data.filter((employee: Employee) => employee.role === "user")))
+      .get("/users/employee-selector")
+      .then(({ data }) => setEmployees(data))
       .catch((error) => toast.error(getErrorMessage(error)));
   }, []);
 

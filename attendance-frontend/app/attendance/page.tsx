@@ -463,8 +463,8 @@ export default function AttendancePage() {
   const [submittingOverride, setSubmittingOverride] = useState(false);
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
-  const admin = isAdmin(session?.role);
   const { permissions } = usePermissions();
+  const admin = isAdmin(session?.role) && hasPermission(permissions, "attendance.all_view");
   const teamView = session?.role === "team_leader" && hasPermission(permissions, "attendance.team_view");
 
   const normalizeOverrideStatus = (status: string) => {

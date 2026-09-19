@@ -1,30 +1,50 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import api from "@/lib/api";
 
-export function usePermissions(): { permissions: string[]; loading: boolean } {
-  const [permissions, setPermissions] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+type PermissionSnapshot = { permissions: string[]; loading: boolean; error: string | null };
 
-  useEffect(() => {
-    let active = true;
-    api.get<string[]>("/permissions/me")
-      .then(({ data }) => {
-        if (active) setPermissions(data);
-      })
-      .catch(() => {
-        if (active) setPermissions([]);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+let snapshot: PermissionSnapshot = { permissions: [], loading: true, error: null };
+let request: Promise<void> | null = null;
+const listeners = new Set<() => void>();
 
-  return { permissions, loading };
+const emit = () => listeners.forEach((listener) => listener());
+
+export function refreshPermissions(): Promise<void> {
+  if (request) return request;
+  snapshot = { ...snapshot, loading: true, error: null };
+  emit();
+  request = api.get<string[]>("/permissions/me")
+    .then(({ data }) => {
+      snapshot = { permissions: data, loading: false, error: null };
+    })
+    .catch((requestError: unknown) => {
+      snapshot = {
+        permissions: [],
+        loading: false,
+        error: requestError instanceof Error ? requestError.message : "Unable to load permissions",
+      };
+    })
+    .finally(() => {
+      request = null;
+      emit();
+    });
+  return request;
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  if (snapshot.loading && !request) void refreshPermissions();
+  return () => listeners.delete(listener);
+}
+
+const getSnapshot = () => snapshot;
+const serverSnapshot: PermissionSnapshot = { permissions: [], loading: true, error: null };
+const getServerSnapshot = () => serverSnapshot;
+
+export function usePermissions(): PermissionSnapshot {
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 export function hasPermission(permissions: string[], key: string): boolean {

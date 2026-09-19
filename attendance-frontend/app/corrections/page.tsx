@@ -22,16 +22,16 @@ import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 
 export function CorrectionsContent() {
   const session = getSession();
-  const admin = isAdmin(session?.role);
   const { permissions } = usePermissions();
+  const admin = isAdmin(session?.role) && hasPermission(permissions, "corrections.all_view");
   const teamView = session?.role === "team_leader" && hasPermission(permissions, "corrections.team_view");
-  const canDecide = session?.role === "team_leader"
-    ? hasPermission(permissions, "corrections.approve")
-    : admin;
+  const canDecide = hasPermission(permissions, "corrections.approve");
 
   const [mine, setMine] = useState<CorrectionRow[]>([]);
   const [all, setAll] = useState<CorrectionRow[]>([]);
-  const [tab, setTab] = useState<"mine" | "all">(admin || teamView ? "all" : "mine");
+  const [tab, setTab] = useState<"mine" | "all">(
+    hasPermission(permissions, "corrections.all_view") || teamView ? "all" : "mine"
+  );
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);

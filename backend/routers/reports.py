@@ -362,7 +362,7 @@ def export_attendance_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "reports.export", db):
+    if not has_permission(current_user, "reports.export", db):
         raise HTTPException(status_code=403, detail="You do not have permission to export reports")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     start_date = date(year, month, 1)

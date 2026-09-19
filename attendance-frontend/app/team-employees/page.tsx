@@ -28,7 +28,7 @@ export default function TeamEmployeesPage() {
   }, [allowed]);
 
   return (
-    <AppShell allowedRoles={["team_leader"]}>
+    <AppShell allowedRoles={["team_leader"]} requiredPermission="employees.team_view">
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Team Employees</h1>

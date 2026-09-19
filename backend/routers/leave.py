@@ -259,14 +259,11 @@ def apply_leave(
     # Determine target user
     target_user_id = payload.user_id if payload.user_id else current_user.id
     
-    # Validate: non-admin can only apply for themselves
+    # Self-submission remains available; acting for another employee requires approval permission.
+    if target_user_id != current_user.id and not has_permission(current_user, "leave.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to apply leave for another employee")
     if effective_role_key(current_user) == "team_leader" and target_user_id != current_user.id:
         require_team_member_access(db, current_user, target_user_id, "leave.approve")
-    elif effective_role_key(current_user) not in ["superadmin", "admin"] and target_user_id != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only apply for leave for yourself"
-        )
     
     # Get target user
     target_user = db.query(User).filter(
@@ -323,10 +320,7 @@ def apply_leave(
         )
     
     # Auto-approve when an admin applies leave on behalf of another employee.
-    auto_approve = (
-        effective_role_key(current_user) in ["admin", "superadmin"]
-        and target_user_id != current_user.id
-    )
+    auto_approve = has_permission(current_user, "leave.approve", db) and target_user_id != current_user.id
     approved_by = current_user.id if auto_approve else None
     approved_at = datetime.now() if auto_approve else None
     status = "Approved" if auto_approve else "Pending"
@@ -481,10 +475,8 @@ def cancel_leave(
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an approved leave request while retaining it for audit history."""
-    if effective_role_key(current_user) == "admin" and not has_permission(current_user, "leave.cancel", db):
+    if not has_permission(current_user, "leave.cancel", db):
         raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
-    if effective_role_key(current_user) not in {"admin", "superadmin", "team_leader"}:
-        raise HTTPException(status_code=403, detail="Only admins and team leaders can cancel approved leave")
     leave_request = (
         db.query(LeaveRequest)
         .filter(LeaveRequest.id == leave_id)
@@ -897,7 +889,7 @@ def get_leave_balance(
     """Get leave balance for a user."""
     if effective_role_key(current_user) == "team_leader" and user_id != current_user.id:
         require_team_member_access(db, current_user, user_id, "leave.team_view")
-    elif effective_role_key(current_user) not in ["admin", "superadmin"] and user_id != current_user.id:
+    elif user_id != current_user.id and not has_permission(current_user, "leave.all_view", db):
         raise HTTPException(status_code=403, detail="Not authorized to view this user's balance")
     
     user = db.query(User).filter(User.id == user_id).first()

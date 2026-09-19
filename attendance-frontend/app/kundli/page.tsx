@@ -5,7 +5,7 @@ import { Pencil, Save, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import api, { getErrorMessage } from "@/lib/api";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 
 type Employee = { id: number; name: string; role: string; designation: string };
@@ -15,10 +15,12 @@ export default function KundliPage() {
   const session = getSession();
   const { permissions } = usePermissions();
   const teamLeader = session?.role === "team_leader";
-  const canView = !teamLeader || hasPermission(permissions, "kundli.team_view");
-  const canCreate = !teamLeader || hasPermission(permissions, "kundli.create");
-  const canEdit = !teamLeader || hasPermission(permissions, "kundli.edit");
-  const canDelete = !teamLeader || hasPermission(permissions, "kundli.delete");
+  const superAdmin = isSuperAdmin(session?.role);
+  const scopedRole = session?.role === "admin" || teamLeader;
+  const canView = superAdmin || (scopedRole && hasPermission(permissions, "kundli.team_view"));
+  const canCreate = superAdmin || (scopedRole && hasPermission(permissions, "kundli.create"));
+  const canEdit = superAdmin || (scopedRole && hasPermission(permissions, "kundli.edit"));
+  const canDelete = superAdmin || (scopedRole && hasPermission(permissions, "kundli.delete"));
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
@@ -66,7 +68,7 @@ export default function KundliPage() {
   };
 
   return (
-    <AppShell requiredPermission="kundli.team_view">
+    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
           <h1 className="text-xl font-semibold">Kundli</h1>

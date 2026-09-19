@@ -253,7 +253,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <AppShell requiredPermission="monthly_summary.view" alternativePermissions={["reports.team_view"]}>
+    <AppShell requiredPermission="monthly_summary.view">
       <div className="space-y-6">
         <div className="rounded-1rem border border-ink-200 bg-white p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

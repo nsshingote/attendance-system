@@ -61,15 +61,15 @@ export default function EmployeeDocumentsPage() {
   const load = async () => {
     if (!canSalarySlips) return;
     try {
-      const [users, history] = await Promise.all([api.get("/users/"), api.get("/employee-documents/salary-slips")]);
-      setEmployees(users.data.filter((user: Employee) => user.role === "user")); setSlips(history.data);
+      const [users, history] = await Promise.all([api.get("/users/employee-selector"), api.get("/employee-documents/salary-slips")]);
+      setEmployees(users.data); setSlips(history.data);
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
   useEffect(() => {
     if (!canSalarySlips) return;
-    Promise.all([api.get("/users/"), api.get("/employee-documents/salary-slips")])
+    Promise.all([api.get("/users/employee-selector"), api.get("/employee-documents/salary-slips")])
       .then(([users, history]) => {
-        setEmployees(users.data.filter((user: Employee) => user.role === "user"));
+        setEmployees(users.data);
         setSlips(history.data);
       })
       .catch(error => toast.error(getErrorMessage(error)));

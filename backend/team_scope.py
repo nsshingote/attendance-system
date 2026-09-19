@@ -54,7 +54,16 @@ def require_team_member_access(
 ) -> None:
     """Authorize a Team Leader for one employee in an active assigned team."""
     role_key = effective_role_key(current_user)
-    if role_key in ("admin", "superadmin"):
+    if role_key == "superadmin":
+        return
+    if role_key == "admin":
+        required_key = permission_key.replace(".team_view", ".all_view")
+        if permission_key == "kundli.team_view":
+            allowed = has_permission(current_user, permission_key, db)
+        else:
+            allowed = has_permission(current_user, required_key, db)
+        if not allowed:
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
         return
     if role_key != "team_leader":
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
@@ -67,7 +76,16 @@ def require_team_member_access(
 def require_team_permission(db: Session, current_user: User, permission_key: str) -> List[int]:
     """Authorize a Team Leader for team-wide reads and return scoped IDs."""
     role_key = effective_role_key(current_user)
-    if role_key in ("admin", "superadmin"):
+    if role_key == "superadmin":
+        return []
+    if role_key == "admin":
+        required_key = permission_key.replace(".team_view", ".all_view")
+        if permission_key == "kundli.team_view":
+            allowed = has_permission(current_user, permission_key, db)
+        else:
+            allowed = has_permission(current_user, required_key, db)
+        if not allowed:
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
         return []
     if role_key != "team_leader" or not has_permission(current_user, permission_key, db):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")

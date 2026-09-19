@@ -18,6 +18,7 @@ import api from "@/lib/api";
 const EMPLOYEE_NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/my-profile", label: "My Profile", icon: ContactRound },
+  { href: "/resources", label: "Resources", icon: BookOpen },
   { href: "/attendance", label: "My Attendance", icon: CalendarCheck },
   { href: "/leave", label: "My Leave", icon: Plane },
   { href: "/corrections", label: "Corrections", icon: ClipboardEdit },
@@ -29,7 +30,6 @@ const PERMISSION_NAV_ITEMS = [
   { href: "/users", label: "Users", icon: Users, permission: "employees.all_view" },
   { href: "/teams", label: "Teams", icon: Users, permission: "teams.view" },
   { href: "/permissions", label: "Permissions", icon: UserRoundCog, permission: "permissions.manage" },
-  { href: "/resources", label: "Resources", icon: BookOpen, permission: "resources.view" },
   { href: "/employee-documents", label: "Employee Documents", icon: FolderOpen, permission: "employee_documents.letters.view", alternatives: ["employee_documents.salary_slips.view", "employee_documents.letter_templates.view"] },
   { href: "/kundli", label: "Kundli", icon: NotebookPen, permission: "kundli.team_view" },
   { href: "/admin/report-structure", label: "Report Structure", icon: Layers, permission: "report_structure.view" },
@@ -44,7 +44,6 @@ const PERMISSION_NAV_ITEMS = [
   { href: "/notification-emails", label: "Notification Emails", icon: Mail, permission: "notification_emails.view" },
   { href: "/office-ip", label: "Office IPs", icon: Wifi, permission: "office_ips.view" },
   { href: "/activity-logs", label: "Activity Logs", icon: History, permission: "activity_logs.view" },
-  { href: "/feedback", label: "Feedback", icon: MessageSquare, permission: "feedback.view" },
   { href: "/settings", label: "Settings", icon: Settings, permission: "settings.view" },
   { href: "/recycle-bin", label: "Recycle Bin", icon: Trash2, permission: "recycle_bin.view" },
   { href: "/changed-logs", label: "Changed Logs", icon: HistoryIcon, permission: "changed_logs.view" },

@@ -178,6 +178,13 @@ class UserOut(ORMBase):
     last_login: Optional[datetime] = None
 
 
+class EmployeeSelectorOut(ORMBase):
+    id: int
+    name: str
+    role: str
+    role_key: Optional[str] = None
+
+
 class PersonalProfileUpdate(BaseModel):
     email: Optional[str] = None
     mobile: Optional[str] = None

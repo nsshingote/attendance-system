@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import api, { getErrorMessage } from "@/lib/api";
+import { refreshPermissions } from "@/lib/permissions";
 
 type Permission = {
   id: number;
@@ -23,7 +24,7 @@ type Role = {
   is_active: boolean;
   permission_ids: number[];
 };
-type User = { id: number; name: string; email?: string | null; mobile: string; status: string };
+type User = { id: number; name: string; email?: string | null; mobile: string; status: string; role?: string | null; role_key?: string | null };
 type Effect = "allow" | "deny";
 type Override = { permission_id: number; effect: Effect };
 
@@ -138,6 +139,7 @@ export default function PermissionsPage() {
       }
       await loadTargets();
       await loadAssignment();
+      await refreshPermissions();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -198,7 +200,7 @@ export default function PermissionsPage() {
                 <option value="">Select {assignmentType === "role" ? "a role" : "a user"}</option>
                 {assignmentType === "role"
                   ? activeRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)
-                  : users.map((user) => <option key={user.id} value={user.id}>{user.name}{user.email ? ` (${user.email})` : ""}</option>)}
+                  : users.map((user) => <option key={user.id} value={user.id}>{user.name} — {user.role_key || user.role || "Unknown role"}</option>)}
               </select>
             </label>
           </div>
@@ -217,7 +219,7 @@ export default function PermissionsPage() {
         {loading ? <Loading /> : (
           <section className="overflow-hidden rounded-xl border border-ink-200 bg-white">
             <div className="table-wrapper">
-              <table className="w-full min-w-[760px] text-left text-sm">
+              <table className="w-full min-w:760px text-left text-sm">
                 <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Module</th>
