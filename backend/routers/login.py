@@ -76,7 +76,11 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
             user_id=user.id,
             activity=f"Requested device approval for '{user.name}' ({payload.device_name or 'unknown device'})",
         ))
-        for admin_id in get_admin_user_ids(db, actor_user_id=user.id):
+        for admin_id in get_admin_user_ids(
+            db,
+            actor_user_id=user.id,
+            permission_key="device_requests.approve",
+        ):
             create_notification(
                 db,
                 recipient_user_id=admin_id,

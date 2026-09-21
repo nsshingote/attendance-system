@@ -11,7 +11,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, has_permission, require_admin, require_admin_permission, effective_role_key
-from team_scope import require_team_member_access
+from team_scope import get_team_member_ids, require_team_member_access
 from config import settings
 from database import get_db
 from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
@@ -56,10 +56,29 @@ def _external_base_url(request: Request) -> str:
 def _can_access_personal_document(user: User, item: EmployeePersonalDocument, db: Session) -> bool:
     if user.id == item.employee_id:
         return True
+    if effective_role_key(user) in {"admin", "superadmin"}:
+        return True
     if effective_role_key(user) == "team_leader":
         require_team_member_access(db, user, item.employee_id, "employees.team_view")
         return True
-    return has_permission(user, "employee_documents.letters.view", db)
+    return False
+
+
+def _require_employee_document_scope(db: Session, current_user: User, employee_id: int) -> None:
+    if current_user.id == employee_id or effective_role_key(current_user) in {"admin", "superadmin"}:
+        return
+    if effective_role_key(current_user) == "team_leader":
+        require_team_member_access(db, current_user, employee_id, "employees.team_view")
+        return
+    raise HTTPException(status_code=403, detail="Not authorized for this employee")
+
+
+def _team_scope_ids(db: Session, current_user: User) -> list[int] | None:
+    if effective_role_key(current_user) == "team_leader":
+        return get_team_member_ids(db, current_user)
+    if effective_role_key(current_user) in {"admin", "superadmin"}:
+        return None
+    raise HTTPException(status_code=403, detail="Not authorized to view employee documents")
 
 
 def _personal_document_request_dict(item: PersonalDocumentChangeRequest):
@@ -155,7 +174,11 @@ def _salary_slip_dict(item: SalarySlip):
 
 @router.get("/salary-slips")
 def list_salary_slips(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.view"))):
-    return [_salary_slip_dict(item) for item in db.query(SalarySlip).order_by(SalarySlip.created_at.desc()).all()]
+    query = db.query(SalarySlip)
+    scope_ids = _team_scope_ids(db, current_user)
+    if scope_ids is not None:
+        query = query.filter(SalarySlip.employee_id.in_(scope_ids))
+    return [_salary_slip_dict(item) for item in query.order_by(SalarySlip.created_at.desc()).all()]
 
 
 @router.get("/salary-slips/mine")
@@ -170,6 +193,7 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
+    _require_employee_document_scope(db, current_user, employee.id)
     particulars = [{"name": item.name.strip(), "amount": round(item.amount, 2)} for item in payload.particulars if item.name.strip()]
     if not particulars:
         raise HTTPException(status_code=422, detail="Add at least one salary particular")
@@ -207,11 +231,13 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
 def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.manage"))):
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
+    _require_employee_document_scope(db, current_user, item.employee_id)
     old_employee = item.employee.name if item.employee else str(item.employee_id)
     old_values = {"employee": old_employee, "month": item.month, "year": item.year,
                   "particulars": item.particulars, "total_amount": item.total_amount}
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee: raise HTTPException(status_code=404, detail="Active employee not found")
+    _require_employee_document_scope(db, current_user, employee.id)
     particulars = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in payload.particulars if row.name.strip()]
     if not particulars: raise HTTPException(status_code=422, detail="Add at least one salary particular")
     item.employee_id, item.month, item.year, item.particulars = employee.id, payload.month, payload.year, json.dumps(particulars)
@@ -254,6 +280,7 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
 def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.manage"))):
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
+    _require_employee_document_scope(db, current_user, item.employee_id)
     employee_name = item.employee.name if item.employee else f"employee {item.employee_id}"
     db.delete(item); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted salary slip for '{employee_name}'"))
     db.commit()
@@ -406,6 +433,7 @@ def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Letter template not found")
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
+    _require_employee_document_scope(db, current_user, employee.id)
     values = _placeholder_values(employee, db)
     if payload.placeholder_values:
         values.update({key: value for key, value in payload.placeholder_values.items() if isinstance(value, str)})
@@ -441,7 +469,11 @@ def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(
 
 @router.get("/documents")
 def list_admin_documents(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letters.view"))):
-    return [_document_dict(item) for item in db.query(EmployeeDocument).order_by(EmployeeDocument.created_at.desc()).all()]
+    query = db.query(EmployeeDocument)
+    scope_ids = _team_scope_ids(db, current_user)
+    if scope_ids is not None:
+        query = query.filter(EmployeeDocument.employee_id.in_(scope_ids))
+    return [_document_dict(item) for item in query.order_by(EmployeeDocument.created_at.desc()).all()]
 
 
 @router.get("/documents/mine")
@@ -454,10 +486,7 @@ def list_my_documents(db: Session = Depends(get_db), current_user: User = Depend
 @router.get("/documents/{employee_id}")
 def list_employee_documents(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.id != employee_id:
-        if effective_role_key(current_user) == "team_leader":
-            require_team_member_access(db, current_user, employee_id, "employees.team_view")
-        elif not has_permission(current_user, "employee_documents.letters.view", db):
-            raise HTTPException(status_code=403, detail="Not authorized")
+        _require_employee_document_scope(db, current_user, employee_id)
     return [_document_dict(item) for item in db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee_id).order_by(EmployeeDocument.created_at.desc()).all()]
 
 
@@ -465,6 +494,7 @@ def list_employee_documents(employee_id: int, db: Session = Depends(get_db), cur
 def delete_generated_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letters.manage"))):
     item = db.query(EmployeeDocument).filter(EmployeeDocument.id == document_id).first()
     if not item: raise HTTPException(status_code=404, detail="Document not found")
+    _require_employee_document_scope(db, current_user, item.employee_id)
     db.delete(item)
     db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted {item.document_type.replace('_', ' ')} for '{item.employee.name}'")); db.commit()
     return {"message": "Document deleted"}
@@ -492,10 +522,7 @@ def list_my_personal_documents(db: Session = Depends(get_db), current_user: User
 @router.get("/personal-documents/{employee_id}")
 def list_employee_personal_documents(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.id != employee_id:
-        if effective_role_key(current_user) == "team_leader":
-            require_team_member_access(db, current_user, employee_id, "employees.team_view")
-        elif not has_permission(current_user, "employee_documents.letters.view", db):
-            raise HTTPException(status_code=403, detail="Not authorized")
+        _require_employee_document_scope(db, current_user, employee_id)
     return [
         {
             "id": item.id,
@@ -655,7 +682,11 @@ async def request_personal_document_replace(
         user_id=current_user.id,
         activity=f"Requested replacement of personal document '{item.title}'",
     ))
-    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+    for admin_id in get_admin_user_ids(
+        db,
+        actor_user_id=current_user.id,
+        permission_key="requests.manage",
+    ):
         create_notification(
             db,
             recipient_user_id=admin_id,
@@ -684,7 +715,11 @@ def request_personal_document_delete(document_id: int, db: Session = Depends(get
         user_id=current_user.id,
         activity=f"Requested deletion of personal document '{item.title}'",
     ))
-    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+    for admin_id in get_admin_user_ids(
+        db,
+        actor_user_id=current_user.id,
+        permission_key="requests.manage",
+    ):
         create_notification(
             db,
             recipient_user_id=admin_id,
@@ -707,7 +742,11 @@ def list_my_personal_document_requests(db: Session = Depends(get_db), current_us
 
 @router.get("/personal-document-requests")
 def list_personal_document_requests(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.view"))):
-    return [_personal_document_request_dict(item) for item in db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.status == "Pending").order_by(PersonalDocumentChangeRequest.created_at.desc()).all()]
+    query = db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.status == "Pending")
+    scope_ids = _team_scope_ids(db, current_user)
+    if scope_ids is not None:
+        query = query.filter(PersonalDocumentChangeRequest.employee_id.in_(scope_ids))
+    return [_personal_document_request_dict(item) for item in query.order_by(PersonalDocumentChangeRequest.created_at.desc()).all()]
 
 
 @router.post("/personal-document-requests/{request_id}/decision")
@@ -715,6 +754,7 @@ def decide_personal_document_request(request_id: int, payload: PersonalDocumentR
     request = db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="Personal document request not found")
+    _require_employee_document_scope(db, current_user, request.employee_id)
     if request.status != "Pending":
         raise HTTPException(status_code=409, detail="This request has already been decided")
     document = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == request.document_id).first()
@@ -782,6 +822,7 @@ def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
+    _require_employee_document_scope(db, current_user, employee.id)
     values = payload.model_dump(exclude={"employee_id", "send"})
     required_values = ("employee_name", "designation", "department", "place_of_posting", "date_of_joining", "letter_date", "company_address")
     if any(not str(values.get(field) or "").strip() for field in required_values):
@@ -819,6 +860,7 @@ def create_appointment_letter(payload: AppointmentLetterCreate, db: Session = De
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
+    _require_employee_document_scope(db, current_user, employee.id)
     values = payload.model_dump(exclude={"employee_id", "send"})
     required = ("employee_name", "designation", "department", "office_location", "start_date", "letter_date", "company_address", "salary", "working_hours", "working_days", "authorized_signatory")
     if any(not str(values.get(field) or "").strip() for field in required):

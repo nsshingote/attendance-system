@@ -125,7 +125,8 @@ export default function LeavePage() {
   const session = useSession();
   const { permissions } = usePermissions();
   const admin = hasPermission(permissions, "leave.all_view");
-  const teamView = session?.role === "team_leader" && hasPermission(permissions, "leave.team_view");
+  const teamView = session?.role === "team_leader" &&
+    hasPermission(permissions, "leave.team_view");
   const canApprove = hasPermission(permissions, "leave.approve");
   const today = new Date();
 

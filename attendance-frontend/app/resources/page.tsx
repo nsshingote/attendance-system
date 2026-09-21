@@ -5,6 +5,7 @@ import { Upload, Trash2, Edit2, Download, X, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Common/Modal";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
@@ -46,7 +47,8 @@ const toVisibilityType = (value: string): VisibilityType =>
 
 export default function ResourcesPage() {
   const session = getSession();
-  const isAdmin = session?.role === "admin" || session?.role === "superadmin";
+  const { permissions } = usePermissions();
+  const isAdmin = hasPermission(permissions, "resources.manage");
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(false);

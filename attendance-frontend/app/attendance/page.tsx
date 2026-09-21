@@ -465,7 +465,8 @@ export default function AttendancePage() {
 
   const { permissions } = usePermissions();
   const admin = hasPermission(permissions, "attendance.all_view");
-  const teamView = session?.role === "team_leader" && hasPermission(permissions, "attendance.team_view");
+  const teamView = session?.role === "team_leader" &&
+    hasPermission(permissions, "attendance.team_view");
 
   const normalizeOverrideStatus = (status: string) => {
     return status;

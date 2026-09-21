@@ -19,6 +19,7 @@ import MonthSelector from "@/components/Calendar/MonthSelector";
 import ExpandableText from "@/components/Common/ExpandableText";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/auth";
 import { DailyReportContent } from "@/app/daily-report/page";
 
@@ -77,8 +78,9 @@ interface AdminReportsPageProps {
 }
 
 export function AdminReportsContent({ compact = false }: AdminReportsPageProps) {
-  const session = getSession();
-  const teamLeader = session?.role === "team_leader";
+  const { permissions } = usePermissions();
+  const teamLeader = hasPermission(permissions, "reports.team_view") &&
+    !hasPermission(permissions, "reports.all_view");
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -428,10 +430,7 @@ export default function AdminReportsPage(props: AdminReportsPageProps) {
   const teamLeader = session?.role === "team_leader";
   const [tab, setTab] = useState<"my" | "team">("team");
   return (
-    <AppShell
-      allowedRoles={["admin", "superadmin", "team_leader"]}
-      requiredPermission={teamLeader ? "reports.team_view" : "reports.all_view"}
-    >
+    <AppShell requiredPermission={teamLeader ? "reports.team_view" : "reports.all_view"}>
       <div className="space-y-5">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Reports</h1>

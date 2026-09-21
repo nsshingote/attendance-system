@@ -198,7 +198,11 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
         requested_data=json.dumps({key: (value or "").strip() for key, value in payload.requested_data.items()}))
     db.add(item)
     db.add(ActivityLog(user_id=current_user.id, activity=f"Requested approval to edit {payload.section.replace('_', ' ')}"))
-    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+    for admin_id in get_admin_user_ids(
+        db,
+        actor_user_id=current_user.id,
+        permission_key="requests.manage",
+    ):
         create_notification(
             db,
             recipient_user_id=admin_id,

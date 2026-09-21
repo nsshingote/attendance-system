@@ -1281,7 +1281,11 @@ def request_past_report_submission(
         user_id=current_user.id,
         activity=f"Requested {request.attendance_date} past report submission approval for {current_user.name}",
     ))
-    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+    for admin_id in get_admin_user_ids(
+        db,
+        actor_user_id=current_user.id,
+        permission_key="requests.manage",
+    ):
         create_notification(
             db,
             recipient_user_id=admin_id,

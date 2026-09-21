@@ -12,7 +12,8 @@ import { hasPermission, usePermissions } from "@/lib/permissions";
 export default function TeamEmployeesPage() {
   const session = getSession();
   const { permissions } = usePermissions();
-  const allowed = session?.role !== "team_leader" || hasPermission(permissions, "employees.team_view");
+  const allowed = session?.role === "team_leader" &&
+    hasPermission(permissions, "employees.team_view");
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
 

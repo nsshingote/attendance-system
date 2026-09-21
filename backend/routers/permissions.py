@@ -41,7 +41,7 @@ def _role_or_404(db: Session, key: str) -> Role:
 def _permission_ids(db: Session, role: Role) -> list[int]:
     return sorted({
         permission_id for (permission_id,) in db.query(RolePermission.permission_id).filter(
-            (RolePermission.role_id == role.id) | (RolePermission.role == role.key)
+            RolePermission.role_id == role.id
         ).all()
     })
 
@@ -54,9 +54,14 @@ def get_my_permissions(db: Session = Depends(get_db), current_user: User = Depen
         UserPermission.user_id == current_user.id, UserPermission.effect == "allow").all()}
     denied = {permission_id for (permission_id,) in db.query(UserPermission.permission_id).filter(
         UserPermission.user_id == current_user.id, UserPermission.effect == "deny").all()}
-    role_ids = _permission_ids(db, current_user.role_record) if current_user.role_record else [
-        p for (p,) in db.query(RolePermission.permission_id).filter(RolePermission.role == current_user.role).all()
-    ]
+    role_ids = []
+    if current_user.role_record is not None:
+        if current_user.role_record.is_active:
+            role_ids = _permission_ids(db, current_user.role_record)
+    else:
+        role_ids = [
+            p for (p,) in db.query(RolePermission.permission_id).filter(RolePermission.role == current_user.role).all()
+        ]
     ids.update(role_ids)
     ids.difference_update(denied)
     return [key for (key,) in db.query(Permission.key).filter(Permission.id.in_(ids)).order_by(Permission.key).all()]

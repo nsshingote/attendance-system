@@ -142,11 +142,19 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # ---------------------------------------------------------
-# Static files (uploaded profile pics, correction attachments, etc.)
+# Public static files. Personal documents are stored in a separate directory
+# and are served only through authenticated document routes.
 # ---------------------------------------------------------
 upload_dir = Path(settings.UPLOAD_DIR)
 upload_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
+for public_upload_dir in ("profile_images", "resources"):
+    directory = upload_dir / public_upload_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        f"/uploads/{public_upload_dir}",
+        StaticFiles(directory=str(directory)),
+        name=f"uploads_{public_upload_dir}",
+    )
 
 # ---------------------------------------------------------
 # Routers

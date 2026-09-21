@@ -24,7 +24,8 @@ export function CorrectionsContent() {
   const session = getSession();
   const { permissions } = usePermissions();
   const admin = hasPermission(permissions, "corrections.all_view");
-  const teamView = session?.role === "team_leader" && hasPermission(permissions, "corrections.team_view");
+  const teamView = session?.role === "team_leader" &&
+    hasPermission(permissions, "corrections.team_view");
   const canDecide = hasPermission(permissions, "corrections.approve");
 
   const [mine, setMine] = useState<CorrectionRow[]>([]);

@@ -102,8 +102,6 @@ def has_permission(current_user: User, permission_key: str, db: Session) -> bool
     """Resolve explicit user overrides before the configured role (legacy-compatible)."""
     if is_superadmin(current_user):
         return True
-    if current_user.role_record is not None and not current_user.role_record.is_active:
-        return False
     if not permission_key.strip():
         return False
     permission = db.query(Permission).filter(Permission.key == permission_key).first()
@@ -115,12 +113,11 @@ def has_permission(current_user: User, permission_key: str, db: Session) -> bool
     ).first()
     if override:
         return override[0] == "allow"
+    if current_user.role_record is not None and not current_user.role_record.is_active:
+        return False
     role_query = db.query(RolePermission.id).filter(RolePermission.permission_id == permission.id)
-    if current_user.role_id:
-        role_query = role_query.filter(
-            (RolePermission.role_id == current_user.role_id) |
-            ((RolePermission.role_id.is_(None)) & (RolePermission.role == effective_role_key(current_user)))
-        )
+    if current_user.role_record is not None:
+        role_query = role_query.filter(RolePermission.role_id == current_user.role_id)
     else:
         role_query = role_query.filter(RolePermission.role == current_user.role)
     return role_query.first() is not None

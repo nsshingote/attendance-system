@@ -54,7 +54,8 @@ interface LeaveSummaryRow {
 export default function ReportsPage() {
   const session = getSession();
   const { permissions, loading: permissionsLoading } = usePermissions();
-  const teamReports = session?.role === "team_leader" && hasPermission(permissions, "reports.team_view");
+  const teamReports = session?.role === "team_leader" &&
+    hasPermission(permissions, "reports.team_view");
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);

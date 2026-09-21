@@ -92,24 +92,18 @@ def get_approver_user_ids(
     include_team_leaders: bool = True,
 ) -> list[int]:
     """Return active users authorized to manage an employee's request."""
-    query = db.query(User.id).filter(User.status == "active")
-    role_filter = [User.role.in_(("admin", "superadmin"))]
-    if include_team_leaders:
-        role_filter.append(User.role == "team_leader")
-    rows = query.filter(
-        (role_filter[0] | role_filter[1]) if len(role_filter) == 2 else role_filter[0]
-    ).all()
     recipients: list[int] = []
-    for (user_id,) in rows:
-        if actor_user_id is not None and user_id == actor_user_id:
-            continue
-        user = db.query(User).filter(User.id == user_id).first()
-        if user is None:
+    all_view_key = permission_key.replace(".approve", ".all_view")
+    for user in db.query(User).filter(User.status == "active").all():
+        if actor_user_id is not None and user.id == actor_user_id:
             continue
         if user.role in ("admin", "superadmin"):
             recipients.append(user.id)
             continue
-        if has_permission(user, permission_key, db) and db.query(TeamMember.id).join(
+        if has_permission(user, all_view_key, db):
+            recipients.append(user.id)
+            continue
+        if include_team_leaders and has_permission(user, permission_key, db) and db.query(TeamMember.id).join(
             Team, Team.id == TeamMember.team_id
         ).filter(
             Team.team_leader_id == user.id,
@@ -120,11 +114,35 @@ def get_approver_user_ids(
     return recipients
 
 
-def get_admin_user_ids(db: Session, *, actor_user_id: Optional[int] = None) -> list[int]:
-    query = db.query(User.id).filter(User.status == "active", User.role.in_(("admin", "superadmin")))
-    if actor_user_id is not None:
-        query = query.filter(User.id != actor_user_id)
-    return [user_id for (user_id,) in query.all()]
+def get_admin_user_ids(
+    db: Session,
+    *,
+    actor_user_id: Optional[int] = None,
+    permission_key: Optional[str] = None,
+) -> list[int]:
+    return _get_notification_recipients(
+        db,
+        permission_key=permission_key,
+        actor_user_id=actor_user_id,
+    )
+
+
+def _get_notification_recipients(
+    db: Session,
+    *,
+    permission_key: Optional[str],
+    actor_user_id: Optional[int],
+) -> list[int]:
+    recipients: list[int] = []
+    for user in db.query(User).filter(User.status == "active").all():
+        if actor_user_id is not None and user.id == actor_user_id:
+            continue
+        if user.role in ("admin", "superadmin"):
+            recipients.append(user.id)
+            continue
+        if permission_key and has_permission(user, permission_key, db):
+            recipients.append(user.id)
+    return recipients
 
 
 def list_notifications(

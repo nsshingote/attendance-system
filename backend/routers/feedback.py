@@ -32,7 +32,11 @@ def create_feedback(payload: FeedbackCreate, db: Session = Depends(get_db), curr
     feedback = Feedback(user_id=current_user.id, **payload.model_dump())
     db.add(feedback)
     db.flush()
-    for admin_id in get_admin_user_ids(db, actor_user_id=current_user.id):
+    for admin_id in get_admin_user_ids(
+        db,
+        actor_user_id=current_user.id,
+        permission_key="feedback.view",
+    ):
         create_notification(
             db,
             recipient_user_id=admin_id,
