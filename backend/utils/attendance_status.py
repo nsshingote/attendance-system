@@ -143,7 +143,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     # Get company settings
     settings = db.query(CompanySettings).first()
     start_time_str = settings.office_start_time if settings else "10:00"
-    grace_minutes = settings.late_grace_minutes if settings else 15
+    grace_minutes = settings.late_grace_minutes if settings else 30
     
     try:
         start_hour, start_min = map(int, start_time_str.split(":"))
@@ -189,7 +189,7 @@ def calculate_status(check_in_time: datetime, db: Session) -> str:
     """Calculate attendance status based on check-in time."""
     settings = db.query(CompanySettings).first()
     start_time_str = settings.office_start_time if settings else "10:00"
-    grace_minutes = settings.late_grace_minutes if settings else 15
+    grace_minutes = settings.late_grace_minutes if settings else 30
     
     try:
         start_hour, start_min = map(int, start_time_str.split(":"))

@@ -39,6 +39,7 @@ interface Employee {
   email: string;
   department: string;
   role: string;
+  role_key?: string;
 }
 
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
@@ -105,7 +106,7 @@ export default function ResourcesPage() {
   async function loadEmployees() {
     try {
       const { data } = await api.get("/users/");
-      const empList = data.filter((u: Employee) => u.role === "user");
+      const empList = data.filter((u: Employee) => (u.role_key || u.role) !== "superadmin");
       setEmployees(empList);
     } catch (error) {
       console.error("Error loading employees:", error);

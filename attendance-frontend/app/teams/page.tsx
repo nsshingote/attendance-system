@@ -7,7 +7,7 @@ import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import api, { getErrorMessage } from "@/lib/api";
 
-type User = { id: number; name: string; role: string; department: string; status: string };
+type User = { id: number; name: string; role: string; role_key?: string; department: string; status: string };
 type Department = { id: number; name: string };
 type Team = {
   id: number; name: string; department_id: number | null; team_leader_id: number | null;
@@ -113,7 +113,7 @@ export default function TeamsPage() {
     }));
   };
 
-  const memberOptions = users.filter((user) => user.role === "user" || user.role === "team_leader");
+  const memberOptions = users.filter((user) => (user.role_key || user.role) !== "superadmin");
   const departmentNames = Array.from(new Set(memberOptions.map((user) => user.department).filter(Boolean))).sort();
   const toggleDepartment = (department: string) => {
     const departmentIds = memberOptions

@@ -1269,7 +1269,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
     </button>
   );
 
-  return <div className="overflow-x-auto rounded-lg bg-ink-100 p-3 sm:p-6">
+  return <div className="w-full max-w-full overflow-x-auto rounded-lg bg-ink-100 p-3 sm:p-6">
     <div className="mb-3 flex flex-wrap items-center gap-1 rounded border border-ink-200 bg-white p-1">
       {toolbarButton("Bold", <Bold size={16} />, () => format("bold"))}
       {toolbarButton("Italic", <Italic size={16} />, () => format("italic"))}
@@ -1299,7 +1299,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
       updateActiveSelection();
       const inputType = (event.nativeEvent as InputEvent).inputType;
       if (inputType === "insertParagraph" || inputType === "insertLineBreak") event.preventDefault();
-    }} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex min-w-0 w-fit flex-col gap-6 outline-none [&_table_td]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)] [&_table_th]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)]">
+    }} onInput={updateDocument} onBlur={handleBlur} onSelect={updateActiveSelection} onPointerDown={handlePointerDown} onKeyDown={handleKeyDown} onPaste={handlePaste} className="mx-auto flex w-max min-w-[794px] max-w-none flex-col gap-6 outline-none [&_table_td]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)] [&_table_th]:hover:shadow-[inset_-3px_0_0_0_rgba(59,130,246,0.35)]">
       {pages.map((page, pageIndex) => <div key={pageIndex} className="contents">
         {page.manualBreakBefore !== undefined && <div contentEditable={false} className="mx-auto flex w-[min(794px,calc(100vw-48px))] items-center gap-3 text-xs font-semibold tracking-widest text-brand-700 before:h-px before:flex-1 before:bg-brand-300 after:h-px after:flex-1 after:bg-brand-300"><span>PAGE BREAK</span><button type="button" onClick={() => removePageBreak(page.manualBreakBefore!)} className="rounded border border-brand-300 bg-white px-2 py-1 text-[10px] tracking-normal">Remove</button></div>}
         <section style={{ width: "794px", minWidth: "794px", maxWidth: "none", height: "1120px", minHeight: "1120px", maxHeight: "1120px", fontFamily: 'Georgia, "Times New Roman", Times, serif' }} className="mx-auto flex shrink-0 flex-col bg-white px-14 py-7 text-sm leading-relaxed text-slate-900 shadow-md">
@@ -1309,7 +1309,7 @@ const PaginatedTemplateEditor = forwardRef<PaginatedTemplateEditorHandle, Pagina
             {page.fragments.map((fragment, fragmentIndex) => {
               const isTable = /^<table\b/i.test(fragment.text.trim());
               const nextIsTable = /^<table\b/i.test(page.fragments[fragmentIndex + 1]?.text.trim() ?? "");
-              const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table]:overflow-auto [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
+              const fragmentClass = "w-full min-w-0 whitespace-pre-wrap wrap-break-words overflow-wrap-break outline-none [&_table]:relative [&_table]:my-0 [&_table]:min-w-60 [&_table_td]:relative [&_table_th]:relative [&_table_td]:cursor-text [&_table_th]:cursor-text [&_table]:after:pointer-events-none [&_table]:after:absolute [&_table]:after:bottom-0 [&_table]:after:right-0 [&_table]:after:h-3 [&_table]:after:w-3 [&_table]:after:border-r-2 [&_table]:after:border-b-2 [&_table]:after:border-brand-500 [&_table]:after:content-['']";
               if (isTable) {
                 return <div key={`fragment-${fragment.blockIndex}-${pageIndex}`} contentEditable={false} data-template-fragment data-block-index={fragment.blockIndex} data-fragment-start={fragment.start} data-fragment-end={fragment.end} style={{ marginBottom: page.fragments[fragmentIndex + 1]?.text.trim() ? `${FRAGMENT_GAP_PX}px` : undefined }} className={fragmentClass} dangerouslySetInnerHTML={{ __html: normalizeDynamicTemplateHtml(fragment.text) }} />;
               }

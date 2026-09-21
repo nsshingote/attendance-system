@@ -26,7 +26,7 @@ def _settings_default_payload():
     return {
         "office_start_time": "10:00:00",
         "office_end_time": "18:30:00",
-        "late_grace_minutes": 20,
+        "late_grace_minutes": 30,
         "weekly_off_day": "Sunday",
         "company_name": DEFAULT_COMPANY_NAME,
         "company_address": DEFAULT_COMPANY_ADDRESS,
@@ -85,7 +85,7 @@ def _read_company_settings_row(db: Session):
         "id": raw_row["id"],
         "office_start_time": _mysql_time_value(raw_row.get("office_start_time"), "10:00:00"),
         "office_end_time": _mysql_time_value(raw_row.get("office_end_time"), "18:30:00"),
-        "late_grace_minutes": raw_row.get("late_grace_minutes") or 20,
+        "late_grace_minutes": raw_row.get("late_grace_minutes") or 30,
         "weekly_off_day": raw_row.get("weekly_off_day") or "Sunday",
         "company_name": raw_row.get("company_name") or DEFAULT_COMPANY_NAME,
         "company_address": raw_row.get("company_address") or DEFAULT_COMPANY_ADDRESS,
@@ -103,7 +103,7 @@ def _upsert_company_settings_row(db: Session, payload: dict):
     normalized = {
         "office_start_time": payload.get("office_start_time") or "10:00:00",
         "office_end_time": payload.get("office_end_time") or "18:30:00",
-        "late_grace_minutes": payload.get("late_grace_minutes") or 20,
+        "late_grace_minutes": payload.get("late_grace_minutes") or 30,
         "weekly_off_day": payload.get("weekly_off_day") or "Sunday",
     }
     if "company_name" in columns:

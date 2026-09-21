@@ -155,7 +155,6 @@ main table th {
   main h2, main h3 { line-height: 1.3; }
   main .rounded-xl { border-radius: 0.75rem; }
   main table th, main table td { padding-left: 0.625rem; padding-right: 0.625rem; }
-  main .flex.w-fit { max-width: 100%; overflow-x: auto; }
 }
 
 /* Sidebar fixes */

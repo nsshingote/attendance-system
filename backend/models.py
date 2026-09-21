@@ -389,7 +389,7 @@ class CompanySettings(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     office_start_time = Column(Time, nullable=False)
     office_end_time = Column(Time, nullable=False)
-    late_grace_minutes = Column(Integer, nullable=False, default=20)
+    late_grace_minutes = Column(Integer, nullable=False, default=30)
     weekly_off_day = Column(String(20), default="Sunday")
     company_name = Column(String(255), default="Your Company Name")
     company_address = Column(Text, default="")

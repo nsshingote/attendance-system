@@ -602,7 +602,7 @@ def check_in(
     # Compute late-entry cutoff dynamically from CompanySettings
     settings = db.query(CompanySettings).first()
     office_start_str = settings.office_start_time if settings else "10:00"
-    grace_minutes = settings.late_grace_minutes if settings else 20
+    grace_minutes = settings.late_grace_minutes if settings else 30
     try:
         start_hour, start_min = map(int, office_start_str.split(":")[:2])
     except (ValueError, AttributeError):

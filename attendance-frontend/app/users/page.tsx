@@ -81,10 +81,11 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
+    if (session?.role !== "superadmin") return;
     api.get<typeof roles>("/permissions/roles")
       .then(({ data }) => setRoles(data.filter((role) => role.is_active)))
       .catch(() => toast.error("Failed to load roles"));
-  }, []);
+  }, [session?.role]);
 
   const openCreateModal = () => {
     setEditingUser(null);
@@ -306,9 +307,17 @@ export default function UsersPage() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink-700">Role</label>
-            <select {...register("role")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
-              {roles.map((role) => <option key={role.id} value={role.key}>{role.name}</option>)}
-            </select>
+            {session?.role === "superadmin" ? (
+              <select {...register("role")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm">
+                {roles.map((role) => <option key={role.id} value={role.key}>{role.name}</option>)}
+              </select>
+            ) : (
+              <input
+                {...register("role")}
+                readOnly
+                className="w-full rounded-lg border border-ink-200 bg-ink-50 px-3 py-2 text-sm"
+              />
+            )}
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink-700">Attendance Mode</label>

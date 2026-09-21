@@ -58,6 +58,8 @@ def _can_access_personal_document(user: User, item: EmployeePersonalDocument, db
         return True
     if effective_role_key(user) in {"admin", "superadmin"}:
         return True
+    if has_permission(user, "employees.all_view", db):
+        return True
     if effective_role_key(user) == "team_leader":
         require_team_member_access(db, user, item.employee_id, "employees.team_view")
         return True
@@ -66,6 +68,8 @@ def _can_access_personal_document(user: User, item: EmployeePersonalDocument, db
 
 def _require_employee_document_scope(db: Session, current_user: User, employee_id: int) -> None:
     if current_user.id == employee_id or effective_role_key(current_user) in {"admin", "superadmin"}:
+        return
+    if has_permission(current_user, "employees.all_view", db):
         return
     if effective_role_key(current_user) == "team_leader":
         require_team_member_access(db, current_user, employee_id, "employees.team_view")
@@ -77,6 +81,8 @@ def _team_scope_ids(db: Session, current_user: User) -> list[int] | None:
     if effective_role_key(current_user) == "team_leader":
         return get_team_member_ids(db, current_user)
     if effective_role_key(current_user) in {"admin", "superadmin"}:
+        return None
+    if has_permission(current_user, "employees.all_view", db):
         return None
     raise HTTPException(status_code=403, detail="Not authorized to view employee documents")
 

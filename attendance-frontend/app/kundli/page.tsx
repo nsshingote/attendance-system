@@ -8,7 +8,7 @@ import api, { getErrorMessage } from "@/lib/api";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 
-type Employee = { id: number; name: string; role: string; designation: string };
+type Employee = { id: number; name: string; role: string; role_key?: string; designation: string };
 type Note = { id: number; positive_note?: string; negative_note?: string; created_at: string };
 
 export default function KundliPage() {
@@ -31,7 +31,7 @@ export default function KundliPage() {
     if (!canView) return;
     api.get("/users/")
       .then(({ data }) => {
-        const list = data.filter((item: Employee) => item.role === "user");
+        const list = data.filter((item: Employee) => (item.role_key || item.role) !== "superadmin");
         setEmployees(list);
         if (list[0]) setEmployeeId(String(list[0].id));
       })

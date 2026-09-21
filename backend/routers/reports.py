@@ -435,10 +435,10 @@ def employee_wise_summary(
     if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "monthly_summary.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view monthly summary")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
-    users_query = db.query(User).filter(User.status == "active", User.role != "superadmin")
+    users_query = db.query(User).filter(User.status == "active")
     if effective_role_key(current_user) == "team_leader":
         users_query = users_query.filter(User.id.in_(team_member_ids))
-    users = users_query.all()
+    users = [user for user in users_query.all() if effective_role_key(user) != "superadmin"]
     results = []
 
     start_date = date(year, month, 1)
@@ -541,7 +541,11 @@ def leave_summary(
     month: Optional[int] = Query(None, ge=1, le=12),
     db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("monthly_summary.view"))
 ):
-    users = db.query(User).filter(User.status == "active", User.role != "superadmin").all()
+    users = [
+        user
+        for user in db.query(User).filter(User.status == "active").all()
+        if effective_role_key(user) != "superadmin"
+    ]
     results = []
     for user in users:
         accrue_monthly_leave(db, user)
