@@ -10,10 +10,10 @@ import { format, parseISO } from "date-fns";
 import toast from "react-hot-toast";
 import { Plus, Trash2 } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
-import { isAdmin, getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface Holiday {
   id: number;
@@ -37,8 +37,8 @@ interface TeamOption {
 }
 
 export default function HolidaysPage() {
-  const session = getSession();
-  const admin = isAdmin(session?.role);
+  const { permissions } = usePermissions();
+  const admin = hasPermission(permissions, "holidays.manage");
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);

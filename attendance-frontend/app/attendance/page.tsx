@@ -381,7 +381,7 @@
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
-import { getSession, isAdmin } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
@@ -464,7 +464,7 @@ export default function AttendancePage() {
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
   const { permissions } = usePermissions();
-  const admin = isAdmin(session?.role) && hasPermission(permissions, "attendance.all_view");
+  const admin = hasPermission(permissions, "attendance.all_view");
   const teamView = session?.role === "team_leader" && hasPermission(permissions, "attendance.team_view");
 
   const normalizeOverrideStatus = (status: string) => {

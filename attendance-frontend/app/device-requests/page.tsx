@@ -6,13 +6,14 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import toast from "react-hot-toast";
 import { Check, X } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
+import { parseISTDateTime } from "@/lib/date";
 
 interface DeviceRequest {
   id: number;
@@ -87,7 +88,12 @@ export default function DeviceRequestsPage() {
                     <td className="px-4 py-3 text-ink-700">{r.user_name ?? `User #${r.user_id}`}</td>
                     <td className="px-4 py-3 text-ink-700">{r.device_name ?? "—"}</td>
                     <td className="px-4 py-3 text-ink-700">{r.browser_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-ink-600">{format(parseISO(r.requested_at), "dd MMM, hh:mm a")}</td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {(() => {
+                        const date = parseISTDateTime(r.requested_at);
+                        return date ? formatInTimeZone(date, "Asia/Kolkata", "dd MMM, hh:mm a") : r.requested_at;
+                      })()}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge status={r.status} />
                     </td>

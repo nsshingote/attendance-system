@@ -14,13 +14,11 @@ type Note = { id: number; positive_note?: string; negative_note?: string; create
 export default function KundliPage() {
   const session = getSession();
   const { permissions } = usePermissions();
-  const teamLeader = session?.role === "team_leader";
   const superAdmin = isSuperAdmin(session?.role);
-  const scopedRole = session?.role === "admin" || teamLeader;
-  const canView = superAdmin || (scopedRole && hasPermission(permissions, "kundli.team_view"));
-  const canCreate = superAdmin || (scopedRole && hasPermission(permissions, "kundli.create"));
-  const canEdit = superAdmin || (scopedRole && hasPermission(permissions, "kundli.edit"));
-  const canDelete = superAdmin || (scopedRole && hasPermission(permissions, "kundli.delete"));
+  const canView = superAdmin || hasPermission(permissions, "kundli.team_view");
+  const canCreate = superAdmin || hasPermission(permissions, "kundli.create");
+  const canEdit = superAdmin || hasPermission(permissions, "kundli.edit");
+  const canDelete = superAdmin || hasPermission(permissions, "kundli.delete");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
@@ -68,7 +66,7 @@ export default function KundliPage() {
   };
 
   return (
-    <AppShell allowedRoles={["admin", "superadmin", "team_leader"]}>
+    <AppShell requiredPermission="kundli.team_view">
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
           <h1 className="text-xl font-semibold">Kundli</h1>

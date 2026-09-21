@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { Plus, RefreshCw } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
-import { isAdmin, getSession } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Modal from "@/components/Common/Modal";
@@ -23,7 +23,7 @@ import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
 export function CorrectionsContent() {
   const session = getSession();
   const { permissions } = usePermissions();
-  const admin = isAdmin(session?.role) && hasPermission(permissions, "corrections.all_view");
+  const admin = hasPermission(permissions, "corrections.all_view");
   const teamView = session?.role === "team_leader" && hasPermission(permissions, "corrections.team_view");
   const canDecide = hasPermission(permissions, "corrections.approve");
 

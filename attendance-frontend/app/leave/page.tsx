@@ -16,7 +16,7 @@ import toast from "react-hot-toast";
 import { Plus, Check, X, XCircle, Trash2, RefreshCw, Calendar as CalendarIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
-import { useSession, isAdmin } from "@/lib/auth";
+import { useSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import ExpandableText from "@/components/Common/ExpandableText";
 import Loading from "@/components/Common/Loading";
@@ -124,7 +124,7 @@ const SLOT_LABELS: Record<string, string> = {
 export default function LeavePage() {
   const session = useSession();
   const { permissions } = usePermissions();
-  const admin = isAdmin(session?.role) && hasPermission(permissions, "leave.all_view");
+  const admin = hasPermission(permissions, "leave.all_view");
   const teamView = session?.role === "team_leader" && hasPermission(permissions, "leave.team_view");
   const canApprove = hasPermission(permissions, "leave.approve");
   const today = new Date();
