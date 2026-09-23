@@ -1,3 +1,5 @@
+import re
+
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -15,8 +17,8 @@ class RolePermissionUpdate(BaseModel):
 
 
 class RoleCreate(BaseModel):
-    key: str = Field(min_length=2, max_length=40, pattern=r"^[a-z][a-z0-9_-]*$")
     name: str = Field(min_length=1, max_length=100)
+    key: str | None = Field(default=None, min_length=2, max_length=40, pattern=r"^[a-z][a-z0-9_-]*$")
     description: str | None = None
 
 
@@ -77,9 +79,21 @@ def list_roles(db: Session = Depends(get_db)):
 
 @router.post("/roles", status_code=201, dependencies=[Depends(require_superadmin)])
 def create_role(payload: RoleCreate, db: Session = Depends(get_db)):
-    if db.query(Role).filter(Role.key == payload.key).first():
+    key = payload.key
+    if not key:
+        key = re.sub(r"[^a-z0-9]+", "-", payload.name.strip().lower()).strip("-")[:40]
+        key = key.rstrip("-")
+        if not key or not key[0].isalpha():
+            raise HTTPException(422, "Role name must produce a valid role key")
+        base_key = key
+        suffix = 2
+        while db.query(Role).filter(Role.key == key).first():
+            suffix_text = f"-{suffix}"
+            key = f"{base_key[:40 - len(suffix_text)]}{suffix_text}"
+            suffix += 1
+    if db.query(Role).filter(Role.key == key).first():
         raise HTTPException(409, "Role key already exists")
-    role = Role(**payload.model_dump())
+    role = Role(key=key, name=payload.name, description=payload.description)
     db.add(role); db.commit(); db.refresh(role)
     return {"id": role.id, "key": role.key, "name": role.name, "description": role.description,
             "is_system": role.is_system, "is_active": role.is_active, "permission_ids": []}

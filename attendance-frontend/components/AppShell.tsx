@@ -44,6 +44,7 @@ export default function AppShell({ children, allowedRoles, requiredPermission, a
     // Authentication is established asynchronously after the client session is read.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
+    void refreshPermissions();
   }, [router, allowedRoles]);
 
   useEffect(() => {

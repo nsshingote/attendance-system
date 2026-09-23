@@ -37,7 +37,7 @@ export default function PermissionsPage() {
   const [rolePermissionIds, setRolePermissionIds] = useState<number[]>([]);
   const [overrides, setOverrides] = useState<Record<number, Effect>>({});
   const [dirtyOverrides, setDirtyOverrides] = useState<Set<number>>(new Set());
-  const [newRole, setNewRole] = useState({ key: "", name: "", description: "" });
+  const [newRole, setNewRole] = useState({ name: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -148,10 +148,10 @@ export default function PermissionsPage() {
   };
 
   const createRole = async () => {
-    if (!newRole.key || !newRole.name) return;
+    if (!newRole.name.trim()) return;
     try {
       await api.post("/permissions/roles", newRole);
-      setNewRole({ key: "", name: "", description: "" });
+      setNewRole({ name: "" });
       await loadTargets();
       toast.success("Role created");
     } catch (error) {
@@ -207,9 +207,7 @@ export default function PermissionsPage() {
           {selectedTarget && <p className="mt-3 text-xs text-ink-500">Editing permissions for {selectedTarget}.</p>}
         </section>
         <section className="flex flex-wrap items-center gap-2 rounded-xl border border-ink-200 bg-white p-4">
-          <input value={newRole.key} onChange={(event) => setNewRole({ ...newRole, key: event.target.value })} placeholder="role-key" className="rounded-lg border border-ink-200 px-3 py-2 text-sm" />
           <input value={newRole.name} onChange={(event) => setNewRole({ ...newRole, name: event.target.value })} placeholder="Role name" className="rounded-lg border border-ink-200 px-3 py-2 text-sm" />
-          <input value={newRole.description} onChange={(event) => setNewRole({ ...newRole, description: event.target.value })} placeholder="Description" className="min-w-50 rounded-lg border border-ink-200 px-3 py-2 text-sm" />
           <button onClick={createRole} className="rounded-lg bg-ink-800 px-3 py-2 text-sm font-semibold text-white">Create role</button>
           {activeRoles.filter((role) => !role.is_system).map((role) => (
             <button key={role.key} onClick={() => deactivateRole(role)} className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700">Deactivate {role.name}</button>
