@@ -98,12 +98,7 @@ HALF_DAY_SLOTS = {
 # They are computed per-request in check_in and check_out endpoints.
 
 
-def _get_client_ip(request: Request, override: Optional[str] = None) -> str:
-    if override: 
-        return override
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
@@ -577,7 +572,7 @@ def check_in(
             detail="You have a pending WFH request for today. Please wait for approval before checking in."
         )
 
-    ip_address = _get_client_ip(request, payload.ip_address if payload else None)
+    ip_address = _get_client_ip(request)
     onsite = _is_onsite_user(current_user)
     approved_wfh = _has_approved_wfh(db, current_user.id, today)
     validation_method = None
@@ -587,7 +582,7 @@ def check_in(
     elif onsite:
         _validate_location(payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None)
         validation_method = "location"
-    elif not _is_working_day(db, current_user.id, today):
+    else:
         validation_method, distance = _attendance_validation(db, ip_address, payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None, current_user)
     existing = (
         db.query(Attendance)
@@ -755,7 +750,7 @@ def check_out(
             detail="You have a pending WFH request for today. Please wait for approval before checking out."
         )
 
-    ip_address = _get_client_ip(request, payload.ip_address if payload else None)
+    ip_address = _get_client_ip(request)
     onsite = _is_onsite_user(current_user)
     approved_wfh = _has_approved_wfh(db, current_user.id, today)
     validation_method = None
@@ -765,7 +760,7 @@ def check_out(
     elif onsite:
         _validate_location(payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None)
         validation_method = "location"
-    elif not _is_working_day(db, current_user.id, today):
+    else:
         validation_method, distance = _attendance_validation(db, ip_address, payload.latitude if payload else None, payload.longitude if payload else None, payload.accuracy if payload else None, current_user)
 
     record = (
