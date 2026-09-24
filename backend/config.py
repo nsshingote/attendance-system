@@ -11,6 +11,7 @@ UPLOAD_FOLDER
 """
 
 import os
+import ipaddress
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -58,6 +59,20 @@ class Settings:
         if origin.strip()
     ]
 
+    # Only trust forwarded client-IP headers from known reverse proxies.
+    # Docker's default bridge networks use private addresses, so they are
+    # trusted by default; production deployments can narrow this with
+    # TRUSTED_PROXY_IPS (comma-separated IPs or CIDR ranges).
+    TRUSTED_PROXY_IPS: list[str] = [
+        value.strip()
+        for value in os.getenv(
+            "TRUSTED_PROXY_IPS",
+            "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,"
+            "fc00::/7",
+        ).split(",")
+        if value.strip()
+    ]
+
     # ---- Email (SMTP) ----
     # Accepts either naming convention (SMTP_* or EMAIL_*) so it doesn't
     # matter which one ends up in .env — whichever is set wins.
@@ -83,6 +98,11 @@ class Settings:
             raise RuntimeError("REFRESH_COOKIE_SAMESITE must be lax, strict, or none")
         if self.REFRESH_COOKIE_SAMESITE == "none" and not self.REFRESH_COOKIE_SECURE:
             raise RuntimeError("REFRESH_COOKIE_SAMESITE=none requires REFRESH_COOKIE_SECURE=true")
+        for proxy in self.TRUSTED_PROXY_IPS:
+            try:
+                ipaddress.ip_network(proxy, strict=False)
+            except ValueError as error:
+                raise RuntimeError(f"Invalid TRUSTED_PROXY_IPS entry: {proxy}") from error
 
 
 settings = Settings()

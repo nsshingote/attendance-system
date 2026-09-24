@@ -7,6 +7,7 @@ require a reason.
 """
 
 from datetime import date, datetime, time, timedelta
+import ipaddress
 import math
 from typing import List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
@@ -73,6 +74,7 @@ from services.notifications import create_notification, get_approver_user_ids
 from utils.calender import build_month_calendar
 from utils.date_helpers import iso_with_offset
 from routers.changed_logs import record_changed_log
+from config import settings
 
 router = APIRouter()
 
@@ -99,7 +101,42 @@ HALF_DAY_SLOTS = {
 
 
 def _get_client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    direct_ip = request.client.host if request.client else None
+    if not direct_ip:
+        return "unknown"
+
+    try:
+        direct_address = ipaddress.ip_address(direct_ip)
+    except ValueError:
+        return direct_ip
+
+    trusted_proxy = any(
+        direct_address in ipaddress.ip_network(proxy, strict=False)
+        for proxy in settings.TRUSTED_PROXY_IPS
+    )
+    if not trusted_proxy:
+        return direct_ip
+
+    # Reverse proxies conventionally put the original client first in
+    # X-Forwarded-For. Validate the value before using it for attendance.
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    for forwarded_ip in forwarded_for.split(","):
+        candidate = forwarded_ip.strip()
+        try:
+            ipaddress.ip_address(candidate)
+            return candidate
+        except ValueError:
+            continue
+
+    for header in ("x-real-ip", "cf-connecting-ip"):
+        candidate = request.headers.get(header, "").strip()
+        try:
+            ipaddress.ip_address(candidate)
+            return candidate
+        except ValueError:
+            continue
+
+    return direct_ip
 
 
 def _validate_office_ip(ip_address: str, db: Session) -> bool:

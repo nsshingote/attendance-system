@@ -28,11 +28,17 @@ interface Settings {
   attendance_validation_mode: "ip_only" | "location_only" | "ip_or_location";
 }
 
+const formatCoordinate = (coordinate: number | null) => (
+  coordinate === null ? "" : coordinate.toFixed(7)
+);
+
 export default function CompanySettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Settings | null>(null);
+  const [latitudeInput, setLatitudeInput] = useState("");
+  const [longitudeInput, setLongitudeInput] = useState("");
 
   useEffect(() => {
     api
@@ -40,6 +46,8 @@ export default function CompanySettings() {
       .then(({ data }) => {
         setSettings(data);
         setForm(data);
+        setLatitudeInput(formatCoordinate(data.office_latitude));
+        setLongitudeInput(formatCoordinate(data.office_longitude));
       })
       .catch((error) => toast.error(getErrorMessage(error)))
       .finally(() => setLoading(false));
@@ -47,10 +55,26 @@ export default function CompanySettings() {
 
   const handleSave = async () => {
     if (!form) return;
+    const latitude = latitudeInput === "" ? null : Number(latitudeInput);
+    const longitude = longitudeInput === "" ? null : Number(longitudeInput);
+    if (
+      (latitude !== null && !Number.isFinite(latitude)) ||
+      (longitude !== null && !Number.isFinite(longitude))
+    ) {
+      toast.error("Enter valid latitude and longitude values");
+      return;
+    }
     setSaving(true);
     try {
-      const { data } = await api.put<Settings>("/settings/", form);
+      const { data } = await api.put<Settings>("/settings/", {
+        ...form,
+        office_latitude: latitude,
+        office_longitude: longitude,
+      });
       setSettings(data);
+      setForm(data);
+      setLatitudeInput(formatCoordinate(data.office_latitude));
+      setLongitudeInput(formatCoordinate(data.office_longitude));
       toast.success("Company settings updated");
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -83,10 +107,22 @@ export default function CompanySettings() {
           </label>
           <div className="mt-4 grid grid-cols-2 gap-4">
             <label className="text-sm font-medium text-ink-700">Office latitude
-              <input type="number" step="0.000001" value={form.office_latitude ?? ""} onChange={(e) => setForm({ ...form, office_latitude: e.target.value === "" ? null : Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+              <input
+                type="text"
+                inputMode="decimal"
+                value={latitudeInput}
+                onChange={(e) => setLatitudeInput(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              />
             </label>
             <label className="text-sm font-medium text-ink-700">Office longitude
-              <input type="number" step="0.000001" value={form.office_longitude ?? ""} onChange={(e) => setForm({ ...form, office_longitude: e.target.value === "" ? null : Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+              <input
+                type="text"
+                inputMode="decimal"
+                value={longitudeInput}
+                onChange={(e) => setLongitudeInput(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              />
             </label>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4">

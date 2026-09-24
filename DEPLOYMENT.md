@@ -27,4 +27,18 @@ location /api/notifications/ws {
 }
 ```
 
+For attendance IP validation, every HTTP proxy location that forwards
+attendance requests must preserve the original client address:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $remote_addr;
+```
+
+The backend trusts forwarded addresses only from private/loopback proxy
+addresses by default, including Docker bridge networks. If the proxy reaches
+the backend from a different address range, set `TRUSTED_PROXY_IPS` in `.env`
+to a comma-separated list of trusted IPs or CIDR ranges, then recreate the
+backend container. Do not configure this as a public/unrestricted range.
+
 The MySQL and upload volumes are named `mysql_data` and `uploads_data`. Back them up before host replacement or any destructive Docker cleanup. Keep `.env` private; it is intentionally ignored by Git and Docker build contexts.
