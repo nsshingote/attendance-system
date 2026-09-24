@@ -22,7 +22,18 @@ export default function CheckOutButton({ disabled, onSuccess }: CheckOutButtonPr
       reject(new Error("LOCATION_REQUIRED: Enable location services to check out."));
       return;
     }
-    navigator.geolocation.getCurrentPosition(resolve, () => reject(new Error("LOCATION_REQUIRED: Enable location permission to check out onsite.")), { enableHighAccuracy: true, timeout: 10000 });
+    const error = () => reject(new Error("LOCATION_REQUIRED: Enable location permission to check out onsite."));
+    navigator.geolocation.getCurrentPosition(resolve, () => {
+      navigator.geolocation.getCurrentPosition(resolve, error, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0,
+      });
+    }, {
+      enableHighAccuracy: false,
+      timeout: 1,
+      maximumAge: 30000,
+    });
   });
 
   const submitCheckOut = async (reasonText?: string) => {

@@ -204,8 +204,6 @@ def _attendance_validation(
         if latitude is not None or longitude is not None or accuracy is not None:
             try:
                 _validate_location(latitude, longitude, accuracy)
-                if accuracy is not None and accuracy > 100:
-                    raise HTTPException(status_code=400, detail="LOCATION_INACCURATE: Move to an area with a stronger GPS signal and try again.")
                 distance = _location_distance_meters(latitude, longitude, float(settings.office_latitude), float(settings.office_longitude))
                 location_allowed = distance <= (settings.attendance_radius_meters or 200)
             except HTTPException:
