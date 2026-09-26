@@ -122,6 +122,12 @@ def _sync_holiday_removed_leave(db: Session, holiday: Holiday) -> None:
         changed_user_ids.add(leave_request.user_id)
 
     db.flush()
+    if changed_user_ids:
+        from routers.leave import _reconcile_sandwich_allocations_for_user
+
+        for user_id in changed_user_ids:
+            _reconcile_sandwich_allocations_for_user(db, user_id)
+
     for user_id in changed_user_ids:
         attendance = db.query(Attendance).filter(
             Attendance.user_id == user_id,

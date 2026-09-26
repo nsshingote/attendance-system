@@ -350,7 +350,7 @@ def paid_leave_available_this_month(db: Session, user: User, on_date: date | Non
     Always returns False before the leave year has started.
     """
     on_date = on_date or date.today()
-    if on_date < LEAVE_TRACKING_START_DATE:
+    if on_date < _leave_accrual_start_date(user):
         return False
     accrue_monthly_leave(db, user)
     return not has_approved_or_pending_paid_leave_this_month(db, user.id, on_date)

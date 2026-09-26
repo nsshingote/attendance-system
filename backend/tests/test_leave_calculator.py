@@ -8,6 +8,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from database import Base, engine, SessionLocal
@@ -30,15 +31,26 @@ from routers.leave import (
     decide_leave,
     override_leave_allocations,
 )
+from routers.users import (
+    create_user as create_employee_endpoint,
+    update_user as update_employee_endpoint,
+)
 from schemas import (
     HolidayCreate,
     LeaveAllocationOverride,
     LeaveDecision,
     LeaveRequestAllocationIn,
     LeaveRequestCreate,
+    UserCreate,
+    UserUpdate,
 )
 from utils.attendance_status import determine_attendance_status_for_date, holiday_applies_to_user
-from utils.leave_calculator import _get_chargeable_leave_dates, allocate_leave_days
+from utils.leave_calculator import (
+    _get_chargeable_leave_dates,
+    accrue_monthly_leave,
+    allocate_leave_days,
+    paid_leave_available_this_month,
+)
 
 
 @pytest.fixture
@@ -68,6 +80,152 @@ def create_user(db: Session, *, role: str = "user") -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def test_user_create_requires_date_of_joining():
+    payload = {
+        "name": "New Employee",
+        "mobile": "9999990000",
+        "department": "Test",
+        "designation": "Tester",
+        "password": "test-password",
+    }
+
+    with pytest.raises(ValidationError):
+        UserCreate.model_validate(payload)
+    with pytest.raises(ValidationError):
+        UserCreate.model_validate({**payload, "date_of_joining": None})
+
+    valid_user = UserCreate.model_validate(
+        {**payload, "date_of_joining": date(2026, 10, 10)}
+    )
+    assert valid_user.date_of_joining == date(2026, 10, 10)
+
+
+def test_create_user_stores_supplied_date_of_joining(db_session: Session):
+    admin = create_user(db_session, role="superadmin")
+    payload = UserCreate(
+        name="New October Employee",
+        mobile="9999991111",
+        department="Test",
+        designation="Tester",
+        date_of_joining=date(2026, 10, 10),
+        password="test-password",
+    )
+
+    with patch("routers.users.hash_password", return_value="test-hash"):
+        created_user = create_employee_endpoint(
+            payload,
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert created_user.date_of_joining == date(2026, 10, 10)
+    assert created_user.last_leave_accrual_date is None
+    assert created_user.carried_leave == 0
+
+
+def test_october_joiner_accrues_only_from_joining_month(db_session: Session):
+    user = create_user(db_session)
+    user.date_of_joining = date(2026, 10, 10)
+    db_session.commit()
+    assert user.last_leave_accrual_date is None
+    assert user.carried_leave == 0
+
+    with patch("utils.leave_calculator.date") as mocked_date:
+        mocked_date.today.side_effect = [
+            date(2026, 8, 1),
+            date(2026, 9, 1),
+            date(2026, 10, 1),
+            date(2026, 11, 1),
+            date(2026, 12, 1),
+        ]
+
+        accrue_monthly_leave(db_session, user)
+        assert user.last_leave_accrual_date is None
+        assert user.carried_leave == 0
+
+        accrue_monthly_leave(db_session, user)
+        assert user.last_leave_accrual_date is None
+        assert user.carried_leave == 0
+
+        accrue_monthly_leave(db_session, user)
+        assert user.last_leave_accrual_date == date(2026, 10, 1)
+        assert user.carried_leave + user.paid_leave_available == 1
+
+        accrue_monthly_leave(db_session, user)
+        assert user.last_leave_accrual_date == date(2026, 11, 1)
+        assert user.carried_leave + user.paid_leave_available == 2
+
+        accrue_monthly_leave(db_session, user)
+        assert user.last_leave_accrual_date == date(2026, 12, 1)
+        assert user.carried_leave + user.paid_leave_available == 3
+
+
+def test_future_joiner_has_no_paid_slot_before_eligible_month(db_session: Session):
+    user = create_user(db_session)
+    user.date_of_joining = date(2026, 10, 10)
+    db_session.commit()
+
+    assert paid_leave_available_this_month(db_session, user, date(2026, 8, 1)) is False
+    assert paid_leave_available_this_month(db_session, user, date(2026, 9, 1)) is False
+    assert user.last_leave_accrual_date is None
+    assert user.carried_leave == 0
+
+    with patch("utils.leave_calculator.date") as mocked_date:
+        mocked_date.today.return_value = date(2026, 10, 1)
+        assert paid_leave_available_this_month(
+            db_session, user, date(2026, 10, 1)
+        ) is True
+
+    assert user.last_leave_accrual_date == date(2026, 10, 1)
+    assert user.carried_leave == 0
+
+
+def test_joining_date_change_is_rejected_after_accrual_started(
+    db_session: Session,
+):
+    admin = create_user(db_session, role="superadmin")
+    user = create_user(db_session)
+    user.date_of_joining = date(2026, 8, 10)
+    user.last_leave_accrual_date = date(2026, 9, 1)
+    user.paid_leave_available = 0
+    user.carried_leave = 1
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        update_employee_endpoint(
+            user.id,
+            UserUpdate(date_of_joining=date(2026, 10, 10)),
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert exc_info.value.status_code == 409
+    db_session.refresh(user)
+    assert user.date_of_joining == date(2026, 8, 10)
+    assert user.last_leave_accrual_date == date(2026, 9, 1)
+    assert user.paid_leave_available == 0
+    assert user.carried_leave == 1
+
+
+def test_joining_date_change_is_allowed_before_accrual_starts(
+    db_session: Session,
+):
+    admin = create_user(db_session, role="superadmin")
+    user = create_user(db_session)
+    user.date_of_joining = date(2026, 8, 10)
+    db_session.commit()
+
+    updated_user = update_employee_endpoint(
+        user.id,
+        UserUpdate(date_of_joining=date(2026, 10, 10)),
+        db=db_session,
+        current_user=admin,
+    )
+
+    assert updated_user.date_of_joining == date(2026, 10, 10)
+    assert updated_user.last_leave_accrual_date is None
 
 
 def create_holiday(
@@ -632,6 +790,44 @@ def test_holiday_added_after_approval_preserves_other_mixed_categories_and_atten
     assert attendance.status == "Holiday"
     assert attendance.check_in == datetime(2026, 10, 14, 9, 30)
     assert attendance.check_out == datetime(2026, 10, 14, 18, 30)
+
+
+def test_adding_holiday_removes_affected_sandwich_allocation(db_session: Session):
+    create_company_settings(db_session, sandwich_method_enabled=True)
+    user = create_user(db_session)
+    saturday, sunday, monday = (
+        date(2026, 10, 3),
+        date(2026, 10, 4),
+        date(2026, 10, 5),
+    )
+    request = create_leave_request(
+        db_session,
+        user,
+        saturday,
+        monday,
+        [
+            (saturday, "Unpaid"),
+            (sunday, "Unpaid"),
+            (monday, "Unpaid"),
+        ],
+    )
+    sunday_allocation = next(
+        row for row in request.allocations if row.allocation_date == sunday
+    )
+    sunday_allocation.is_sandwich = True
+    db_session.commit()
+
+    add_holiday(
+        HolidayCreate(holiday_date=saturday, holiday_name="Saturday Holiday"),
+        db=db_session,
+        current_user=user,
+    )
+
+    db_session.refresh(request)
+    assert [(row.allocation_date, row.is_sandwich) for row in request.allocations] == [
+        (monday, False)
+    ]
+    assert request.total_days == len(request.allocations) == 1
 
 
 def test_holiday_added_restores_carried_leave_once(db_session: Session):

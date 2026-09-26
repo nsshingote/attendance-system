@@ -420,6 +420,15 @@ def update_user(
     if requested_role:
         update_data["role_id"] = requested_role.id
         update_data["role"] = requested_role.key if requested_role.key in {"superadmin", "admin", "team_leader", "user"} else "user"
+    if (
+        "date_of_joining" in update_data
+        and update_data["date_of_joining"] != user.date_of_joining
+        and user.last_leave_accrual_date is not None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Date of joining cannot be changed after leave accrual has started.",
+        )
     for field, value in update_data.items():
         old_value = getattr(user, field)
         if str(old_value or "") != str(value or ""):

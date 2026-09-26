@@ -115,6 +115,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
+    date_of_joining: date
     password: str
 
 
