@@ -84,6 +84,7 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
     register,
     handleSubmit,
     getValues,
+    formState: { errors },
   } = useForm<LeaveFormValues>();
 
   const loadRecipientEmails = useCallback(async (): Promise<RecipientLoadResult> => {
@@ -280,7 +281,16 @@ export default function LeaveForm({ onSuccess, onCancel }: LeaveFormProps) {
 
       <div>
         <label className="mb-1.5 block text-sm font-medium text-ink-700">Reason</label>
-        <textarea {...register("reason")} rows={3} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+        <textarea
+          {...register("reason", {
+            required: "Reason is required",
+            validate: (value) => value.trim().length > 0 || "Reason is required",
+          })}
+          rows={3}
+          aria-invalid={errors.reason ? "true" : "false"}
+          className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+        />
+        {errors.reason && <p className="mt-1 text-xs text-red-600">{errors.reason.message}</p>}
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-2">

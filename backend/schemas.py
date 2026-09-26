@@ -449,10 +449,17 @@ class LeaveRequestCreate(BaseModel):
     leave_type_id: Optional[int] = None
     from_date: date
     to_date: date
-    reason: Optional[str] = None
+    reason: str = Field(..., min_length=1)
     leave_category: Optional[str] = None
     notify_email_ids: Optional[List[int]] = None
     user_id: Optional[int] = None  # Admin/SuperAdmin only: submit on behalf of this employee instead of self
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def validate_reason(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Reason is required")
+        return value.strip()
 
 
 class LeaveDecision(BaseModel):
