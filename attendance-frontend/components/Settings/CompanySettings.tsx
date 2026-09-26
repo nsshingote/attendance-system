@@ -2,7 +2,7 @@
 
 /**
  * components/Settings/CompanySettings.tsx
- * Edit form for office start/end time, grace period, and weekly off day.
+ * Edit form for office times, grace period, weekly off, and sandwich method.
  * GET/PUT /settings/.
  */
 
@@ -19,6 +19,7 @@ interface Settings {
   office_end_time: string;
   late_grace_minutes: number;
   weekly_off_day: string;
+  sandwich_method_enabled: boolean;
   company_name: string;
   company_address: string;
   attendance_location_enabled: boolean;
@@ -183,6 +184,21 @@ export default function CompanySettings() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2 text-sm font-medium text-ink-700">
+            <input
+              type="checkbox"
+              checked={form.sandwich_method_enabled}
+              onChange={(e) => setForm({ ...form, sandwich_method_enabled: e.target.checked })}
+              className="h-4 w-4 rounded border-ink-300 text-brand-600"
+            />
+            Enable Sandwich Method
+          </label>
+          <p className="mt-1 text-xs text-ink-500">
+            Count the configured weekly-off day as leave only when it falls between leave days. This applies to new requests and pending approvals; approved leave stays unchanged.
+          </p>
         </div>
 
         <div>

@@ -617,6 +617,7 @@ class CompanySettingsUpdate(BaseModel):
     office_end_time: Optional[time] = None
     late_grace_minutes: Optional[int] = None
     weekly_off_day: Optional[str] = None
+    sandwich_method_enabled: Optional[bool] = None
     company_name: Optional[str] = None
     company_address: Optional[str] = None
     attendance_location_enabled: Optional[bool] = None
@@ -632,6 +633,7 @@ class CompanySettingsOut(ORMBase):
     office_end_time: time
     late_grace_minutes: int
     weekly_off_day: str
+    sandwich_method_enabled: bool = False
     company_name: str
     company_address: str
     attendance_location_enabled: bool = False

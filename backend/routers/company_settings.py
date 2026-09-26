@@ -1,6 +1,6 @@
 """
 routers/company_settings.py
-Office start/end time, late-grace period, and weekly-off-day configuration.
+Office times, late-grace period, weekly-off day, and sandwich configuration.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,6 +28,7 @@ def _settings_default_payload():
         "office_end_time": "18:30:00",
         "late_grace_minutes": 30,
         "weekly_off_day": "Sunday",
+        "sandwich_method_enabled": False,
         "company_name": DEFAULT_COMPANY_NAME,
         "company_address": DEFAULT_COMPANY_ADDRESS,
         "attendance_location_enabled": False,
@@ -62,6 +63,8 @@ def _read_company_settings_row(db: Session):
         "late_grace_minutes",
         "weekly_off_day",
     ]
+    if "sandwich_method_enabled" in columns:
+        select_columns.append("sandwich_method_enabled")
     if "company_name" in columns:
         select_columns.append("company_name")
     if "company_address" in columns:
@@ -87,6 +90,7 @@ def _read_company_settings_row(db: Session):
         "office_end_time": _mysql_time_value(raw_row.get("office_end_time"), "18:30:00"),
         "late_grace_minutes": raw_row.get("late_grace_minutes") or 30,
         "weekly_off_day": raw_row.get("weekly_off_day") or "Sunday",
+        "sandwich_method_enabled": bool(raw_row.get("sandwich_method_enabled", False)),
         "company_name": raw_row.get("company_name") or DEFAULT_COMPANY_NAME,
         "company_address": raw_row.get("company_address") or DEFAULT_COMPANY_ADDRESS,
         "attendance_location_enabled": bool(raw_row.get("attendance_location_enabled", False)),
@@ -106,6 +110,13 @@ def _upsert_company_settings_row(db: Session, payload: dict):
         "late_grace_minutes": payload.get("late_grace_minutes") or 30,
         "weekly_off_day": payload.get("weekly_off_day") or "Sunday",
     }
+    if "sandwich_method_enabled" in columns:
+        normalized["sandwich_method_enabled"] = bool(payload.get("sandwich_method_enabled", False))
+    elif "sandwich_method_enabled" in payload:
+        raise HTTPException(
+            status_code=503,
+            detail="Company settings database migration is required before changing Sandwich Method.",
+        )
     if "company_name" in columns:
         normalized["company_name"] = payload.get("company_name") or DEFAULT_COMPANY_NAME
     if "company_address" in columns:
@@ -155,6 +166,8 @@ def update_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_permission("settings.manage")),
 ):
+    # Sandwich Method changes are prospective. Existing approved allocations
+    # remain unchanged; new submissions and pending approvals use the new rule.
     existing = _read_company_settings_row(db)
     next_payload = {**existing}
     for field, value in payload.model_dump(exclude_none=True).items():

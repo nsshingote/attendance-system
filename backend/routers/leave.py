@@ -15,8 +15,8 @@ from typing import Optional, List
 
 from database import get_db
 from models import (
-    User, LeaveRequest, LeaveType, LeaveEncashmentRequest,
-    NotificationEmail, Attendance, LeaveRequestAllocation, ActivityLog, Holiday
+    User, CompanySettings, LeaveRequest, LeaveType, LeaveEncashmentRequest,
+    NotificationEmail, Attendance, LeaveRequestAllocation, ActivityLog
 )
 from schemas import (
     LeaveRequestOut, LeaveRequestCreate, LeaveDecision,
@@ -43,11 +43,41 @@ from utils.leave_calculator import (
     calculate_total_days,
     LEAVE_TRACKING_START_DATE,
     _get_date_range,
+    _get_chargeable_leave_dates,
 )
 from utils.logger import log_activity
-from utils.attendance_status import holiday_applies_to_user
+from utils.attendance_status import (
+    applicable_holiday,
+    determine_attendance_status_for_date,
+)
 
 router = APIRouter()
+
+
+def _is_sandwich_date_in_request(
+    db: Session,
+    user_id: int,
+    target_date: date,
+    from_date: date,
+    to_date: date,
+) -> bool:
+    settings = db.query(CompanySettings).first()
+    if (
+        not settings
+        or not settings.sandwich_method_enabled
+        or not settings.weekly_off_day
+        or target_date.strftime("%A").casefold() != settings.weekly_off_day.casefold()
+    ):
+        return False
+    previous_date = target_date - timedelta(days=1)
+    next_date = target_date + timedelta(days=1)
+    return (
+        previous_date >= from_date
+        and next_date <= to_date
+        and not applicable_holiday(db, user_id, target_date)
+        and not applicable_holiday(db, user_id, previous_date)
+        and not applicable_holiday(db, user_id, next_date)
+    )
 
 
 # ------------------------------------------------------------
@@ -73,8 +103,9 @@ def mark_leave_in_attendance(
         ).first()
         
         if existing:
-            # Update existing attendance - don't override check_in/check_out
-            existing.status = "On Leave"
+            if not existing.manual_override:
+                # Update status only; retain check-in/check-out and location data.
+                existing.status = "On Leave"
         else:
             # Create new attendance record
             new_attendance = Attendance(
@@ -90,51 +121,64 @@ def mark_leave_in_attendance(
 
 
 def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, target_user: User):
-    """
-    Ensure Sundays sandwiched between this request and other pending/approved
-    requests are counted as leave. This will expand the request's from_date/to_date
-    to include the Sunday and add a per-day allocation for that Sunday with a
-    computed category (Paid/Carried/Unpaid) following existing allocation rules.
+    """Add a configured weekly-off allocation only between adjacent leave dates."""
+    settings = db.query(CompanySettings).first()
+    if not settings or not settings.sandwich_method_enabled or not settings.weekly_off_day:
+        leave_request.total_days = len(leave_request.allocations)
+        return
 
-    The function is conservative: it only inserts a Sunday when there exists
-    another Pending/Approved leave for the same user on the opposite side of
-    the Sunday within a small gap (<=3 days). It attributes the Sunday to the
-    request being processed and updates `total_days` accordingly.
-    """
-    # Find candidate Sundays between this request and other requests
     user_id = leave_request.user_id
-    # Build a set of dates that already have allocations for this user
-    existing_alloc_dates = set(
-        d.allocation_date for lr in db.query(LeaveRequest).filter(LeaveRequest.user_id == user_id).all() for d in lr.allocations
-    )
-
-    added = []
-    # Look for other requests that could sandwich a Sunday with this one
-    others = (
+    weekly_off_name = settings.weekly_off_day.casefold()
+    active_requests = (
         db.query(LeaveRequest)
-        .filter(LeaveRequest.user_id == user_id, LeaveRequest.id != leave_request.id, LeaveRequest.status.in_(["Pending", "Approved"]))
+        .filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status.in_(["Pending", "Approved"]),
+        )
         .all()
     )
+    current_dates = {
+        allocation.allocation_date for allocation in leave_request.allocations
+        if not allocation.is_sandwich
+    }
+    existing_allocation_dates = {
+        allocation.allocation_date
+        for allocation in leave_request.allocations
+    } | {
+        allocation.allocation_date
+        for request in active_requests
+        if request.id != leave_request.id
+        for allocation in request.allocations
+    }
+    other_dates = {
+        allocation.allocation_date
+        for request in active_requests
+        if request.id != leave_request.id
+        for allocation in request.allocations
+        if not allocation.is_sandwich
+    }
+    already_allocated = current_dates | other_dates
 
-    for other in others:
-        # Consider gaps where a Sunday might lie strictly between ranges
-        if other.to_date < leave_request.from_date:
-            gap_days = (leave_request.from_date - other.to_date).days
-            if 2 <= gap_days <= 7:
-                # check intermediate dates for Sunday
-                for i in range(1, gap_days):
-                    candidate = other.to_date + timedelta(days=i)
-                    if candidate.weekday() == 6 and candidate not in existing_alloc_dates:
-                        added.append(candidate)
-        elif other.from_date > leave_request.to_date:
-            gap_days = (other.from_date - leave_request.to_date).days
-            if 2 <= gap_days <= 7:
-                for i in range(1, gap_days):
-                    candidate = leave_request.to_date + timedelta(days=i)
-                    if candidate.weekday() == 6 and candidate not in existing_alloc_dates:
-                        added.append(candidate)
+    candidates = set()
+    for leave_date in current_dates:
+        for candidate in (leave_date - timedelta(days=1), leave_date + timedelta(days=1)):
+            if (
+                candidate.strftime("%A").casefold() == weekly_off_name
+                and candidate not in existing_allocation_dates
+                and not applicable_holiday(db, user_id, candidate)
+            ):
+                previous_date = candidate - timedelta(days=1)
+                next_date = candidate + timedelta(days=1)
+                if (
+                    previous_date in already_allocated
+                    and next_date in already_allocated
+                    and not applicable_holiday(db, user_id, previous_date)
+                    and not applicable_holiday(db, user_id, next_date)
+                ):
+                    candidates.add(candidate)
 
-    if not added:
+    if not candidates:
+        leave_request.total_days = len(leave_request.allocations)
         return
 
     # Determine carried balance available before applying additions
@@ -143,7 +187,7 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
     # Determine paid months already used by ANY request for the user (Approved/Pending)
     used_paid_months = set(
         (alloc.allocation_date.year, alloc.allocation_date.month)
-        for lr in db.query(LeaveRequest).filter(LeaveRequest.user_id == user_id, LeaveRequest.status.in_(["Pending","Approved"])).all()
+        for lr in active_requests
         for alloc in lr.allocations
         if alloc.leave_category == "Paid"
     )
@@ -155,8 +199,7 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
         if alloc.leave_category == "Paid"
     )
 
-    # Add allocations for each candidate Sunday, deciding category
-    for s in sorted(set(added)):
+    for s in sorted(candidates):
         month_key = (s.year, s.month)
         # Check if paid slot is available (no other approved/pending Paid in that month)
         paid_ok = False
@@ -172,16 +215,114 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
         else:
             category = "Unpaid"
 
-        # Attach allocation and expand date range to include the Sunday
-        leave_request.allocations.append(LeaveRequestAllocation(allocation_date=s, leave_category=category))
+        # Attribute the one-day gap to this request, preserving the old endpoint
+        # behavior while basing eligibility on actual adjacent allocations.
+        leave_request.allocations.append(
+            LeaveRequestAllocation(
+                allocation_date=s,
+                leave_category=category,
+                is_sandwich=True,
+            )
+        )
         if s < leave_request.from_date:
             leave_request.from_date = s
         if s > leave_request.to_date:
             leave_request.to_date = s
-        leave_request.total_days = (leave_request.total_days or 0) + 1
+        already_allocated.add(s)
 
-    # Ensure allocations are ordered
     leave_request.allocations.sort(key=lambda a: a.allocation_date)
+    leave_request.total_days = len(leave_request.allocations)
+    leave_request.leave_category = compute_request_category_from_allocations(
+        [(allocation.allocation_date, allocation.leave_category) for allocation in leave_request.allocations]
+    )
+
+
+def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
+    settings = db.query(CompanySettings).first()
+    active_requests = db.query(LeaveRequest).filter(
+        LeaveRequest.user_id == user_id,
+        LeaveRequest.status.in_(["Pending", "Approved"]),
+    ).with_for_update().all()
+    active_allocations = [
+        allocation
+        for request in active_requests
+        for allocation in request.allocations
+        if not allocation.is_sandwich
+    ]
+    active_dates = {allocation.allocation_date for allocation in active_allocations}
+    active_dates = {
+        target_date
+        for target_date in active_dates
+        if not applicable_holiday(db, user_id, target_date)
+    }
+
+    removed_dates = set()
+    for request in active_requests:
+        request_changed = False
+        for allocation in list(request.allocations):
+            if not allocation.is_sandwich:
+                continue
+            previous_date = allocation.allocation_date - timedelta(days=1)
+            next_date = allocation.allocation_date + timedelta(days=1)
+            if (
+                settings is not None
+                and settings.sandwich_method_enabled
+                and settings.weekly_off_day
+                and allocation.allocation_date.strftime("%A").casefold()
+                == settings.weekly_off_day.casefold()
+                and previous_date in active_dates
+                and next_date in active_dates
+                and not applicable_holiday(db, user_id, allocation.allocation_date)
+            ):
+                continue
+            if request.status == "Approved" and allocation.leave_category == "Carried":
+                target_user = db.query(User).filter(User.id == user_id).with_for_update().first()
+                if target_user:
+                    target_user.carried_leave = (target_user.carried_leave or 0) + 1
+            removed_dates.add(allocation.allocation_date)
+            request.allocations.remove(allocation)
+            request_changed = True
+
+        if request_changed:
+            request.total_days = len(request.allocations)
+            request.leave_category = compute_request_category_from_allocations(
+                [
+                    (row.allocation_date, row.leave_category)
+                    for row in request.allocations
+                ]
+            )
+
+    db.flush()
+    for target_date in removed_dates:
+        attendance = db.query(Attendance).filter(
+            Attendance.user_id == user_id,
+            Attendance.attendance_date == target_date,
+        ).first()
+        if not attendance or attendance.manual_override or attendance.status != "On Leave":
+            continue
+        status = determine_attendance_status_for_date(db, user_id, target_date)
+        attendance.status = (
+            "Absent" if status in {"On Leave", "Weekly Off", "Not Started"} else status
+        )
+
+
+def _restore_attendance_after_leave_removal(
+    db: Session,
+    user_id: int,
+    removed_dates: set[date],
+) -> None:
+    for target_date in removed_dates:
+        attendance = db.query(Attendance).filter(
+            Attendance.user_id == user_id,
+            Attendance.attendance_date == target_date,
+        ).first()
+        if not attendance or attendance.manual_override:
+            continue
+        status = determine_attendance_status_for_date(db, user_id, target_date)
+        if status == "On Leave":
+            continue
+        # Weekly Off is a computed attendance status, not a persisted enum value.
+        attendance.status = "Absent" if status in {"Weekly Off", "Not Started"} else status
 
 
 # ------------------------------------------------------------
@@ -338,15 +479,29 @@ def apply_leave(
         approved_at=approved_at,
     )
     leave_request.allocations = [
-        LeaveRequestAllocation(allocation_date=allocation_date, leave_category=leave_category)
+        LeaveRequestAllocation(
+            allocation_date=allocation_date,
+            leave_category=leave_category,
+            is_sandwich=_is_sandwich_date_in_request(
+                db,
+                target_user_id,
+                allocation_date,
+                payload.from_date,
+                payload.to_date,
+            ),
+        )
         for allocation_date, leave_category in allocations
     ]
     db.add(leave_request)
 
     if auto_approve:
-        # Apply sandwich rule: if there's a Sunday sandwiched between this
-        # auto-approved request and other requests, ensure it's added here.
         _apply_sandwich_rule_on_request(db, leave_request, target_user)
+        allocations = [
+            (allocation.allocation_date, allocation.leave_category)
+            for allocation in leave_request.allocations
+        ]
+        leave_request.total_days = len(allocations)
+        leave_request.leave_category = compute_request_category_from_allocations(allocations)
 
         carried_days = sum(1 for _, category in allocations if category == "Carried")
         if carried_days > 0:
@@ -463,6 +618,8 @@ def delete_pending_leave(
     db.info["skip_recycle"] = True
     db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted pending leave request #{leave_id}"))
     db.delete(leave_request)
+    db.flush()
+    _reconcile_sandwich_allocations_for_user(db, current_user.id)
     db.commit()
     db.info.pop("skip_recycle", None)
     return {"message": "Leave request deleted"}
@@ -521,6 +678,8 @@ def cancel_leave(
             attendance.reason = None
 
     leave_request.status = "Cancelled"
+    db.flush()
+    _reconcile_sandwich_allocations_for_user(db, target_user.id)
     db.commit()
     refresh_leave_accrual(db, target_user)
     db.commit()
@@ -717,18 +876,14 @@ def decide_leave(
         # request may have been created while the monthly Paid slot was used,
         # then another request may be deleted or rejected before approval.
         if leave_request.leave_category in {"Privilege", "Emergency", "Sick"}:
-            holiday_dates = {
-                holiday.holiday_date
-                for holiday in db.query(Holiday).filter(
-                    Holiday.holiday_date >= leave_request.from_date,
-                    Holiday.holiday_date <= leave_request.to_date,
-                ).all()
-                if holiday_applies_to_user(db, holiday, target_user.id)
-            }
             allocations = [
                 (day, leave_request.leave_category)
-                for day in _get_date_range(leave_request.from_date, leave_request.to_date)
-                if day not in holiday_dates
+                for day in _get_chargeable_leave_dates(
+                    db,
+                    target_user.id,
+                    leave_request.from_date,
+                    leave_request.to_date,
+                )
             ]
         else:
             allocations = allocate_leave_days(
@@ -750,14 +905,25 @@ def decide_leave(
             db.delete(existing_allocation)
         db.flush()
         leave_request.allocations = [
-            LeaveRequestAllocation(allocation_date=allocation_date, leave_category=leave_category)
+            LeaveRequestAllocation(
+                allocation_date=allocation_date,
+                leave_category=leave_category,
+                is_sandwich=_is_sandwich_date_in_request(
+                    db,
+                    target_user.id,
+                    allocation_date,
+                    leave_request.from_date,
+                    leave_request.to_date,
+                ),
+            )
             for allocation_date, leave_category in allocations
         ]
         leave_request.leave_category = compute_request_category_from_allocations(allocations)
 
         # Apply sandwich rule before validating/deducting balances so any
-        # inserted Sunday allocations are considered.
+        # inserted configured weekly-off allocations are considered.
         _apply_sandwich_rule_on_request(db, leave_request, target_user)
+        leave_request.total_days = len(leave_request.allocations)
 
         if leave_request.allocations:
             # A pending request may have been allocated as Paid when it was
@@ -812,36 +978,6 @@ def decide_leave(
             # Refresh leave accrual to ensure balances remain consistent after approval.
             db.commit()
             refresh_leave_accrual(db, target_user)
-        else:
-            total_days = leave_request.total_days or 1
-            
-            if leave_request.leave_category == "Paid":
-                # Paid Leave is one available day in a month. Requests are never
-                # split or automatically converted to Unpaid.
-                available_paid_days = 1 if paid_leave_available_this_month(
-                    db, target_user, leave_request.from_date
-                ) else 0
-                if available_paid_days == 0:
-                    raise HTTPException(status_code=400, detail="No Paid Leave balance is available.")
-                if total_days > available_paid_days:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            f"Only {available_paid_days} Paid Leave day is available. "
-                            "This request cannot be approved as Paid Leave. "
-                            "Approve it as Unpaid Leave or Reject."
-                        ),
-                    )
-            elif leave_request.leave_category == "Carried":
-                carried_balance = get_carried_leave_balance(db, target_user)
-                if carried_balance < total_days:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Insufficient carried leave balance. Available: {carried_balance}"
-                    )
-                target_user.carried_leave -= total_days
-            elif leave_request.leave_category == "Privilege":
-                pass
 
         # Mark attendance as "On Leave" for the approved leave days
         mark_leave_in_attendance(
@@ -1153,16 +1289,43 @@ def override_leave_allocations(
                     f"Allowed values: {', '.join(sorted(allowed_categories))}"
                 ),
             )
+        if alloc.allocation_date in allocation_map:
+            raise HTTPException(status_code=400, detail="Duplicate allocation dates are not allowed.")
         allocation_map[alloc.allocation_date] = alloc.leave_category
 
-    expected_dates = _get_date_range(leave_request.from_date, leave_request.to_date)
-    if len(allocation_map) != len(expected_dates) or any(d not in allocation_map for d in expected_dates):
+    expected_dates = set(
+        _get_chargeable_leave_dates(
+            db,
+            target_user.id,
+            leave_request.from_date,
+            leave_request.to_date,
+        )
+    )
+    expected_dates.update(
+        allocation.allocation_date
+        for allocation in leave_request.allocations
+        if allocation.is_sandwich
+        and not applicable_holiday(
+            db,
+            target_user.id,
+            allocation.allocation_date,
+        )
+    )
+    if set(allocation_map) != expected_dates:
         raise HTTPException(
             status_code=400,
-            detail="Allocations must contain one entry for each day in the leave range."
+            detail="Allocations must contain exactly the chargeable dates in the leave range."
         )
 
     # Compute old/new carried and paid month usage
+    old_allocation_dates = {
+        alloc.allocation_date for alloc in leave_request.allocations
+    }
+    old_sandwich_dates = {
+        alloc.allocation_date
+        for alloc in leave_request.allocations
+        if alloc.is_sandwich
+    }
     old_carried_days = sum(1 for alloc in leave_request.allocations if alloc.leave_category == "Carried")
     new_carried_days = sum(1 for category in allocation_map.values() if category == "Carried")
 
@@ -1174,6 +1337,16 @@ def override_leave_allocations(
     new_paid_months = {
         (d.year, d.month) for d, c in allocation_map.items() if c == "Paid"
     }
+    paid_dates_by_month: dict[tuple[int, int], int] = {}
+    for allocation_date, category in allocation_map.items():
+        if category == "Paid":
+            month_key = (allocation_date.year, allocation_date.month)
+            paid_dates_by_month[month_key] = paid_dates_by_month.get(month_key, 0) + 1
+    if any(count > 1 for count in paid_dates_by_month.values()):
+        raise HTTPException(
+            status_code=400,
+            detail="Only one Paid leave allocation is allowed per calendar month.",
+        )
 
     # Lock any other leave requests in the affected months to avoid races
     months_to_check = old_paid_months.union(new_paid_months)
@@ -1228,27 +1401,39 @@ def override_leave_allocations(
     db.flush()
 
     leave_request.allocations = [
-        LeaveRequestAllocation(allocation_date=d, leave_category=c)
+        LeaveRequestAllocation(
+            allocation_date=d,
+            leave_category=c,
+            is_sandwich=d in old_sandwich_dates,
+        )
         for d, c in sorted(allocation_map.items())
     ]
+    leave_request.total_days = len(leave_request.allocations)
     leave_request.leave_category = compute_request_category_from_allocations(
         [(d, c) for d, c in sorted(allocation_map.items())]
     )
 
     # If leave is already approved, ensure attendance reflects current approved days
     if leave_request.status == "Approved":
-        # Re-mark attendance for the leave dates (idempotent)
-        mark_leave_in_attendance(db, leave_request.user_id, leave_request.from_date, leave_request.to_date)
+        db.flush()
+        final_dates = set(allocation_map)
+        mark_leave_in_attendance(
+            db,
+            leave_request.user_id,
+            leave_request.from_date,
+            leave_request.to_date,
+            final_dates,
+        )
+        _restore_attendance_after_leave_removal(
+            db,
+            leave_request.user_id,
+            old_allocation_dates - final_dates,
+        )
 
     db.commit()
     # Refresh accruals now that carried balances may have changed
     if leave_request.status == "Approved":
-        try:
-            refresh_leave_accrual(db, target_user)
-        except Exception:
-            # If refresh fails for any reason, we should still return the updated
-            # leave_request but log the problem - avoid crashing the API here.
-            pass
+        refresh_leave_accrual(db, target_user)
     db.refresh(leave_request)
 
     log_activity(db, current_user.id, f"Overrode allocations for leave #{leave_id}")

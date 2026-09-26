@@ -115,7 +115,21 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         return status
 
     if attendance and attendance.status == "On Leave":
-        return "On Leave"
+        approved_leaves = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status == "Approved",
+            LeaveRequest.from_date <= target_date,
+            LeaveRequest.to_date >= target_date,
+        ).all()
+        for approved_leave in approved_leaves:
+            if (
+                not approved_leave.allocations
+                and (approved_leave.total_days or 0) > 0
+            ) or any(
+                allocation.allocation_date == target_date
+                for allocation in approved_leave.allocations
+            ):
+                return "On Leave"
 
     if user and (getattr(user, "attendance_mode", None) or "office").lower() == "onsite" and attendance and attendance.check_in:
         return "Present"
@@ -130,14 +144,21 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                     return "Weekly Off"
             else:
                 return "Weekly Off"
-        approved_leave = db.query(LeaveRequest).filter(
+        approved_leaves = db.query(LeaveRequest).filter(
             LeaveRequest.user_id == user_id,
             LeaveRequest.status == "Approved",
             LeaveRequest.from_date <= target_date,
             LeaveRequest.to_date >= target_date,
-        ).first()
-        if approved_leave:
-            return "On Leave"
+        ).all()
+        for approved_leave in approved_leaves:
+            if approved_leave.allocations:
+                if any(
+                    allocation.allocation_date == target_date
+                    for allocation in approved_leave.allocations
+                ):
+                    return "On Leave"
+            elif (approved_leave.total_days or 0) > 0:
+                return "On Leave"
         return "Absent"
     
     # Get company settings

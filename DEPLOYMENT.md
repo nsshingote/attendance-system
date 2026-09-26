@@ -12,6 +12,10 @@ has not already been applied. In particular, the notification table migration
 (`2026_09_16_add_notifications.sql`) is required before approving requests,
 because approval persists an in-app notification in that table.
 
+The leave-calculation update also requires applying
+`database/migrations/2026_09_26_add_sandwich_method_enabled.sql` before deploying
+the updated backend. Existing company settings default Sandwich Method to OFF.
+
 For Nginx, proxy the notification WebSocket path to the backend with upgrade
 headers. The backend accepts both `/notifications/ws` and
 `/api/notifications/ws`:

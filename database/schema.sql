@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
     office_end_time TIME NOT NULL,
     late_grace_minutes INT NOT NULL DEFAULT 20,
     weekly_off_day VARCHAR(20) DEFAULT 'Sunday',
+    sandwich_method_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     company_name VARCHAR(255) DEFAULT 'Your Company Name',
     company_address TEXT DEFAULT '',
     attendance_location_enabled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -246,10 +247,24 @@ CREATE TABLE IF NOT EXISTS leave_request_allocations (
     id INT PRIMARY KEY AUTO_INCREMENT,
     leave_request_id INT NOT NULL,
     allocation_date DATE NOT NULL,
+    is_sandwich BOOLEAN NOT NULL DEFAULT FALSE,
     leave_category ENUM('Paid', 'Carried', 'Unpaid', 'Privilege', 'Emergency', 'Sick') NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (leave_request_id) REFERENCES leave_requests(id) ON DELETE CASCADE,
     UNIQUE KEY uq_leave_request_allocation_date (leave_request_id, allocation_date)
+);
+
+CREATE TABLE IF NOT EXISTS leave_holiday_allocation_history (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    leave_request_id INT NOT NULL,
+    allocation_date DATE NOT NULL,
+    leave_category VARCHAR(20) NOT NULL,
+    is_sandwich BOOLEAN NOT NULL DEFAULT FALSE,
+    is_restored BOOLEAN NOT NULL DEFAULT FALSE,
+    carried_balance_refunded BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (leave_request_id) REFERENCES leave_requests(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_leave_holiday_history_request_date (leave_request_id, allocation_date)
 );
 
 -- ============================================================

@@ -56,7 +56,7 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract, or_
 
-from models import Holiday, LeaveRequest, LeaveRequestAllocation, User, LeaveEncashmentRequest
+from models import CompanySettings, Holiday, LeaveRequest, LeaveRequestAllocation, User, LeaveEncashmentRequest
 from utils.attendance_status import holiday_applies_to_user
 
 MAX_MONTHS_PER_ACCRUAL_RUN = 60
@@ -243,8 +243,21 @@ def _get_chargeable_leave_dates(
     user_id: int,
     from_date: date,
     to_date: date,
+    weekly_off_day: str | None = None,
+    sandwich_method_enabled: bool | None = None,
 ) -> list[date]:
-    """Return requested dates that are not company holidays."""
+    """Return working days plus weekly offs genuinely sandwiched in this range."""
+    settings = None
+    if weekly_off_day is None or sandwich_method_enabled is None:
+        settings = db.query(CompanySettings).first()
+    weekly_off_day = weekly_off_day or (
+        settings.weekly_off_day if settings and settings.weekly_off_day else "Sunday"
+    )
+    if sandwich_method_enabled is None:
+        sandwich_method_enabled = bool(
+            settings.sandwich_method_enabled if settings else False
+        )
+
     holiday_dates = {
         holiday.holiday_date
         for holiday in db.query(Holiday).filter(
@@ -253,11 +266,31 @@ def _get_chargeable_leave_dates(
         ).all()
         if holiday_applies_to_user(db, holiday, user_id)
     }
-    return [
-        leave_date
-        for leave_date in _get_date_range(from_date, to_date)
-        if leave_date not in holiday_dates
-    ]
+    weekly_off_name = weekly_off_day.casefold()
+    chargeable_dates = []
+    for leave_date in _get_date_range(from_date, to_date):
+        if leave_date in holiday_dates:
+            continue
+        if leave_date.strftime("%A").casefold() != weekly_off_name:
+            chargeable_dates.append(leave_date)
+            continue
+        if not sandwich_method_enabled:
+            continue
+
+        previous_date = leave_date - timedelta(days=1)
+        next_date = leave_date + timedelta(days=1)
+        if previous_date < from_date or next_date > to_date:
+            continue
+        if previous_date in holiday_dates or next_date in holiday_dates:
+            continue
+        if (
+            previous_date.strftime("%A").casefold() == weekly_off_name
+            or next_date.strftime("%A").casefold() == weekly_off_name
+        ):
+            continue
+        chargeable_dates.append(leave_date)
+
+    return chargeable_dates
 
 
 def allocate_leave_days(

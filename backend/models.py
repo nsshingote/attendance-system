@@ -391,6 +391,7 @@ class CompanySettings(Base):
     office_end_time = Column(Time, nullable=False)
     late_grace_minutes = Column(Integer, nullable=False, default=30)
     weekly_off_day = Column(String(20), default="Sunday")
+    sandwich_method_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
     company_name = Column(String(255), default="Your Company Name")
     company_address = Column(Text, default="")
     attendance_location_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
@@ -507,12 +508,36 @@ class LeaveRequestAllocation(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     leave_request_id = Column(Integer, ForeignKey("leave_requests.id"), nullable=False)
     allocation_date = Column(Date, nullable=False)
+    is_sandwich = Column(Boolean, nullable=False, default=False, server_default="0")
     leave_category = Column(
         Enum("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick", name="leave_category"),
         nullable=False,
     )
 
     leave_request = relationship("LeaveRequest", back_populates="allocations")
+
+
+class LeaveHolidayAllocationHistory(Base):
+    __tablename__ = "leave_holiday_allocation_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "leave_request_id",
+            "allocation_date",
+            name="uq_leave_holiday_history_request_date",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    leave_request_id = Column(
+        Integer,
+        ForeignKey("leave_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    allocation_date = Column(Date, nullable=False)
+    leave_category = Column(String(20), nullable=False)
+    is_sandwich = Column(Boolean, nullable=False, default=False, server_default="0")
+    is_restored = Column(Boolean, nullable=False, default=False, server_default="0")
+    carried_balance_refunded = Column(Boolean, nullable=False, default=False, server_default="0")
 
 
 class NotificationEmail(Base):
