@@ -422,12 +422,20 @@ def _load_approved_leave_keys_for_users(db: Session, user_ids: Set[int], start_d
     ).all()
 
     for leave in leaves:
-        leave_start = max(leave.from_date, start_date)
-        leave_end = min(leave.to_date, end_date)
-        current = leave_start
-        while current <= leave_end:
-            approved_leave_keys.add((leave.user_id, current))
-            current += timedelta(days=1)
+        if leave.allocations:
+            approved_leave_keys.update(
+                (leave.user_id, allocation.allocation_date)
+                for allocation in leave.allocations
+                if not allocation.is_cancelled
+                and start_date <= allocation.allocation_date <= end_date
+            )
+        else:
+            leave_start = max(leave.from_date, start_date)
+            leave_end = min(leave.to_date, end_date)
+            current = leave_start
+            while current <= leave_end:
+                approved_leave_keys.add((leave.user_id, current))
+                current += timedelta(days=1)
 
     return approved_leave_keys
 
@@ -703,6 +711,11 @@ def check_in(
     )
     
     for leave_request in leave_requests:
+        if leave_request.allocations and not any(
+            allocation.allocation_date == today and not allocation.is_cancelled
+            for allocation in leave_request.allocations
+        ):
+            continue
         # Get or update user for balance restoration
         user = db.query(User).filter(User.id == current_user.id).with_for_update().first()
         if not user:
@@ -710,7 +723,10 @@ def check_in(
 
         allocations = list(leave_request.allocations)
         carried_days = (
-            sum(1 for allocation in allocations if allocation.leave_category == "Carried")
+            sum(
+                1 for allocation in allocations
+                if allocation.leave_category == "Carried" and not allocation.is_cancelled
+            )
             if allocations
             else (leave_request.total_days or 1 if leave_request.leave_category == "Carried" else 0)
         )
@@ -723,7 +739,7 @@ def check_in(
         paid_months = {
             (allocation.allocation_date.year, allocation.allocation_date.month)
             for allocation in allocations
-            if allocation.leave_category == "Paid"
+            if allocation.leave_category == "Paid" and not allocation.is_cancelled
         }
         if not allocations and leave_request.leave_category == "Paid":
             paid_months.add((leave_request.from_date.year, leave_request.from_date.month))
@@ -1245,6 +1261,7 @@ def attendance_calendar(
     is_team_leader = role_key == "team_leader"
     aggregated_all = (user_id == -1 or bool(employee_ids)) and is_admin_user
     target_user_id = None
+    target_user = None
 
     if aggregated_all:
         target_user_id = None
@@ -1258,8 +1275,8 @@ def attendance_calendar(
             target_user_id = current_user.id
 
     if target_user_id is not None:
-        user = db.query(User).filter(User.id == target_user_id).first()
-        if not user:
+        target_user = db.query(User).filter(User.id == target_user_id).first()
+        if not target_user:
             raise HTTPException(status_code=404, detail="User not found")
 
     calendar_days = build_month_calendar(db, year, month, target_user_id)
@@ -1309,6 +1326,20 @@ def attendance_calendar(
 
     for day in calendar_days:
         date_key = day["date"]
+        calendar_date = date.fromisoformat(date_key)
+        if (
+            target_user
+            and target_user.date_of_joining
+            and calendar_date < target_user.date_of_joining
+        ):
+            day["status"] = "Not Started"
+            day["check_in"] = None
+            day["check_out"] = None
+            day["leave_category"] = None
+            day["is_manual_override"] = False
+            day["working_day_label"] = None
+            continue
+
         day_records = records_by_date.get(date_key, [])
 
         if day_records:
@@ -1527,7 +1558,7 @@ def monthly_summary(
 
     # Uncovered absence = Absent date with no approved or pending leave coverage.
     for absent_date in absent_dates:
-        has_leave_request = (
+        matching_leave_requests = (
             db.query(LeaveRequest)
             .filter(
                 LeaveRequest.user_id == user_id,
@@ -1535,8 +1566,18 @@ def monthly_summary(
                 LeaveRequest.from_date <= absent_date,
                 LeaveRequest.to_date >= absent_date,
             )
-            .first()
-            is not None
+            .all()
+        )
+        has_leave_request = any(
+            (
+                any(
+                    allocation.allocation_date == absent_date and not allocation.is_cancelled
+                    for allocation in leave.allocations
+                )
+                if leave.allocations
+                else True
+            )
+            for leave in matching_leave_requests
         )
         if not has_leave_request:
             summary["Unpaid"] += 1
@@ -1564,13 +1605,25 @@ def _get_manual_override_leave(db: Session, record: Attendance) -> LeaveRequest 
 
 
 def _has_regular_leave_on_date(db: Session, record: Attendance) -> bool:
-    return db.query(LeaveRequest).filter(
+    requests = db.query(LeaveRequest).filter(
         LeaveRequest.user_id == record.user_id,
         LeaveRequest.status.in_(["Pending", "Approved"]),
         LeaveRequest.from_date <= record.attendance_date,
         LeaveRequest.to_date >= record.attendance_date,
         LeaveRequest.manual_override_attendance_id.is_(None),
-    ).first() is not None
+    ).all()
+    return any(
+        (
+            any(
+                allocation.allocation_date == record.attendance_date
+                and not allocation.is_cancelled
+                for allocation in request.allocations
+            )
+            if request.allocations
+            else True
+        )
+        for request in requests
+    )
 
 
 def _reverse_manual_override_leave_balance(user: User, leave_request: LeaveRequest) -> None:

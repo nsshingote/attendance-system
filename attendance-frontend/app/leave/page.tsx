@@ -11,9 +11,9 @@
  * approve/reject encashment requests.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import toast from "react-hot-toast";
-import { Plus, Check, X, XCircle, Trash2, RefreshCw, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Check, X, XCircle, Trash2, RefreshCw } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
 import { useSession } from "@/lib/auth";
@@ -84,7 +84,8 @@ function countPrivilegeLeaveDays(requests: LeaveRow[], year: number, month: numb
     if (request.allocations?.length) {
       return total + request.allocations.filter((allocation) => {
         const allocationDate = new Date(`${allocation.allocation_date}T00:00:00`);
-        return allocation.leave_category === "Privilege"
+        return !allocation.is_cancelled
+          && allocation.leave_category === "Privilege"
           && allocationDate.getFullYear() === year
           && allocationDate.getMonth() + 1 === month;
       }).length;
@@ -115,6 +116,13 @@ interface UnifiedRequestRow {
 }
 
 type Tab = "mine" | "all" | "halfday" | "wfh" | "encashment";
+
+interface RelatedRequestEdit {
+  type: "WFH" | "Half Day";
+  id: number;
+  date: string;
+  detail: string;
+}
 
 const SLOT_LABELS: Record<string, string> = {
   morning: "Morning (10:00 AM - 2:30 PM)",
@@ -152,9 +160,14 @@ export default function LeavePage() {
   const [tab, setTab] = useState<Tab>("mine");
   const [allocationModalLeaveId, setAllocationModalLeaveId] = useState<number | null>(null);
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
-  const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string }[]>([]);
+  const [allocationModalCanCancel, setAllocationModalCanCancel] = useState(false);
+  const [allocationRows, setAllocationRows] = useState<{ allocation_date: string; leave_category: string; is_cancelled: boolean }[]>([]);
+  const [relatedRequestEdit, setRelatedRequestEdit] = useState<RelatedRequestEdit | null>(null);
   const [attendanceMode, setAttendanceMode] = useState("office");
-  const effectiveEmployeeIds = Array.from(new Set([...selectedUserIds, ...teamEmployeeIds]));
+  const effectiveEmployeeIds = useMemo(
+    () => Array.from(new Set([...selectedUserIds, ...teamEmployeeIds])),
+    [selectedUserIds, teamEmployeeIds],
+  );
 
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<"leave" | "halfday" | "wfh">("leave");
@@ -181,7 +194,7 @@ export default function LeavePage() {
     if (!session) return;
     setLoading(true);
     try {
-      let params: any = {};
+      const params: Record<string, string | number> = {};
       
       // For admin viewing all employees with date range filter
       if (admin && effectiveEmployeeIds.length === 0 && fromDate && toDate) {
@@ -240,7 +253,7 @@ export default function LeavePage() {
         setMyWfhRequests([]);
       } else {
         // Employee view - only their own
-        const params: any = { year: selectedYear, month: selectedMonth };
+        const params: Record<string, string | number> = { year: selectedYear, month: selectedMonth };
         const [leaveRes, balanceRes, halfDayRes, encashmentRes, wfhRes] = await Promise.all([
           api.get<LeaveRow[]>("/leave/me", { params }),
           api.get<LeaveBalance>(`/leave/balance/${session.userId}`),
@@ -260,10 +273,15 @@ export default function LeavePage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.userId, admin, teamView, selectedUserIds, teamEmployeeIds, fromDate, toDate, selectedYear, selectedMonth]);
+  }, [session, admin, teamView, effectiveEmployeeIds, fromDate, toDate, selectedYear, selectedMonth]);
 
   useEffect(() => {
-    fetchAll();
+    let active = true;
+    const load = async () => {
+      if (active) await fetchAll();
+    };
+    void load();
+    return () => { active = false; };
   }, [fetchAll]);
 
   useEffect(() => {
@@ -295,24 +313,30 @@ export default function LeavePage() {
     setAllocationModalOpen(true);
     // find leave in lists
     const all = [...myRequests, ...allRequests];
-    const leave = all.find((l: any) => l.id === id);
+    const leave = all.find((request) => request.id === id);
     if (!leave) {
       setAllocationRows([]);
+      setAllocationModalCanCancel(false);
       return;
     }
+    setAllocationModalCanCancel(leave.status === "Approved");
     // build rows: if server returned allocations, use them; otherwise derive from range
     if (leave.allocations && leave.allocations.length > 0) {
       setAllocationRows(
-        leave.allocations.map((a) => ({ allocation_date: a.allocation_date, leave_category: a.leave_category }))
+        leave.allocations.map((a) => ({
+          allocation_date: a.allocation_date,
+          leave_category: a.leave_category,
+          is_cancelled: Boolean(a.is_cancelled),
+        }))
       );
       return;
     }
     // derive dates
     const from = new Date(`${leave.from_date}T00:00:00`);
     const to = new Date(`${leave.to_date}T00:00:00`);
-    const rows: { allocation_date: string; leave_category: string }[] = [];
+    const rows: { allocation_date: string; leave_category: string; is_cancelled: boolean }[] = [];
     for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-      rows.push({ allocation_date: format(d, "yyyy-MM-dd"), leave_category: leave.leave_category || "Unpaid" });
+      rows.push({ allocation_date: format(d, "yyyy-MM-dd"), leave_category: leave.leave_category || "Unpaid", is_cancelled: false });
     }
     setAllocationRows(rows);
   };
@@ -355,6 +379,7 @@ export default function LeavePage() {
     try {
       await api.put(endpoint);
       toast.success(`${type} request cancelled`);
+      setRelatedRequestEdit(null);
       fetchAll();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -378,15 +403,23 @@ export default function LeavePage() {
     }
   };
 
-  const handleCancelLeave = async (leaveId: number) => {
-    if (!window.confirm("Cancel this approved leave request? The leave balance and attendance will be restored.")) return;
+  const handleCancelLeaveDate = async (leaveId: number, allocationDate: string) => {
+    if (!window.confirm(`Cancel leave for ${format(parseISO(allocationDate), "dd MMM yyyy")}? Only this date will be cancelled.`)) return;
     try {
-      await api.put(`/leave/${leaveId}/cancel`);
-      toast.success("Leave request cancelled");
+      const { data } = await api.put<LeaveRow>(`/leave/${leaveId}/allocations/${allocationDate}/cancel`);
+      setAllocationRows((rows) => rows.map((row) => (
+        row.allocation_date === allocationDate ? { ...row, is_cancelled: true } : row
+      )));
+      toast.success("Leave date cancelled");
+      if (data.status === "Cancelled") setAllocationModalOpen(false);
       fetchAll();
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
+  };
+
+  const openRelatedRequestEdit = (request: RelatedRequestEdit) => {
+    setRelatedRequestEdit(request);
   };
 
   // Merge my leave + half-day + WFH requests into one unified list
@@ -699,7 +732,6 @@ export default function LeavePage() {
                 requests={allRequests}
                 canDecide={canApprove}
                 onDecide={handleDecide}
-                onCancel={canApprove ? handleCancelLeave : undefined}
                 onEditAllocations={(id) => openAllocationModal(id)}
               />
             )}
@@ -737,7 +769,17 @@ export default function LeavePage() {
                           </td>
                           <td className="px-4 py-3">
                             {r.status === "Approved" ? (
-                              <button onClick={() => handleCancelRelatedRequest("Half Day", r.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"><XCircle size={14} />Cancel</button>
+                              <button
+                                onClick={() => openRelatedRequestEdit({
+                                  type: "Half Day",
+                                  id: r.id,
+                                  date: r.attendance_date,
+                                  detail: SLOT_LABELS[r.slot] ?? r.slot,
+                                })}
+                                className="rounded-md bg-sky-50 px-2 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                              >
+                                Edit
+                              </button>
                             ) : r.status === "Pending" ? (
                               <div className="flex justify-end gap-1.5">
                                 <button
@@ -798,7 +840,17 @@ export default function LeavePage() {
                           </td>
                           <td className="px-4 py-3">
                             {r.status === "Approved" ? (
-                              <button onClick={() => handleCancelRelatedRequest("WFH", r.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"><XCircle size={14} />Cancel</button>
+                              <button
+                                onClick={() => openRelatedRequestEdit({
+                                  type: "WFH",
+                                  id: r.id,
+                                  date: r.attendance_date,
+                                  detail: "Work From Home",
+                                })}
+                                className="rounded-md bg-sky-50 px-2 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                              >
+                                Edit
+                              </button>
                             ) : r.status === "Pending" ? (
                               <div className="flex justify-end gap-1.5">
                                 <button
@@ -948,7 +1000,36 @@ export default function LeavePage() {
                 {allocationRows.map((row, index) => (
                   <tr key={row.allocation_date} className="border-b">
                     <td className="px-3 py-2">{new Date(row.allocation_date).toLocaleDateString()}</td>
-                    <td className="px-3 py-2"><select value={row.leave_category} onChange={(event) => setAllocationRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, leave_category: event.target.value } : item))} className="rounded border px-2 py-1 text-sm"><option>Paid</option><option>Carried</option><option>Unpaid</option><option>Privilege</option></select></td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={row.leave_category}
+                          disabled={row.is_cancelled}
+                          onChange={(event) => setAllocationRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, leave_category: event.target.value } : item))}
+                          className="rounded border px-2 py-1 text-sm disabled:bg-ink-50 disabled:text-ink-400"
+                        >
+                          <option>Paid</option>
+                          <option>Carried</option>
+                          <option>Unpaid</option>
+                          <option>Privilege</option>
+                          <option>Emergency</option>
+                          <option>Sick</option>
+                        </select>
+                        {row.is_cancelled ? (
+                          <span className="text-xs font-medium text-ink-500">Cancelled</span>
+                        ) : allocationModalCanCancel ? (
+                          <button
+                            type="button"
+                            onClick={() => allocationModalLeaveId && handleCancelLeaveDate(allocationModalLeaveId, row.allocation_date)}
+                            className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                            aria-label={`Cancel leave for ${row.allocation_date}`}
+                          >
+                            <XCircle size={13} />
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -959,6 +1040,37 @@ export default function LeavePage() {
             <button onClick={async () => { if (!allocationModalLeaveId) return; try { await api.put(`/leave/${allocationModalLeaveId}/allocations`, { allocations: allocationRows }); toast.success("Allocations updated"); setAllocationModalOpen(false); fetchAll(); } catch (error) { toast.error(getErrorMessage(error)); } }} className="rounded bg-brand-500 px-3 py-1 text-white">Save</button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={relatedRequestEdit !== null}
+        onClose={() => setRelatedRequestEdit(null)}
+        title={`Edit ${relatedRequestEdit?.type ?? "Request"}`}
+      >
+        {relatedRequestEdit && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-xs font-medium uppercase text-ink-500">Date</p>
+                <p className="mt-1 text-ink-900">{format(parseISO(relatedRequestEdit.date), "dd MMM yyyy")}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase text-ink-500">Category</p>
+                <p className="mt-1 text-ink-900">{relatedRequestEdit.detail}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-ink-100 pt-3">
+              <button onClick={() => setRelatedRequestEdit(null)} className="rounded border px-3 py-1.5 text-sm">Close</button>
+              <button
+                onClick={() => handleCancelRelatedRequest(relatedRequestEdit.type, relatedRequestEdit.id)}
+                className="inline-flex items-center gap-1 rounded-md bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
+              >
+                <XCircle size={14} />
+                Cancel this date
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
     </AppShell>

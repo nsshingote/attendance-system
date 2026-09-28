@@ -9,7 +9,7 @@
  */
 
 import { format, parseISO } from "date-fns";
-import { Check, X, XCircle } from "lucide-react";
+import { Check, X } from "lucide-react";
 import Badge from "@/components/Common/Badge";
 import ExpandableText from "@/components/Common/ExpandableText";
 
@@ -25,14 +25,13 @@ export interface LeaveRow {
   status: string;
   leave_category: string;
   allocation_summary?: string;
-  allocations?: { allocation_date: string; leave_category: string }[];
+  allocations?: { allocation_date: string; leave_category: string; is_cancelled?: boolean }[];
 }
 
 interface LeaveTableProps {
   requests: LeaveRow[];
   canDecide?: boolean;
   onDecide?: (id: number, status: "Approved" | "Rejected") => void;
-  onCancel?: (id: number) => void;
   onEditAllocations?: (id: number) => void;
 }
 
@@ -44,7 +43,7 @@ const CATEGORY_CLASS: Record<string, string> = {
   Mixed: "bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200",
 };
 
-export default function LeaveTable({ requests, canDecide, onDecide, onCancel, onEditAllocations }: LeaveTableProps) {
+export default function LeaveTable({ requests, canDecide, onDecide, onEditAllocations }: LeaveTableProps) {
   if (requests.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center">
@@ -119,16 +118,6 @@ export default function LeaveTable({ requests, canDecide, onDecide, onCancel, on
                           <X size={15} />
                         </button>
                       </>
-                    )}
-                    {r.status === "Approved" && onCancel && (
-                      <button
-                        onClick={() => onCancel(r.id)}
-                        className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-[11px] font-medium text-red-700 hover:bg-red-100"
-                        aria-label="Cancel approved leave"
-                      >
-                        <XCircle size={14} />
-                        Cancel
-                      </button>
                     )}
                     {canDecide && (
                       <button

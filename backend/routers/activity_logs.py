@@ -1,8 +1,7 @@
 """
 routers/activity_logs.py
 Read-only audit trail of user activity (logins, approvals, edits, etc.),
-visible to Admin/SuperAdmin. Supports filtering to a single user via
-?user_id=<id>.
+visible to Admin/SuperAdmin and team-scoped Team Leaders.
 """
 
 import re
@@ -10,11 +9,12 @@ from datetime import timezone
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from auth import require_admin_permission
+from auth import effective_role_key, get_current_user, has_permission
 from database import get_db
+from team_scope import get_team_member_ids
 from models import (    
     
     ActivityLog,
@@ -41,16 +41,46 @@ def list_activity_logs(
     team_ids: Optional[List[int]] = Query(None),
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("activity_logs.view")),
+    current_user: User = Depends(get_current_user),
 ):
     query = db.query(ActivityLog)
-    team_employee_ids = []
-    if team_ids:
-        team_employee_ids = [employee_id for (employee_id,) in db.query(TeamMember.employee_id).filter(TeamMember.team_id.in_(team_ids)).all()]
-    if employee_ids or team_employee_ids:
-        query = query.filter(ActivityLog.user_id.in_(set(employee_ids or []) | set(team_employee_ids)))
-    elif user_id:
-        query = query.filter(ActivityLog.user_id == user_id)
+    team_leader_scope = effective_role_key(current_user) == "team_leader" and not has_permission(
+        current_user, "activity_logs.view", db
+    )
+    if team_leader_scope:
+        if not has_permission(current_user, "activity_logs.team_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view activity logs")
+        allowed_user_ids = {current_user.id, *get_team_member_ids(db, current_user)}
+        requested_user_ids = set(employee_ids or [])
+        if user_id is not None:
+            requested_user_ids.add(user_id)
+        if team_ids is not None:
+            requested_team_member_ids = {
+                employee_id
+                for (employee_id,) in db.query(TeamMember.employee_id)
+                .join(Team, Team.id == TeamMember.team_id)
+                .filter(
+                    Team.id.in_(team_ids),
+                    Team.team_leader_id == current_user.id,
+                    Team.status == "active",
+                )
+                .all()
+            }
+            requested_user_ids.update(requested_team_member_ids)
+        filters_supplied = user_id is not None or employee_ids is not None or team_ids is not None
+        if filters_supplied:
+            allowed_user_ids.intersection_update(requested_user_ids)
+        query = query.filter(ActivityLog.user_id.in_(allowed_user_ids))
+    else:
+        if not has_permission(current_user, "activity_logs.view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view activity logs")
+        team_employee_ids = []
+        if team_ids:
+            team_employee_ids = [employee_id for (employee_id,) in db.query(TeamMember.employee_id).filter(TeamMember.team_id.in_(team_ids)).all()]
+        if employee_ids or team_employee_ids:
+            query = query.filter(ActivityLog.user_id.in_(set(employee_ids or []) | set(team_employee_ids)))
+        elif user_id:
+            query = query.filter(ActivityLog.user_id == user_id)
     logs = query.order_by(ActivityLog.created_at.desc()).limit(min(limit, 5000)).all()
     users_by_id = {user.id: user.name for user in db.query(User).all()}
 

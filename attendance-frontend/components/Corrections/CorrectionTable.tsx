@@ -2,7 +2,7 @@
 
 /**
  * components/Corrections/CorrectionTable.tsx
- * Attendance correction requests table with Approve/Reject for admins.
+ * Attendance correction requests table with Approve/Reject for authorized reviewers.
  * Shows check-in and check-out corrections in separate columns, each
  * with its own remark, since a request may correct one or both.
  *
@@ -31,6 +31,7 @@ export interface CorrectionRow {
 interface CorrectionTableProps {
   corrections: CorrectionRow[];
   canDecide?: boolean;
+  excludeRequesterId?: number;
   onDecide?: (id: number, status: "Approved" | "Rejected") => void;
 }
 
@@ -50,7 +51,7 @@ function formatISTDateTime(isoString: string | null): string {
   return `${datePart}, ${timePart}`;
 }
 
-export default function CorrectionTable({ corrections, canDecide, onDecide }: CorrectionTableProps) {
+export default function CorrectionTable({ corrections, canDecide, excludeRequesterId, onDecide }: CorrectionTableProps) {
   if (corrections.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center">
@@ -114,7 +115,7 @@ export default function CorrectionTable({ corrections, canDecide, onDecide }: Co
               </td>
               {canDecide && (
                 <td className="px-3 py-2">
-                  {c.status === "Pending" && (
+                  {c.status === "Pending" && c.requested_by !== excludeRequesterId && (
                     <div className="flex justify-end gap-1.5">
                       <button
                         onClick={() => onDecide?.(c.id, "Approved")}

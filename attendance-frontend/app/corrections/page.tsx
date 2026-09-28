@@ -139,6 +139,7 @@ export function CorrectionsContent() {
         <CorrectionTable
           corrections={tab === "all" ? all : mine}
           canDecide={canDecide && tab === "all"}
+          excludeRequesterId={session?.role === "team_leader" ? session.userId : undefined}
           onDecide={handleDecide}
         />
       )}

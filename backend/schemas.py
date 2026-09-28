@@ -439,11 +439,13 @@ class LeaveRequestAllocationOut(ORMBase):
     id: int
     allocation_date: date
     leave_category: str
+    is_cancelled: bool = False
 
 
 class LeaveRequestAllocationIn(BaseModel):
     allocation_date: date
     leave_category: str
+    is_cancelled: bool = False
 
 
 class LeaveRequestCreate(BaseModel):

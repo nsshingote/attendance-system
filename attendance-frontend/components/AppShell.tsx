@@ -104,7 +104,11 @@ export default function AppShell({ children, allowedRoles, requiredPermission, a
     permission.endsWith(".manage") ||
     permission.endsWith(".approve")
   );
-  const SidebarComponent = isAdmin(session?.role) || hasAdminNavigation ? AdminSidebar : EmployeeSidebar;
+  const SidebarComponent = session?.role === "team_leader"
+    ? EmployeeSidebar
+    : isAdmin(session?.role) || hasAdminNavigation
+      ? AdminSidebar
+      : EmployeeSidebar;
 
   const toggleMobileSidebar = () => {
     setIsMobileSidebarOpen(!isMobileSidebarOpen);

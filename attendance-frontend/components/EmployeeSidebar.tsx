@@ -43,7 +43,7 @@ const PERMISSION_NAV_ITEMS = [
   { href: "/device-requests", label: "Device Requests", icon: Smartphone, permission: "device_requests.view" },
   { href: "/notification-emails", label: "Notification Emails", icon: Mail, permission: "notification_emails.view" },
   { href: "/office-ip", label: "Office IPs", icon: Wifi, permission: "office_ips.view" },
-  { href: "/activity-logs", label: "Activity Logs", icon: History, permission: "activity_logs.view" },
+  { href: "/activity-logs", label: "Activity Logs", icon: History, permission: "activity_logs.view", alternatives: ["activity_logs.team_view"] },
   { href: "/settings", label: "Settings", icon: Settings, permission: "settings.view" },
   { href: "/recycle-bin", label: "Recycle Bin", icon: Trash2, permission: "recycle_bin.view" },
   { href: "/changed-logs", label: "Changed Logs", icon: HistoryIcon, permission: "changed_logs.view" },
@@ -70,15 +70,20 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
   }, [session?.role]);
   const teamItems = session?.role === "team_leader"
     ? [
-        (hasPermission(permissions, "corrections.team_view") || hasPermission(permissions, "reports.team_view") || hasPermission(permissions, "employees.team_view")) && { href: "/requests", label: "Requests", icon: ClipboardEdit },
+        (hasPermission(permissions, "corrections.team_view") || hasPermission(permissions, "corrections.all_view") ||
+          hasPermission(permissions, "profile_corrections.team_view") || hasPermission(permissions, "profile_corrections.all_view") ||
+          hasPermission(permissions, "report_approvals.team_view") || hasPermission(permissions, "report_approvals.all_view")) &&
+          { href: "/requests", label: "Requests", icon: ClipboardEdit },
         hasPermission(permissions, "employees.team_view") && { href: "/team-employees", label: "Team Employees", icon: Users },
         hasPermission(permissions, "kundli.team_view") && { href: "/kundli", label: "Team Kundli", icon: NotebookPen },
       ].filter(Boolean) as typeof EMPLOYEE_NAV_ITEMS
     : [];
   const permissionItems = PERMISSION_NAV_ITEMS.filter((item) =>
     isSuperAdmin(session?.role) ||
-    hasPermission(permissions, item.permission) ||
+    (session?.role !== "team_leader" || item.href !== "/requests") &&
+    (hasPermission(permissions, item.permission) ||
     item.alternatives?.some((key) => hasPermission(permissions, key))
+    )
   );
   const navItems = [...EMPLOYEE_NAV_ITEMS, ...permissionItems, ...teamItems]
     .filter((item, index, items) => items.findIndex((candidate) => candidate.href === item.href) === index)

@@ -84,7 +84,7 @@ def count_leave_category_days(leave_requests) -> dict[str, int]:
             continue
         if hasattr(leave_request, "allocations") and leave_request.allocations:
             for alloc in leave_request.allocations:
-                if alloc.leave_category not in counts:
+                if alloc.is_cancelled or alloc.leave_category not in counts:
                     continue
                 is_manual = bool(getattr(leave_request, "manual_override_attendance_id", None))
                 if is_manual or alloc.allocation_date not in days_by_date:
@@ -134,6 +134,7 @@ def _has_paid_leave_in_month(
             LeaveRequest.user_id == user_id,
             LeaveRequest.status.in_(["Pending", "Approved"]),
             LeaveRequestAllocation.leave_category == "Paid",
+            LeaveRequestAllocation.is_cancelled.is_(False),
             extract("year", LeaveRequestAllocation.allocation_date) == on_date.year,
             extract("month", LeaveRequestAllocation.allocation_date) == on_date.month,
         )
@@ -365,6 +366,7 @@ def get_used_paid_leave_days(db: Session, user_id: int) -> int:
             LeaveRequest.user_id == user_id,
             LeaveRequest.status == "Approved",
             LeaveRequestAllocation.leave_category == "Paid",
+            LeaveRequestAllocation.is_cancelled.is_(False),
         )
         .scalar()
     )
@@ -415,6 +417,7 @@ def get_used_balance_days_this_year(db: Session, user_id: int, year: int) -> int
             LeaveRequest.user_id == user_id,
             LeaveRequest.status == "Approved",
             LeaveRequestAllocation.leave_category.in_(BALANCE_CONSUMING_CATEGORIES),
+            LeaveRequestAllocation.is_cancelled.is_(False),
             LeaveRequestAllocation.allocation_date >= start,
             LeaveRequestAllocation.allocation_date <= end,
         )

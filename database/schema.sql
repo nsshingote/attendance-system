@@ -248,6 +248,7 @@ CREATE TABLE IF NOT EXISTS leave_request_allocations (
     leave_request_id INT NOT NULL,
     allocation_date DATE NOT NULL,
     is_sandwich BOOLEAN NOT NULL DEFAULT FALSE,
+    is_cancelled BOOLEAN NOT NULL DEFAULT FALSE,
     leave_category ENUM('Paid', 'Carried', 'Unpaid', 'Privilege', 'Emergency', 'Sick') NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (leave_request_id) REFERENCES leave_requests(id) ON DELETE CASCADE,

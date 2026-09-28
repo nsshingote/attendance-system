@@ -11,13 +11,13 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, has_permission, require_admin, require_admin_permission, effective_role_key
-from team_scope import get_team_member_ids, require_team_member_access
+from team_scope import get_team_member_ids, is_team_member, require_team_member_access
 from config import settings
 from database import get_db
 from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
 from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate
 from utils.email_service import send_email
-from services.notifications import create_notification, get_admin_user_ids
+from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
 from routers.changed_logs import record_changed_log
 from services.recycle_bin import archive_object
 
@@ -688,11 +688,18 @@ async def request_personal_document_replace(
         user_id=current_user.id,
         activity=f"Requested replacement of personal document '{item.title}'",
     ))
-    for admin_id in get_admin_user_ids(
+    approver_ids = set(get_admin_user_ids(
         db,
         actor_user_id=current_user.id,
         permission_key="requests.manage",
-    ):
+    ))
+    approver_ids.update(get_approver_user_ids(
+        db,
+        employee_id=current_user.id,
+        actor_user_id=current_user.id,
+        permission_key="profile_corrections.approve",
+    ))
+    for admin_id in approver_ids:
         create_notification(
             db,
             recipient_user_id=admin_id,
@@ -721,11 +728,18 @@ def request_personal_document_delete(document_id: int, db: Session = Depends(get
         user_id=current_user.id,
         activity=f"Requested deletion of personal document '{item.title}'",
     ))
-    for admin_id in get_admin_user_ids(
+    approver_ids = set(get_admin_user_ids(
         db,
         actor_user_id=current_user.id,
         permission_key="requests.manage",
-    ):
+    ))
+    approver_ids.update(get_approver_user_ids(
+        db,
+        employee_id=current_user.id,
+        actor_user_id=current_user.id,
+        permission_key="profile_corrections.approve",
+    ))
+    for admin_id in approver_ids:
         create_notification(
             db,
             recipient_user_id=admin_id,
@@ -747,20 +761,38 @@ def list_my_personal_document_requests(db: Session = Depends(get_db), current_us
 
 
 @router.get("/personal-document-requests")
-def list_personal_document_requests(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.view"))):
+def list_personal_document_requests(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     query = db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.status == "Pending")
-    scope_ids = _team_scope_ids(db, current_user)
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "profile_corrections.team_view", db) and not has_permission(current_user, "profile_corrections.all_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view profile corrections")
+        if has_permission(current_user, "profile_corrections.all_view", db):
+            scope_ids = None
+        else:
+            scope_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+    else:
+        if not has_permission(current_user, "requests.view", db) and not has_permission(current_user, "profile_corrections.all_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
+        scope_ids = None if has_permission(current_user, "profile_corrections.all_view", db) else _team_scope_ids(db, current_user)
     if scope_ids is not None:
         query = query.filter(PersonalDocumentChangeRequest.employee_id.in_(scope_ids))
     return [_personal_document_request_dict(item) for item in query.order_by(PersonalDocumentChangeRequest.created_at.desc()).all()]
 
 
 @router.post("/personal-document-requests/{request_id}/decision")
-def decide_personal_document_request(request_id: int, payload: PersonalDocumentRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.manage"))):
+def decide_personal_document_request(request_id: int, payload: PersonalDocumentRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     request = db.query(PersonalDocumentChangeRequest).filter(PersonalDocumentChangeRequest.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="Personal document request not found")
-    _require_employee_document_scope(db, current_user, request.employee_id)
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "profile_corrections.approve", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to approve profile corrections")
+        if not is_team_member(db, current_user, request.employee_id):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
+    else:
+        if not has_permission(current_user, "requests.manage", db) and not has_permission(current_user, "profile_corrections.approve", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to manage these requests")
+        _require_employee_document_scope(db, current_user, request.employee_id)
     if request.status != "Pending":
         raise HTTPException(status_code=409, detail="This request has already been decided")
     document = db.query(EmployeePersonalDocument).filter(EmployeePersonalDocument.id == request.document_id).first()

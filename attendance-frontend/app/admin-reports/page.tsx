@@ -79,8 +79,13 @@ interface AdminReportsPageProps {
 
 export function AdminReportsContent({ compact = false }: AdminReportsPageProps) {
   const { permissions } = usePermissions();
-  const teamLeader = hasPermission(permissions, "reports.team_view") &&
+  const session = getSession();
+  const teamLeader = session?.role === "team_leader";
+  const reportTeamLeader = teamLeader && hasPermission(permissions, "reports.team_view") &&
     !hasPermission(permissions, "reports.all_view");
+  const canReviewApprovals = teamLeader
+    ? hasPermission(permissions, "report_approvals.approve")
+    : hasPermission(permissions, "requests.manage") || hasPermission(permissions, "report_approvals.approve");
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -99,22 +104,27 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
   const latestRequestId = useRef(0);
 
   useEffect(() => {
+    if (compact) {
+      api.get<PastSubmissionRequest[]>("/reports/past-submission-requests")
+        .then(({ data }) => setPastSubmissionRequests(data || []))
+        .catch(() => toast.error("Failed to load report approvals"));
+      return;
+    }
     Promise.all([
       api.get<UserOption[]>("/users/"),
       api.get<DepartmentOption[]>("/reports/departments"),
-      api.get<PastSubmissionRequest[]>("/reports/past-submission-requests"),
     ])
-      .then(([usersRes, departmentsRes, requestsRes]) => {
+      .then(([usersRes, departmentsRes]) => {
         // A duplicate option ID makes React reuse the wrong option and can
         // cause the selected employee/department to appear not to change.
         setUsers(uniqueById((usersRes.data || []).filter((user) => !isHiddenMonthlyReportUser(user.name))));
         setDepartments(uniqueById(departmentsRes.data || []));
-        setPastSubmissionRequests(requestsRes.data || []);
       })
       .catch(() => toast.error("Failed to load report filters"));
-  }, [teamLeader]);
+  }, [compact, reportTeamLeader]);
 
   const fetchReports = async () => {
+    if (compact) return;
     const requestId = ++latestRequestId.current;
     setLoading(true);
     try {
@@ -174,14 +184,16 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
   };
 
   useEffect(() => {
+    if (compact) return;
     fetchReports();
-  }, [selectedUserIds, selectedTeamIds, selectedDepartmentId, fromDate, toDate]);
+  }, [compact, selectedUserIds, selectedTeamIds, selectedDepartmentId, fromDate, toDate]);
 
   useEffect(() => {
+    if (compact) return;
     const handleProfileUpdate = () => fetchReports();
     window.addEventListener("profile-updated", handleProfileUpdate);
     return () => window.removeEventListener("profile-updated", handleProfileUpdate);
-  }, [selectedUserIds, selectedDepartmentId, fromDate, toDate]);
+  }, [compact, selectedUserIds, selectedDepartmentId, fromDate, toDate]);
 
   const clearDateFilter = () => { setSelectedDate(""); setShowDatePicker(false); };
 
@@ -289,15 +301,17 @@ const getTotalDuration = (activities: ReportRow[]) => {
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-amber-900">Report approvals</h2>
-            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
-            <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="min-w-52" />
+            {!teamLeader && <>
+              <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="min-w-52" />
+              <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="min-w-52" />
+            </>}
           </div>
           <div className="mt-2 space-y-2">
             {pastSubmissionRequests.filter((request) => selectedUserIds.length === 0 || selectedUserIds.includes(request.user_id)).length > 0 ? (
               pastSubmissionRequests.filter((request) => selectedUserIds.length === 0 || selectedUserIds.includes(request.user_id)).map((request) => (
                   <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
                     <span><strong>{request.user_name}</strong> · {request.attendance_date} · <strong>{request.request_type ?? "Missing Report"}</strong>{request.reason ? ` · ${request.reason}` : ""}</span>
-                    {request.status === "Pending" && !teamLeader ? <span className="flex gap-2"><button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button><button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button></span> : <strong>{request.status}</strong>}
+                    {request.status === "Pending" && canReviewApprovals && (!teamLeader || request.user_id !== session?.userId) ? <span className="flex gap-2"><button onClick={() => reviewPastSubmissionRequest(request.id, "Approved")} className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white">Approve</button><button onClick={() => reviewPastSubmissionRequest(request.id, "Rejected")} className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white">Reject</button></span> : <strong>{request.status}</strong>}
                   </div>
                 ))
             ) : (
@@ -311,7 +325,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
             <div>
               <h1 className="text-base font-semibold text-ink-900">Team Reports</h1>
               <p className="text-xs text-ink-500">
-                {selectedUserIds.length ? `Reports for ${selectedUserIds.length === 1 ? selectedUserName : `${selectedUserIds.length} employees`}` : "All employees"}
+                {selectedUserIds.length ? `Reports for ${selectedUserIds.length === 1 ? selectedUserName : `${selectedUserIds.length} employees`}` : reportTeamLeader ? "Team employees" : "All employees"}
               </p>
             </div>
 
@@ -430,7 +444,10 @@ export default function AdminReportsPage(props: AdminReportsPageProps) {
   const teamLeader = session?.role === "team_leader";
   const [tab, setTab] = useState<"my" | "team">("team");
   return (
-    <AppShell requiredPermission={teamLeader ? "reports.team_view" : "reports.all_view"}>
+    <AppShell
+      requiredPermission={teamLeader ? "reports.team_view" : "reports.all_view"}
+      alternativePermissions={teamLeader ? ["reports.all_view"] : []}
+    >
       <div className="space-y-5">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Reports</h1>

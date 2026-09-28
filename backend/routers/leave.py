@@ -124,7 +124,7 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
     """Add a configured weekly-off allocation only between adjacent leave dates."""
     settings = db.query(CompanySettings).first()
     if not settings or not settings.sandwich_method_enabled or not settings.weekly_off_day:
-        leave_request.total_days = len(leave_request.allocations)
+        leave_request.total_days = sum(not allocation.is_cancelled for allocation in leave_request.allocations)
         return
 
     user_id = leave_request.user_id
@@ -139,23 +139,25 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
     )
     current_dates = {
         allocation.allocation_date for allocation in leave_request.allocations
-        if not allocation.is_sandwich
+        if not allocation.is_sandwich and not allocation.is_cancelled
     }
     existing_allocation_dates = {
         allocation.allocation_date
         for allocation in leave_request.allocations
+        if not allocation.is_cancelled
     } | {
         allocation.allocation_date
         for request in active_requests
         if request.id != leave_request.id
         for allocation in request.allocations
+        if not allocation.is_cancelled
     }
     other_dates = {
         allocation.allocation_date
         for request in active_requests
         if request.id != leave_request.id
         for allocation in request.allocations
-        if not allocation.is_sandwich
+        if not allocation.is_sandwich and not allocation.is_cancelled
     }
     already_allocated = current_dates | other_dates
 
@@ -178,7 +180,7 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
                     candidates.add(candidate)
 
     if not candidates:
-        leave_request.total_days = len(leave_request.allocations)
+        leave_request.total_days = sum(not allocation.is_cancelled for allocation in leave_request.allocations)
         return
 
     # Determine carried balance available before applying additions
@@ -189,14 +191,14 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
         (alloc.allocation_date.year, alloc.allocation_date.month)
         for lr in active_requests
         for alloc in lr.allocations
-        if alloc.leave_category == "Paid"
+        if alloc.leave_category == "Paid" and not alloc.is_cancelled
     )
 
     # Also include paid months already present on this request
     used_paid_months.update(
         (alloc.allocation_date.year, alloc.allocation_date.month)
         for alloc in leave_request.allocations
-        if alloc.leave_category == "Paid"
+        if alloc.leave_category == "Paid" and not alloc.is_cancelled
     )
 
     for s in sorted(candidates):
@@ -231,9 +233,13 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
         already_allocated.add(s)
 
     leave_request.allocations.sort(key=lambda a: a.allocation_date)
-    leave_request.total_days = len(leave_request.allocations)
+    leave_request.total_days = sum(not allocation.is_cancelled for allocation in leave_request.allocations)
     leave_request.leave_category = compute_request_category_from_allocations(
-        [(allocation.allocation_date, allocation.leave_category) for allocation in leave_request.allocations]
+        [
+            (allocation.allocation_date, allocation.leave_category)
+            for allocation in leave_request.allocations
+            if not allocation.is_cancelled
+        ]
     )
 
 
@@ -247,7 +253,7 @@ def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
         allocation
         for request in active_requests
         for allocation in request.allocations
-        if not allocation.is_sandwich
+        if not allocation.is_sandwich and not allocation.is_cancelled
     ]
     active_dates = {allocation.allocation_date for allocation in active_allocations}
     active_dates = {
@@ -260,7 +266,7 @@ def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
     for request in active_requests:
         request_changed = False
         for allocation in list(request.allocations):
-            if not allocation.is_sandwich:
+            if not allocation.is_sandwich or allocation.is_cancelled:
                 continue
             previous_date = allocation.allocation_date - timedelta(days=1)
             next_date = allocation.allocation_date + timedelta(days=1)
@@ -284,11 +290,12 @@ def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
             request_changed = True
 
         if request_changed:
-            request.total_days = len(request.allocations)
+            request.total_days = sum(not allocation.is_cancelled for allocation in request.allocations)
             request.leave_category = compute_request_category_from_allocations(
                 [
                     (row.allocation_date, row.leave_category)
                     for row in request.allocations
+                    if not row.is_cancelled
                 ]
             )
 
@@ -445,14 +452,29 @@ def apply_leave(
     total_days = len(allocations)
     
     # Check for overlapping leave requests
-    overlapping = db.query(LeaveRequest).filter(
+    overlapping_requests = db.query(LeaveRequest).filter(
         LeaveRequest.user_id == target_user_id,
         LeaveRequest.status.in_(["Pending", "Approved"]),
         and_(
             LeaveRequest.from_date <= payload.to_date,
             LeaveRequest.to_date >= payload.from_date
         )
-    ).first()
+    ).all()
+    overlapping = next(
+        (
+            request for request in overlapping_requests
+            if (
+                any(
+                    payload.from_date <= allocation.allocation_date <= payload.to_date
+                    and not allocation.is_cancelled
+                    for allocation in request.allocations
+                )
+                if request.allocations
+                else True
+            )
+        ),
+        None,
+    )
     
     if overlapping:
         raise HTTPException(
@@ -650,13 +672,17 @@ def cancel_leave(
         raise HTTPException(status_code=404, detail="Target user not found")
     require_team_member_access(db, current_user, target_user.id, "leave.approve")
 
-    carried_days = sum(1 for allocation in leave_request.allocations if allocation.leave_category == "Carried")
+    carried_days = sum(
+        1 for allocation in leave_request.allocations
+        if allocation.leave_category == "Carried" and not allocation.is_cancelled
+    )
     if not leave_request.allocations and leave_request.leave_category == "Carried":
         carried_days = leave_request.total_days or 0
     target_user.carried_leave = (target_user.carried_leave or 0) + carried_days
 
     attendance_dates = {
         allocation.allocation_date for allocation in leave_request.allocations
+        if not allocation.is_cancelled
     } or set(_get_date_range(leave_request.from_date, leave_request.to_date))
     attendance_rows = db.query(Attendance).filter(
         Attendance.user_id == target_user.id,
@@ -664,14 +690,26 @@ def cancel_leave(
         Attendance.status == "On Leave",
     ).all()
     for attendance in attendance_rows:
-        overlapping_approved = db.query(LeaveRequest.id).filter(
+        overlapping_requests = db.query(LeaveRequest).filter(
             LeaveRequest.user_id == target_user.id,
             LeaveRequest.id != leave_request.id,
             LeaveRequest.status == "Approved",
             LeaveRequest.from_date <= attendance.attendance_date,
             LeaveRequest.to_date >= attendance.attendance_date,
-        ).first()
-        if overlapping_approved:
+        ).all()
+        has_overlapping_allocation = any(
+            (
+                any(
+                    allocation.allocation_date == attendance.attendance_date
+                    and not allocation.is_cancelled
+                    for allocation in overlapping.allocations
+                )
+                if overlapping.allocations
+                else True
+            )
+            for overlapping in overlapping_requests
+        )
+        if has_overlapping_allocation:
             continue
         attendance.status = "Present"
         if attendance.reason == "Leave":
@@ -702,6 +740,86 @@ def cancel_leave(
         current_user.id,
         f"Cancelled leave request #{leave_id} for {target_user.name}",
     )
+    db.commit()
+    return leave_request
+
+
+@router.put("/{leave_id}/allocations/{allocation_date}/cancel", response_model=LeaveRequestOut)
+def cancel_leave_allocation(
+    leave_id: int,
+    allocation_date: date,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel one approved leave date without cancelling the rest of the request."""
+    if not has_permission(current_user, "leave.cancel", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to cancel leave")
+
+    leave_request = (
+        db.query(LeaveRequest)
+        .filter(LeaveRequest.id == leave_id)
+        .with_for_update()
+        .first()
+    )
+    if not leave_request:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    if leave_request.status != "Approved":
+        raise HTTPException(status_code=400, detail="Only approved leave dates can be cancelled")
+
+    target_user = db.query(User).filter(User.id == leave_request.user_id).with_for_update().first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    require_team_member_access(db, current_user, target_user.id, "leave.approve")
+
+    allocation = next(
+        (
+            row for row in leave_request.allocations
+            if row.allocation_date == allocation_date and not row.is_cancelled
+        ),
+        None,
+    )
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Active leave allocation not found for this date")
+
+    allocation.is_cancelled = True
+    if allocation.leave_category == "Carried":
+        target_user.carried_leave = (target_user.carried_leave or 0) + 1
+
+    active_allocations = [row for row in leave_request.allocations if not row.is_cancelled]
+    leave_request.total_days = len(active_allocations)
+    if active_allocations:
+        leave_request.leave_category = compute_request_category_from_allocations(
+            [(row.allocation_date, row.leave_category) for row in active_allocations]
+        )
+    else:
+        leave_request.status = "Cancelled"
+
+    db.flush()
+    _restore_attendance_after_leave_removal(db, target_user.id, {allocation_date})
+    _reconcile_sandwich_allocations_for_user(db, target_user.id)
+    db.commit()
+    refresh_leave_accrual(db, target_user)
+    db.commit()
+    db.refresh(leave_request)
+
+    db.add(
+        ActivityLog(
+            user_id=current_user.id,
+            activity=f"Cancelled leave date {allocation_date} from request #{leave_id} for {target_user.name}",
+        )
+    )
+    if target_user.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=target_user.id,
+            actor_user_id=current_user.id,
+            notification_type="leave.cancelled",
+            title="Leave date cancelled",
+            message=f"Your leave for {allocation_date} was cancelled.",
+            route="/leave",
+            entity_type="leave_request",
+            entity_id=leave_request.id,
+        )
     db.commit()
     return leave_request
 
@@ -1291,7 +1409,7 @@ def override_leave_allocations(
             )
         if alloc.allocation_date in allocation_map:
             raise HTTPException(status_code=400, detail="Duplicate allocation dates are not allowed.")
-        allocation_map[alloc.allocation_date] = alloc.leave_category
+        allocation_map[alloc.allocation_date] = (alloc.leave_category, alloc.is_cancelled)
 
     expected_dates = set(
         _get_chargeable_leave_dates(
@@ -1320,26 +1438,35 @@ def override_leave_allocations(
     # Compute old/new carried and paid month usage
     old_allocation_dates = {
         alloc.allocation_date for alloc in leave_request.allocations
+        if not alloc.is_cancelled
     }
     old_sandwich_dates = {
         alloc.allocation_date
         for alloc in leave_request.allocations
         if alloc.is_sandwich
     }
-    old_carried_days = sum(1 for alloc in leave_request.allocations if alloc.leave_category == "Carried")
-    new_carried_days = sum(1 for category in allocation_map.values() if category == "Carried")
+    old_carried_days = sum(
+        1 for alloc in leave_request.allocations
+        if alloc.leave_category == "Carried" and not alloc.is_cancelled
+    )
+    new_carried_days = sum(
+        1 for category, is_cancelled in allocation_map.values()
+        if category == "Carried" and not is_cancelled
+    )
 
     old_paid_months = {
         (alloc.allocation_date.year, alloc.allocation_date.month)
         for alloc in leave_request.allocations
-        if alloc.leave_category == "Paid"
+        if alloc.leave_category == "Paid" and not alloc.is_cancelled
     }
     new_paid_months = {
-        (d.year, d.month) for d, c in allocation_map.items() if c == "Paid"
+        (d.year, d.month)
+        for d, (category, is_cancelled) in allocation_map.items()
+        if category == "Paid" and not is_cancelled
     }
     paid_dates_by_month: dict[tuple[int, int], int] = {}
-    for allocation_date, category in allocation_map.items():
-        if category == "Paid":
+    for allocation_date, (category, is_cancelled) in allocation_map.items():
+        if category == "Paid" and not is_cancelled:
             month_key = (allocation_date.year, allocation_date.month)
             paid_dates_by_month[month_key] = paid_dates_by_month.get(month_key, 0) + 1
     if any(count > 1 for count in paid_dates_by_month.values()):
@@ -1357,6 +1484,7 @@ def override_leave_allocations(
         db.query(LeaveRequest).join(LeaveRequest.allocations).filter(
             LeaveRequest.user_id == target_user.id,
             LeaveRequestAllocation.leave_category == "Paid",
+            LeaveRequestAllocation.is_cancelled.is_(False),
             extract("year", LeaveRequestAllocation.allocation_date) == y,
             extract("month", LeaveRequestAllocation.allocation_date) == m,
             LeaveRequest.id != leave_request.id,
@@ -1364,7 +1492,10 @@ def override_leave_allocations(
 
     # Validate Paid-month constraints for new paid months (exclude this request itself)
     for (y, m) in new_paid_months:
-        allocation_date = next(d for d in allocation_map if (d.year, d.month) == (y, m) and allocation_map[d] == "Paid")
+        allocation_date = next(
+            d for d, (category, is_cancelled) in allocation_map.items()
+            if (d.year, d.month) == (y, m) and category == "Paid" and not is_cancelled
+        )
         if (y, m) in old_paid_months:
             continue
         if has_other_approved_or_pending_paid_leave_this_month(
@@ -1403,20 +1534,26 @@ def override_leave_allocations(
     leave_request.allocations = [
         LeaveRequestAllocation(
             allocation_date=d,
-            leave_category=c,
+            leave_category=category,
             is_sandwich=d in old_sandwich_dates,
+            is_cancelled=is_cancelled,
         )
-        for d, c in sorted(allocation_map.items())
+        for d, (category, is_cancelled) in sorted(allocation_map.items())
     ]
-    leave_request.total_days = len(leave_request.allocations)
+    active_allocation_map = {
+        d: category
+        for d, (category, is_cancelled) in allocation_map.items()
+        if not is_cancelled
+    }
+    leave_request.total_days = len(active_allocation_map)
     leave_request.leave_category = compute_request_category_from_allocations(
-        [(d, c) for d, c in sorted(allocation_map.items())]
+        [(d, category) for d, category in sorted(active_allocation_map.items())]
     )
 
     # If leave is already approved, ensure attendance reflects current approved days
     if leave_request.status == "Approved":
         db.flush()
-        final_dates = set(allocation_map)
+        final_dates = set(active_allocation_map)
         mark_leave_in_attendance(
             db,
             leave_request.user_id,

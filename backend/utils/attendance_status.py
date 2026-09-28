@@ -127,6 +127,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                 and (approved_leave.total_days or 0) > 0
             ) or any(
                 allocation.allocation_date == target_date
+                and not allocation.is_cancelled
                 for allocation in approved_leave.allocations
             ):
                 return "On Leave"
@@ -154,6 +155,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
             if approved_leave.allocations:
                 if any(
                     allocation.allocation_date == target_date
+                    and not allocation.is_cancelled
                     for allocation in approved_leave.allocations
                 ):
                     return "On Leave"

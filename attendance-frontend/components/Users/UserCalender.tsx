@@ -169,6 +169,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
 
   const getDayClassName = (day: CalendarDay) => {
     if (!day.date) return "bg-transparent";
+    if (day.status === "Not Started") return "bg-transparent text-ink-400";
 
     const dateValue = new Date(`${day.date}T00:00:00`);
     const today = new Date();

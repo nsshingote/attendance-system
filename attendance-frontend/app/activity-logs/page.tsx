@@ -2,9 +2,8 @@
 
 /**
  * app/activity-logs/page.tsx
- * Admin/SuperAdmin: read-only audit trail of user activity. Can be
- * filtered to a specific employee via the dropdown, or left on "All
- * Users" to see everyone's activity together.
+ * Admin/SuperAdmin can view all activity; Team Leaders with the scoped
+ * permission see activity from their own team.
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -12,6 +11,8 @@ import { formatInTimeZone } from "date-fns-tz";
 import toast from "react-hot-toast";
 import { parseISTDateTime } from "@/lib/date";
 import api, { getErrorMessage } from "@/lib/api";
+import { getSession } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
@@ -30,6 +31,8 @@ interface UserOption {
 }
 
 export default function ActivityLogsPage() {
+  const teamLeader = getSession()?.role === "team_leader";
+  const { permissions } = usePermissions();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
@@ -37,11 +40,12 @@ export default function ActivityLogsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (teamLeader) return;
     api
       .get<UserOption[]>("/users/")
       .then(({ data }) => setUsers(data))
       .catch(() => {});
-  }, []);
+  }, [teamLeader]);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -68,19 +72,29 @@ export default function ActivityLogsPage() {
 
   const userNameById = (id: number) => users.find((u) => u.id === id)?.name ?? `User #${id}`;
 
+  const teamScoped = teamLeader && hasPermission(permissions, "activity_logs.team_view") &&
+    !hasPermission(permissions, "activity_logs.view");
+
   return (
-    <AppShell requiredPermission="activity_logs.view">
+    <AppShell
+      requiredPermission={teamLeader ? "activity_logs.team_view" : "activity_logs.view"}
+      alternativePermissions={teamLeader ? ["activity_logs.view"] : []}
+    >
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold text-ink-900">Activity Logs</h1>
             <p className="text-sm text-ink-500">
-              {selectedUserIds.length ? `Activity for ${selectedUserIds.length === 1 ? userNameById(selectedUserIds[0]) : `${selectedUserIds.length} employees`}` : "Recent system activity across all users"}
+              {teamLeader
+                ? teamScoped ? "Recent activity for your team" : "Recent system activity across all users"
+                : selectedUserIds.length ? `Activity for ${selectedUserIds.length === 1 ? userNameById(selectedUserIds[0]) : `${selectedUserIds.length} employees`}` : "Recent system activity across all users"}
             </p>
           </div>
 
-          <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} allLabel="All Users" />
-          <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} />
+          {!teamLeader && <>
+            <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} allLabel="All Users" />
+            <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} />
+          </>}
         </div>
 
         {loading ? (

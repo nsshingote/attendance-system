@@ -486,9 +486,10 @@ class LeaveRequest(Base):
 
     @property
     def allocation_summary(self):
-        if not self.allocations:
+        active_allocations = [allocation for allocation in self.allocations if not allocation.is_cancelled]
+        if not active_allocations:
             return self.leave_category
-        categories = {alloc.leave_category for alloc in self.allocations}
+        categories = {alloc.leave_category for alloc in active_allocations}
         if len(categories) == 1:
             return categories.pop()
         return "Mixed"
@@ -509,6 +510,7 @@ class LeaveRequestAllocation(Base):
     leave_request_id = Column(Integer, ForeignKey("leave_requests.id"), nullable=False)
     allocation_date = Column(Date, nullable=False)
     is_sandwich = Column(Boolean, nullable=False, default=False, server_default="0")
+    is_cancelled = Column(Boolean, nullable=False, default=False, server_default="0")
     leave_category = Column(
         Enum("Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick", name="leave_category"),
         nullable=False,

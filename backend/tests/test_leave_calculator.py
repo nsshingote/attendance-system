@@ -23,11 +23,13 @@ from models import (
 )
 from routers.holidays import add_holiday, delete_holiday
 from routers.company_settings import _read_company_settings_row, _upsert_company_settings_row
+from routers.attendance import attendance_calendar
 from routers.leave import (
     _apply_sandwich_rule_on_request,
     _reconcile_sandwich_allocations_for_user,
     apply_leave,
     cancel_leave,
+    cancel_leave_allocation,
     decide_leave,
     override_leave_allocations,
 )
@@ -226,6 +228,29 @@ def test_joining_date_change_is_allowed_before_accrual_starts(
 
     assert updated_user.date_of_joining == date(2026, 10, 10)
     assert updated_user.last_leave_accrual_date is None
+
+
+def test_attendance_calendar_marks_prejoining_dates_not_started(
+    db_session: Session,
+):
+    user = create_user(db_session)
+    user.date_of_joining = date(2026, 9, 26)
+    db_session.commit()
+
+    calendar = attendance_calendar(
+        year=2026,
+        month=9,
+        user_id=None,
+        employee_ids=None,
+        department_id=None,
+        db=db_session,
+        current_user=user,
+    )
+    days_by_date = {day["date"]: day for day in calendar}
+
+    assert days_by_date["2026-09-25"]["status"] == "Not Started"
+    assert days_by_date["2026-09-25"]["working_day_label"] is None
+    assert days_by_date["2026-09-26"]["status"] == "Absent"
 
 
 def create_holiday(
@@ -1048,6 +1073,58 @@ def test_cancelled_leave_side_removes_only_its_stale_sandwich_allocation(
     db_session.refresh(monday_request)
     assert all(row.allocation_date != sunday for row in monday_request.allocations)
     assert monday_request.total_days == len(monday_request.allocations) == 1
+
+
+def test_cancel_leave_allocation_restores_only_the_selected_date(db_session: Session):
+    user = create_user(db_session)
+    cancelled_date = date(2026, 10, 28)
+    retained_date = date(2026, 10, 27)
+    user.carried_leave = 0
+    request = create_leave_request(
+        db_session,
+        user,
+        retained_date,
+        cancelled_date,
+        [(retained_date, "Unpaid"), (cancelled_date, "Carried")],
+    )
+    attendance_rows = [
+        Attendance(
+            user_id=user.id,
+            attendance_date=target_date,
+            status="On Leave",
+            reason="Leave",
+        )
+        for target_date in (retained_date, cancelled_date)
+    ]
+    db_session.add_all(attendance_rows)
+    db_session.commit()
+
+    with (
+        patch("routers.leave.has_permission", return_value=True),
+        patch("routers.leave.require_team_member_access"),
+        patch("routers.leave.refresh_leave_accrual"),
+        patch("routers.leave.log_activity"),
+    ):
+        result = cancel_leave_allocation(
+            request.id,
+            cancelled_date,
+            db=db_session,
+            current_user=user,
+        )
+
+    db_session.refresh(user)
+    db_session.refresh(request)
+    db_session.refresh(attendance_rows[0])
+    db_session.refresh(attendance_rows[1])
+    allocations = {row.allocation_date: row for row in request.allocations}
+
+    assert result.status == "Approved"
+    assert request.total_days == 1
+    assert allocations[retained_date].is_cancelled is False
+    assert allocations[cancelled_date].is_cancelled is True
+    assert user.carried_leave == 1
+    assert attendance_rows[0].status == "On Leave"
+    assert attendance_rows[1].status == "Absent"
 
 
 @pytest.mark.parametrize(

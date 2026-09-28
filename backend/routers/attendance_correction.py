@@ -36,9 +36,10 @@ def get_all_corrections(
     """Admin gets all correction requests."""
     query = db.query(AttendanceCorrection).options(joinedload(AttendanceCorrection.requester))
     if effective_role_key(current_user) == "team_leader":
-        team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
-        require_team_permission(db, current_user, "corrections.team_view")
-        query = query.filter(AttendanceCorrection.requested_by.in_(team_ids))
+        if not has_permission(current_user, "corrections.all_view", db):
+            require_team_permission(db, current_user, "corrections.team_view")
+            team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+            query = query.filter(AttendanceCorrection.requested_by.in_(team_ids))
     elif not has_permission(current_user, "corrections.all_view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     if status:
@@ -187,16 +188,19 @@ def get_my_corrections(
 @router.get("/pending", response_model=List[CorrectionOut])
 def get_pending_corrections(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("corrections.approve"))
+    current_user: User = Depends(get_current_user)
 ):
-    """Admin gets all pending correction requests."""
-    return (
-        db.query(AttendanceCorrection)
-        .options(joinedload(AttendanceCorrection.requester))
-        .filter(AttendanceCorrection.status == "Pending")
-        .order_by(AttendanceCorrection.created_at.desc())
-        .all()
-    )
+    """Return pending corrections within the caller's authorized scope."""
+    query = db.query(AttendanceCorrection).options(joinedload(AttendanceCorrection.requester))
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "corrections.approve", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+        if not has_permission(current_user, "corrections.all_view", db):
+            team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+            query = query.filter(AttendanceCorrection.requested_by.in_(team_ids))
+    elif not has_permission(current_user, "corrections.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+    return query.filter(AttendanceCorrection.status == "Pending").order_by(AttendanceCorrection.created_at.desc()).all()
 
 
 # ------------------------------------------------------------

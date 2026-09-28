@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, has_permission, hash_password, require_admin, require_admin_permission, require_superadmin, is_superadmin, effective_role_key
-from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
+from team_scope import is_team_member, require_team_member_access, require_team_permission, get_team_member_ids
 from config import settings
 from database import get_db
 from models import (
@@ -26,7 +26,7 @@ from models import (
 from schemas import UserCreate, UserUpdate, UserOut, UserDepartmentCreate, UserDepartmentOut, EmployeeSelectorOut, PersonalProfileUpdate, ProfileEditRequestCreate, ProfileEditRequestDecision
 from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
-from services.notifications import create_notification, get_admin_user_ids
+from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
 from routers.changed_logs import record_changed_log
 
 router = APIRouter()
@@ -198,11 +198,18 @@ def create_profile_edit_request(payload: ProfileEditRequestCreate, db: Session =
         requested_data=json.dumps({key: (value or "").strip() for key, value in payload.requested_data.items()}))
     db.add(item)
     db.add(ActivityLog(user_id=current_user.id, activity=f"Requested approval to edit {payload.section.replace('_', ' ')}"))
-    for admin_id in get_admin_user_ids(
+    approver_ids = set(get_admin_user_ids(
         db,
         actor_user_id=current_user.id,
         permission_key="requests.manage",
-    ):
+    ))
+    approver_ids.update(get_approver_user_ids(
+        db,
+        employee_id=current_user.id,
+        actor_user_id=current_user.id,
+        permission_key="profile_corrections.approve",
+    ))
+    for admin_id in approver_ids:
         create_notification(
             db,
             recipient_user_id=admin_id,
@@ -223,10 +230,14 @@ def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depen
     profile_query = db.query(EmployeeProfileEditRequest)
     document_query = db.query(PersonalDocumentChangeRequest)
     if effective_role_key(current_user) == "team_leader":
-        team_ids = [current_user.id, *require_team_permission(db, current_user, "employees.team_view")]
-        profile_query = profile_query.filter(EmployeeProfileEditRequest.employee_id.in_(team_ids))
-        document_query = document_query.filter(PersonalDocumentChangeRequest.employee_id.in_(team_ids))
-    elif not has_permission(current_user, "requests.view", db):
+        if not has_permission(current_user, "profile_corrections.team_view", db) and not has_permission(current_user, "profile_corrections.all_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view profile corrections")
+        scoped_ids = require_team_permission(db, current_user, "profile_corrections.team_view")
+        team_ids = [] if not scoped_ids and has_permission(current_user, "profile_corrections.all_view", db) else [current_user.id, *scoped_ids]
+        if team_ids:
+            profile_query = profile_query.filter(EmployeeProfileEditRequest.employee_id.in_(team_ids))
+            document_query = document_query.filter(PersonalDocumentChangeRequest.employee_id.in_(team_ids))
+    elif not has_permission(current_user, "requests.view", db) and not has_permission(current_user, "profile_corrections.all_view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     if status:
         profile_query = profile_query.filter(EmployeeProfileEditRequest.status == status)
@@ -237,9 +248,16 @@ def list_profile_edit_requests(status: Optional[str] = None, db: Session = Depen
 
 
 @router.post("/profile-edit-requests/{request_id}/decision")
-def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.manage"))):
+def decide_profile_edit_request(request_id: int, payload: ProfileEditRequestDecision, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     item = db.query(EmployeeProfileEditRequest).filter(EmployeeProfileEditRequest.id == request_id).first()
     if not item: raise HTTPException(status_code=404, detail="Profile edit request not found")
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "profile_corrections.approve", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to approve profile corrections")
+        if not is_team_member(db, current_user, item.employee_id):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
+    elif not has_permission(current_user, "requests.manage", db) and not has_permission(current_user, "profile_corrections.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to manage these requests")
     if item.status != "Pending": raise HTTPException(status_code=409, detail="This request has already been decided")
     item.status, item.approved_by, item.decided_at = payload.status, current_user.id, datetime.utcnow()
     if payload.status == "Approved":

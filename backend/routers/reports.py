@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
 from auth import has_permission, require_admin, require_admin_permission, get_current_user, require_roles, effective_role_key
-from team_scope import require_team_permission, require_team_member_access, get_team_member_ids
+from team_scope import is_team_member, require_team_permission, require_team_member_access, get_team_member_ids
 from database import get_db
 from models import (
     Attendance, User, LeaveRequest, LeaveEncashmentRequest, Holiday,
@@ -33,7 +33,7 @@ from utils.leave_calculator import (
     count_leave_category_days,
 )
 from utils.logger import log_activity
-from services.notifications import create_notification, get_admin_user_ids
+from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
 from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts, holiday_applies_to_user, is_weekly_off
 from utils.date_helpers import iso_with_offset
 from routers.changed_logs import record_changed_log
@@ -1285,11 +1285,18 @@ def request_past_report_submission(
         user_id=current_user.id,
         activity=f"Requested {request.attendance_date} past report submission approval for {current_user.name}",
     ))
-    for admin_id in get_admin_user_ids(
+    approver_ids = set(get_admin_user_ids(
         db,
         actor_user_id=current_user.id,
         permission_key="requests.manage",
-    ):
+    ))
+    approver_ids.update(get_approver_user_ids(
+        db,
+        employee_id=current_user.id,
+        actor_user_id=current_user.id,
+        permission_key="report_approvals.approve",
+    ))
+    for admin_id in approver_ids:
         create_notification(
             db,
             recipient_user_id=admin_id,
@@ -1312,10 +1319,13 @@ def list_past_report_submission_requests(
 ):
     query = db.query(PastReportSubmissionRequest)
     if effective_role_key(current_user) == "team_leader":
-        team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
-        require_team_permission(db, current_user, "reports.team_view")
-        query = query.filter(PastReportSubmissionRequest.user_id.in_(team_ids))
-    elif not has_permission(current_user, "requests.view", db):
+        if not has_permission(current_user, "report_approvals.team_view", db) and not has_permission(current_user, "report_approvals.all_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view report approvals")
+        if not has_permission(current_user, "report_approvals.all_view", db):
+            require_team_permission(db, current_user, "report_approvals.team_view")
+            team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+            query = query.filter(PastReportSubmissionRequest.user_id.in_(team_ids))
+    elif not has_permission(current_user, "requests.view", db) and not has_permission(current_user, "report_approvals.all_view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
     rows = query.order_by(PastReportSubmissionRequest.requested_at.desc()).all()
     return [{"id": row.id, "user_id": row.user_id, "user_name": row.user.name if row.user else "Unknown", "attendance_date": row.attendance_date.isoformat(), "reason": row.reason, "status": row.status} for row in rows]
@@ -1361,12 +1371,19 @@ def complete_past_report_submission(
 
 @router.put("/past-submission-requests/{request_id}")
 def review_past_report_submission_request(
-    request_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("requests.manage"))
+    request_id: int, payload: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     request = db.query(PastReportSubmissionRequest).filter(PastReportSubmissionRequest.id == request_id).first()
     status = payload.get("status")
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "report_approvals.approve", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to approve report requests")
+        if not is_team_member(db, current_user, request.user_id):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
+    elif not has_permission(current_user, "requests.manage", db) and not has_permission(current_user, "report_approvals.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to manage these requests")
     if status not in {"Approved", "Rejected"}:
         raise HTTPException(status_code=400, detail="status must be Approved or Rejected")
     request.status, request.reviewed_by, request.reviewed_at = status, current_user.id, datetime.now(IST)

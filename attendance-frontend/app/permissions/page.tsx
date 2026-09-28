@@ -24,6 +24,7 @@ type Role = {
   is_active: boolean;
   permission_ids: number[];
 };
+const PERMISSION_PAGE_ALLOWED_ROLES = ["superadmin"];
 type User = { id: number; name: string; email?: string | null; mobile: string; status: string; role?: string | null; role_key?: string | null };
 type Effect = "allow" | "deny";
 type Override = { permission_id: number; effect: Effect };
@@ -37,6 +38,7 @@ export default function PermissionsPage() {
   const [rolePermissionIds, setRolePermissionIds] = useState<number[]>([]);
   const [overrides, setOverrides] = useState<Record<number, Effect>>({});
   const [dirtyOverrides, setDirtyOverrides] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
   const [newRole, setNewRole] = useState({ name: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,15 +48,32 @@ export default function PermissionsPage() {
     (groups[permission.module] ||= []).push(permission);
     return groups;
   }, {}), [permissions]);
+  const displayedGroups = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return Object.entries(grouped)
+      .map(([module, items]) => [
+        module,
+        normalizedSearch
+          ? items.filter((permission) =>
+              `${module} ${permission.name} ${permission.key} ${permission.description || ""}`
+                .toLowerCase()
+                .includes(normalizedSearch)
+            )
+          : items,
+      ] as const)
+      .filter(([, items]) => items.length > 0);
+  }, [grouped, search]);
+  const displayedPermissions = useMemo(
+    () => displayedGroups.flatMap(([, items]) => items),
+    [displayedGroups]
+  );
 
   const loadTargets = useCallback(async () => {
     try {
-      const [permissionResponse, roleResponse, userResponse] = await Promise.all([
-        api.get<Permission[]>("/permissions/"),
+      const [roleResponse, userResponse] = await Promise.all([
         api.get<Role[]>("/permissions/roles"),
         api.get<User[]>("/users/?status=active"),
       ]);
-      setPermissions(permissionResponse.data);
       setRoles(roleResponse.data);
       setUsers(userResponse.data.filter((user) => user.status === "active"));
       const available = assignmentType === "role"
@@ -69,6 +88,15 @@ export default function PermissionsPage() {
       setLoading(false);
     }
   }, [assignmentType, target]);
+
+  const loadPermissionCatalog = useCallback(async () => {
+    try {
+      const { data } = await api.get<Permission[]>("/permissions/");
+      setPermissions(data);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }, []);
 
   const loadAssignment = useCallback(async () => {
     if (!target) {
@@ -91,6 +119,7 @@ export default function PermissionsPage() {
     }
   }, [assignmentType, roles, target]);
 
+  useEffect(() => { void loadPermissionCatalog(); }, [loadPermissionCatalog]);
   useEffect(() => { void loadTargets(); }, [loadTargets]);
   useEffect(() => { void loadAssignment(); }, [loadAssignment]);
 
@@ -108,11 +137,25 @@ export default function PermissionsPage() {
       : [...current, id]);
   };
 
-  const setUserEffect = (id: number, value: string) => {
+  const userRolePermissionIds = useMemo(() => {
+    if (assignmentType !== "user") return [];
+    const user = users.find((item) => String(item.id) === target);
+    const roleKey = user?.role_key || user?.role;
+    return roles.find((role) => role.key === roleKey)?.permission_ids || [];
+  }, [assignmentType, roles, target, users]);
+
+  const userPermissionIsChecked = (id: number) => {
+    const effect = overrides[id];
+    if (effect) return effect === "allow";
+    return userRolePermissionIds.includes(id);
+  };
+
+  const setUserPermission = (id: number, checked: boolean) => {
+    const inherited = userRolePermissionIds.includes(id);
     setOverrides((current) => {
       const next = { ...current };
-      if (value === "inherit") delete next[id];
-      else next[id] = value as Effect;
+      if (checked === inherited) delete next[id];
+      else next[id] = checked ? "allow" : "deny";
       return next;
     });
     setDirtyOverrides((current) => new Set(current).add(id));
@@ -120,12 +163,17 @@ export default function PermissionsPage() {
 
   const save = async () => {
     if (!target) return;
+    const scrollTop = window.scrollY;
     setSaving(true);
     try {
       if (assignmentType === "role") {
-        await api.put(`/permissions/role/${activeRoles.find((role) => String(role.id) === target)?.key}`, {
+        const role = activeRoles.find((item) => String(item.id) === target);
+        const { data } = await api.put<{ permission_ids: number[] }>(`/permissions/role/${role?.key}`, {
           permission_ids: rolePermissionIds,
         });
+        setRoles((current) => current.map((item) =>
+          item.id === role?.id ? { ...item, permission_ids: data.permission_ids } : item
+        ));
         toast.success("Role permissions updated");
       } else {
         await Promise.all([...dirtyOverrides].map((permissionId) => {
@@ -137,13 +185,36 @@ export default function PermissionsPage() {
         setDirtyOverrides(new Set());
         toast.success("User permission overrides updated");
       }
-      await loadTargets();
-      await loadAssignment();
       await refreshPermissions();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setSaving(false);
+      window.requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+    }
+  };
+
+  const allDisplayedChecked = displayedPermissions.length > 0 && displayedPermissions.every((permission) =>
+    assignmentType === "role"
+      ? rolePermissionIds.includes(permission.id)
+      : userPermissionIsChecked(permission.id)
+  );
+
+  const toggleAllDisplayed = () => {
+    const checked = !allDisplayedChecked;
+    if (assignmentType === "role") {
+      setRolePermissionIds((current) => {
+        const selected = new Set(current);
+        for (const permission of displayedPermissions) {
+          if (checked) selected.add(permission.id);
+          else selected.delete(permission.id);
+        }
+        return [...selected];
+      });
+      return;
+    }
+    for (const permission of displayedPermissions) {
+      setUserPermission(permission.id, checked);
     }
   };
 
@@ -175,7 +246,7 @@ export default function PermissionsPage() {
     : users.find((user) => String(user.id) === target)?.name;
 
   return (
-    <AppShell allowedRoles={["superadmin"]}>
+    <AppShell allowedRoles={PERMISSION_PAGE_ALLOWED_ROLES}>
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -216,32 +287,55 @@ export default function PermissionsPage() {
 
         {loading ? <Loading /> : (
           <section className="overflow-hidden rounded-xl border border-ink-200 bg-white">
-            <div className="table-wrapper">
-              <table className="w-full min-w:760px text-left text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 p-4">
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search permissions"
+                  aria-label="Search permissions"
+                  className="min-w-60 rounded-lg border border-ink-200 px-3 py-2 text-sm"
+                />
+                <label className="flex items-center gap-2 text-sm font-medium text-ink-700">
+                  <input
+                    type="checkbox"
+                    checked={allDisplayedChecked}
+                    disabled={!target || displayedPermissions.length === 0}
+                    onChange={toggleAllDisplayed}
+                    className="h-4 w-4 rounded border-ink-300 text-brand-600"
+                  />
+                  Select All
+                </label>
+              </div>
+              <div className="table-wrapper">
+                <table className="w-full min-w:760px text-left text-sm">
                 <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Module</th>
                     <th className="px-5 py-3 font-semibold">Permission</th>
                     <th className="px-5 py-3 font-semibold">Key</th>
-                    <th className="px-5 py-3 text-center font-semibold">{assignmentType === "role" ? "Allowed" : "User override"}</th>
+                    <th className="px-5 py-3 text-center font-semibold">Allowed</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(grouped).map(([module, items]) => items.map((permission, index) => (
+                  {displayedGroups.map(([module, items]) => items.map((permission, index) => (
                     <tr key={permission.id} className="border-t border-ink-100 hover:bg-ink-50">
                       <td className="px-5 py-3 font-medium text-ink-800">{index === 0 ? module : ""}</td>
                       <td className="px-5 py-3 font-medium text-ink-800">{permission.name}</td>
                       <td className="px-5 py-3 font-mono text-xs text-ink-500">{permission.key}</td>
                       <td className="px-5 py-3 text-center">
-                        {assignmentType === "role" ? (
-                          <input type="checkbox" aria-label={`Allow ${permission.name}`} checked={rolePermissionIds.includes(permission.id)} disabled={!target} onChange={() => toggleRolePermission(permission.id)} className="h-4 w-4 rounded border-ink-300 text-brand-600" />
-                        ) : (
-                          <select aria-label={`${permission.name} override`} value={overrides[permission.id] || "inherit"} disabled={!target} onChange={(event) => setUserEffect(permission.id, event.target.value)} className="rounded border border-ink-200 px-2 py-1 text-sm">
-                            <option value="inherit">Inherit role</option>
-                            <option value="allow">Allow</option>
-                            <option value="deny">Deny</option>
-                          </select>
-                        )}
+                        <input
+                          type="checkbox"
+                          aria-label={`Allow ${permission.name}`}
+                          checked={assignmentType === "role"
+                            ? rolePermissionIds.includes(permission.id)
+                            : userPermissionIsChecked(permission.id)}
+                          disabled={!target}
+                          onChange={(event) => assignmentType === "role"
+                            ? toggleRolePermission(permission.id)
+                            : setUserPermission(permission.id, event.target.checked)}
+                          className="h-4 w-4 rounded border-ink-300 text-brand-600"
+                        />
                       </td>
                     </tr>
                   )))}
