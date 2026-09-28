@@ -2121,8 +2121,12 @@ def all_half_day_requests(
 ):
     """List half-day requests within the caller's permitted scope."""
     team_ids = _approval_request_view_scope(db, current_user, "attendance.half_day.approve")
-    query = db.query(HalfDayRequestModel).join(User).options(joinedload(HalfDayRequestModel.user)).filter(
-        User.attendance_mode == "office"
+    # Both requester and approver reference users; join through requester explicitly.
+    query = (
+        db.query(HalfDayRequestModel)
+        .join(HalfDayRequestModel.user)
+        .options(joinedload(HalfDayRequestModel.user))
+        .filter(User.attendance_mode == "office")
     )
     if team_ids is not None:
         query = query.filter(HalfDayRequestModel.user_id.in_(team_ids))
@@ -2539,8 +2543,12 @@ def all_wfh_requests(
 ):
     """List WFH requests within the caller's permitted scope."""
     team_ids = _approval_request_view_scope(db, current_user, "attendance.wfh.approve")
-    query = db.query(WFHRequestModel).join(User).options(joinedload(WFHRequestModel.user)).filter(
-        User.attendance_mode == "office"
+    # Both requester and approver reference users; join through requester explicitly.
+    query = (
+        db.query(WFHRequestModel)
+        .join(WFHRequestModel.user)
+        .options(joinedload(WFHRequestModel.user))
+        .filter(User.attendance_mode == "office")
     )
     if team_ids is not None:
         query = query.filter(WFHRequestModel.user_id.in_(team_ids))

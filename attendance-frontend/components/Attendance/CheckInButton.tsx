@@ -12,6 +12,7 @@ import { useState } from "react";
 import toast from "react-hot-toast";
 import { LogIn } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
+import { getCurrentLocation } from "@/lib/location";
 
 interface CheckInButtonProps {
   disabled?: boolean;
@@ -22,25 +23,6 @@ export default function CheckInButton({ disabled, onSuccess }: CheckInButtonProp
   const [loading, setLoading] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reason, setReason] = useState("");
-
-  const getLocation = () => new Promise<GeolocationPosition>((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("LOCATION_REQUIRED: Enable location services to check in."));
-      return;
-    }
-    const error = () => reject(new Error("LOCATION_REQUIRED: Enable location permission to check in onsite."));
-    navigator.geolocation.getCurrentPosition(resolve, () => {
-      navigator.geolocation.getCurrentPosition(resolve, error, {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0,
-      });
-    }, {
-      enableHighAccuracy: false,
-      timeout: 1,
-      maximumAge: 30000,
-    });
-  });
 
   const submitCheckIn = async (reason?: string) => {
     setLoading(true);
@@ -60,7 +42,7 @@ export default function CheckInButton({ disabled, onSuccess }: CheckInButtonProp
       );
       if (needsLocation && !approvedWfh) {
         try {
-          const position = await getLocation();
+          const position = await getCurrentLocation("check in");
           payload.latitude = position.coords.latitude;
           payload.longitude = position.coords.longitude;
           payload.accuracy = position.coords.accuracy;

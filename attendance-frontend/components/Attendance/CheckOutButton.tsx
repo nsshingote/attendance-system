@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { LogOut } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
+import { getCurrentLocation } from "@/lib/location";
 
 interface CheckOutButtonProps {
   disabled?: boolean;
@@ -16,25 +17,6 @@ export default function CheckOutButton({ disabled, onSuccess }: CheckOutButtonPr
   const [loading, setLoading] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reason, setReason] = useState("");
-
-  const getLocation = () => new Promise<GeolocationPosition>((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("LOCATION_REQUIRED: Enable location services to check out."));
-      return;
-    }
-    const error = () => reject(new Error("LOCATION_REQUIRED: Enable location permission to check out onsite."));
-    navigator.geolocation.getCurrentPosition(resolve, () => {
-      navigator.geolocation.getCurrentPosition(resolve, error, {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0,
-      });
-    }, {
-      enableHighAccuracy: false,
-      timeout: 1,
-      maximumAge: 30000,
-    });
-  });
 
   const submitCheckOut = async (reasonText?: string) => {
     if (loading) return;
@@ -56,7 +38,7 @@ export default function CheckOutButton({ disabled, onSuccess }: CheckOutButtonPr
       );
       if (needsLocation && !approvedWfh) {
         try {
-          const position = await getLocation();
+          const position = await getCurrentLocation("check out");
           payload.latitude = position.coords.latitude;
           payload.longitude = position.coords.longitude;
           payload.accuracy = position.coords.accuracy;
