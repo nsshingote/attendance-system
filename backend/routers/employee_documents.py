@@ -29,6 +29,11 @@ PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+(?:\s+[a-zA-Z0-9_]+)*)\s*}
 PERSONAL_DOCUMENT_DOWNLOAD_URL_EXPIRE_SECONDS = 60
 
 
+def _require_document_permissions(current_user: User, db: Session, *permission_keys: str) -> None:
+    if any(not has_permission(current_user, key, db) for key in permission_keys):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+
+
 DEFAULT_COMPANY_NAME = "PropCheckup"
 DEFAULT_COMPANY_ADDRESS = "Office No. 62, Xth Central Mall, 2nd Floor, Above Kotak Bank, Mahavir Nagar, Kandivali West, Mumbai - 400067"
 
@@ -193,7 +198,11 @@ def list_my_salary_slips(db: Session = Depends(get_db), current_user: User = Dep
 
 
 @router.post("/salary-slips", status_code=201)
-def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.manage"))):
+def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    required_permissions = ["employee_documents.salary_slips.create"]
+    if payload.send:
+        required_permissions.append("employee_documents.salary_slips.send")
+    _require_document_permissions(current_user, db, *required_permissions)
     if not 1 <= payload.month <= 12:
         raise HTTPException(status_code=422, detail="Month must be between 1 and 12")
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
@@ -234,7 +243,11 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
 
 
 @router.put("/salary-slips/{slip_id}")
-def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.manage"))):
+def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    required_permissions = ["employee_documents.salary_slips.edit"]
+    if payload.send:
+        required_permissions.append("employee_documents.salary_slips.send")
+    _require_document_permissions(current_user, db, *required_permissions)
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
@@ -283,7 +296,8 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
 
 
 @router.delete("/salary-slips/{slip_id}")
-def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.manage"))):
+def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.salary_slips.delete")
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
@@ -380,7 +394,8 @@ def _clean_document_type(value: str):
 
 
 @router.post("/letter-templates", status_code=201)
-def create_letter_template(payload: LetterTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letter_templates.manage"))):
+def create_letter_template(payload: LetterTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.letter_templates.create")
     name, content, document_type = payload.name.strip(), payload.content, _clean_document_type(payload.document_type)
     if not name or not content.strip():
         raise HTTPException(status_code=422, detail="Template name and content are required")
@@ -393,7 +408,8 @@ def create_letter_template(payload: LetterTemplateCreate, db: Session = Depends(
 
 
 @router.put("/letter-templates/{template_id}")
-def update_letter_template(template_id: int, payload: LetterTemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letter_templates.manage"))):
+def update_letter_template(template_id: int, payload: LetterTemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.letter_templates.edit")
     item = db.query(LetterTemplate).filter(LetterTemplate.id == template_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Letter template not found")
@@ -421,7 +437,8 @@ def update_letter_template(template_id: int, payload: LetterTemplateUpdate, db: 
 
 
 @router.delete("/letter-templates/{template_id}")
-def delete_letter_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letter_templates.manage"))):
+def delete_letter_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.letter_templates.delete")
     item = db.query(LetterTemplate).filter(LetterTemplate.id == template_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Letter template not found")
@@ -432,7 +449,11 @@ def delete_letter_template(template_id: int, db: Session = Depends(get_db), curr
 
 
 @router.post("/letters/generate", status_code=201)
-def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letters.manage"))):
+def generate_dynamic_letter(payload: DynamicLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(
+        current_user, db,
+        "employee_documents.letters.send" if payload.send else "employee_documents.letters.generate",
+    )
     template = db.query(LetterTemplate).filter(LetterTemplate.id == payload.template_id).first()
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not template:
@@ -497,7 +518,8 @@ def list_employee_documents(employee_id: int, db: Session = Depends(get_db), cur
 
 
 @router.delete("/documents/{document_id}")
-def delete_generated_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letters.manage"))):
+def delete_generated_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.letters.delete")
     item = db.query(EmployeeDocument).filter(EmployeeDocument.id == document_id).first()
     if not item: raise HTTPException(status_code=404, detail="Document not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
@@ -856,7 +878,8 @@ def delete_personal_document(document_id: int, db: Session = Depends(get_db), cu
 
 
 @router.post("/letters/offer", status_code=201)
-def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letters.manage"))):
+def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.letters.send" if payload.send else "employee_documents.letters.generate")
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
@@ -894,7 +917,8 @@ def create_offer_letter(payload: OfferLetterCreate, db: Session = Depends(get_db
 
 
 @router.post("/letters/appointment", status_code=201)
-def create_appointment_letter(payload: AppointmentLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.letters.manage"))):
+def create_appointment_letter(payload: AppointmentLetterCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.letters.send" if payload.send else "employee_documents.letters.generate")
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")

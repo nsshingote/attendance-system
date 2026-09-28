@@ -23,6 +23,7 @@ import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
 import { HIDDEN_PDF_PREVIEW_CONTAINER_STYLE } from "@/lib/dynamicLetterLayout";
 import { shareIOSFile } from "@/lib/iosFileDownload";
 import { getSession, getToken } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface UserDetail {
   id: number;
@@ -194,6 +195,8 @@ function countLeaveDays(rows: LeaveRow[], categories: string[]) {
 }
 
 export default function UserDetailPage() {
+  const { permissions } = usePermissions();
+  const canDeleteGeneratedDocuments = hasPermission(permissions, "employee_documents.letters.delete");
   const currentRole = getSession()?.role;
   const teamLeader = currentRole === "team_leader";
   const canCancelApprovedLeave = currentRole === "admin" || currentRole === "superadmin" || currentRole === "team_leader";
@@ -862,7 +865,7 @@ export default function UserDetailPage() {
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => void downloadGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">Download</button>
-                        {!teamLeader && <button onClick={() => handleDeleteDocument(document.id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600">Delete</button>}
+                        {canDeleteGeneratedDocuments && <button onClick={() => handleDeleteDocument(document.id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600">Delete</button>}
                       </div>
                     </div>
                   )) : <p className="text-sm text-ink-500">No generated company documents.</p>}

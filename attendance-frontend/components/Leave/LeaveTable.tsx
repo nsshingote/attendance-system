@@ -2,9 +2,7 @@
 
 /**
  * components/Leave/LeaveTable.tsx
- * Leave requests table. Shows Approve/Reject actions when `canDecide` is
- * true (Admin/SuperAdmin viewing the "All Leave Requests" list). Admins
- * can update categories through the Edit action.
+ * Leave request actions are independently gated by their assigned permissions.
  * The table stays compact and horizontally scrollable on mobile.
  */
 
@@ -30,7 +28,9 @@ export interface LeaveRow {
 
 interface LeaveTableProps {
   requests: LeaveRow[];
-  canDecide?: boolean;
+  canApprove?: boolean;
+  canReject?: boolean;
+  canEditAllocations?: boolean;
   onDecide?: (id: number, status: "Approved" | "Rejected") => void;
   onEditAllocations?: (id: number) => void;
 }
@@ -43,7 +43,9 @@ const CATEGORY_CLASS: Record<string, string> = {
   Mixed: "bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200",
 };
 
-export default function LeaveTable({ requests, canDecide, onDecide, onEditAllocations }: LeaveTableProps) {
+export default function LeaveTable({ requests, canApprove, canReject, canEditAllocations, onDecide, onEditAllocations }: LeaveTableProps) {
+  const showEmployee = canApprove || canReject || canEditAllocations;
+  const showActions = canApprove || canReject || canEditAllocations;
   if (requests.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center">
@@ -57,20 +59,20 @@ export default function LeaveTable({ requests, canDecide, onDecide, onEditAlloca
       <table className="w-full max-w-none table-fixed text-left text-xs sm:text-sm" style={{ minWidth: "900px" }}>
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
-            {canDecide && <th className="px-3 py-3 font-medium sm:px-4">Employee</th>}
+            {showEmployee && <th className="px-3 py-3 font-medium sm:px-4">Employee</th>}
             <th className="px-3 py-3 font-medium sm:px-4">From</th>
             <th className="px-3 py-3 font-medium sm:px-4">To</th>
             <th className="px-3 py-3 font-medium sm:px-4">Days</th>
             <th className="px-3 py-3 font-medium sm:px-4">Category</th>
             <th className="px-3 py-3 font-medium sm:px-4">Reason</th>
             <th className="px-3 py-3 font-medium sm:px-4">Status</th>
-            {canDecide && <th className="px-3 py-3 text-right font-medium sm:px-4">Actions</th>}
+            {showActions && <th className="px-3 py-3 text-right font-medium sm:px-4">Actions</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
           {requests.map((r) => (
             <tr key={r.id} className="hover:bg-ink-50/60">
-              {canDecide && (
+              {showEmployee && (
                 <td className="wrap-break-word whitespace-normal px-3 py-3 font-medium text-ink-900 sm:px-4">
                   {r.user_name ?? `User #${r.user_id}`}
                 </td>
@@ -98,28 +100,32 @@ export default function LeaveTable({ requests, canDecide, onDecide, onEditAlloca
               <td className="px-3 py-3 whitespace-nowrap sm:px-4">
                 <Badge status={r.status} />
               </td>
-              {canDecide && (
+              {showActions && (
                 <td className="px-3 py-3 whitespace-nowrap sm:px-4">
                   <div className="flex justify-end gap-1.5">
                     {r.status === "Pending" && (
                       <>
-                        <button
-                          onClick={() => onDecide?.(r.id, "Approved")}
-                          className="rounded-md bg-green-50 p-1.5 text-green-700 hover:bg-green-100"
-                          aria-label="Approve"
-                        >
-                          <Check size={15} />
-                        </button>
-                        <button
-                          onClick={() => onDecide?.(r.id, "Rejected")}
-                          className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
-                          aria-label="Reject"
-                        >
-                          <X size={15} />
-                        </button>
+                        {canApprove && (
+                          <button
+                            onClick={() => onDecide?.(r.id, "Approved")}
+                            className="rounded-md bg-green-50 p-1.5 text-green-700 hover:bg-green-100"
+                            aria-label="Approve"
+                          >
+                            <Check size={15} />
+                          </button>
+                        )}
+                        {canReject && (
+                          <button
+                            onClick={() => onDecide?.(r.id, "Rejected")}
+                            className="rounded-md bg-red-50 p-1.5 text-red-700 hover:bg-red-100"
+                            aria-label="Reject"
+                          >
+                            <X size={15} />
+                          </button>
+                        )}
                       </>
                     )}
-                    {canDecide && (
+                    {canEditAllocations && (
                       <button
                         onClick={() => onEditAllocations?.(r.id)}
                         className="rounded-md bg-sky-50 px-2 py-1.5 text-[11px] font-medium text-sky-700 hover:bg-sky-100"

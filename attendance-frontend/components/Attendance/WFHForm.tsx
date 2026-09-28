@@ -29,6 +29,7 @@ interface WFHFormProps {
 interface UserOption {
   id: number;
   name: string;
+  attendance_mode?: string | null;
 }
 
 const formatLocalDate = (date: Date) => {
@@ -73,9 +74,10 @@ export default function WFHForm({ isAdmin, targetUserId: propTargetUserId, onSuc
       api
         .get<UserOption[]>("/users/")
         .then(({ data }) => {
-          setUsers(data);
-          if (!propTargetUserId && data.length > 0) {
-            setSelectedUserId(data[0].id);
+          const officeEmployees = data.filter((user) => (user.attendance_mode || "office").toLowerCase() !== "onsite");
+          setUsers(officeEmployees);
+          if (!propTargetUserId && officeEmployees.length > 0) {
+            setSelectedUserId(officeEmployees[0].id);
           }
         })
         .catch(() => toast.error("Failed to load users"));

@@ -25,7 +25,7 @@ from auth import (
     effective_role_key,
     is_superadmin,
 )
-from team_scope import require_team_member_access, require_team_permission
+from team_scope import get_team_member_ids, require_team_member_access, require_team_permission, is_team_member
 from database import get_db
 from models import (
     Attendance,
@@ -157,6 +157,14 @@ def _validate_office_ip(ip_address: str, db: Session) -> bool:
 
 def _is_onsite_user(user: User) -> bool:
     return (getattr(user, "attendance_mode", None) or "office").lower() == "onsite"
+
+
+def _require_office_request_mode(user: User, request_type: str) -> None:
+    if _is_onsite_user(user):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{request_type} requests are only available for office employees.",
+        )
 
 
 def _validate_location(latitude: Optional[float], longitude: Optional[float], accuracy: Optional[float]) -> None:
@@ -1780,6 +1788,9 @@ def manual_update(
     record = db.query(Attendance).filter(Attendance.id == attendance_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Attendance record not found")
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "attendance.team_view", db) or not is_team_member(db, current_user, record.user_id):
+            raise HTTPException(status_code=403, detail="Attendance override is limited to your active team")
 
     update_data = payload.model_dump(exclude_unset=True)
     if "leave_category" in update_data and update_data.get("status") != "On Leave":
@@ -1869,6 +1880,9 @@ def manual_update_by_user_date(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "attendance.team_view", db) or not is_team_member(db, current_user, user.id):
+            raise HTTPException(status_code=403, detail="Attendance override is limited to your active team")
 
     record = db.query(Attendance).filter(Attendance.user_id == user_id, Attendance.attendance_date == target_date).first()
     update_data = payload.model_dump(exclude_unset=True)
@@ -2050,6 +2064,8 @@ def my_half_day_requests(
     current_user: User = Depends(get_current_user)
 ):
     """Get current user's half day requests with optional month filter."""
+    if _is_onsite_user(current_user):
+        return []
     query = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.user_id == current_user.id)
     if month and year:
         start_date = date(year, month, 1)
@@ -2070,6 +2086,30 @@ def my_half_day_requests(
     return query.order_by(HalfDayRequestModel.requested_at.desc()).all()
 
 
+def _approval_request_view_scope(
+    db: Session,
+    current_user: User,
+    action_permission: str,
+) -> Optional[List[int]]:
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "leave.team_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view team requests")
+        return get_team_member_ids(db, current_user)
+    if has_permission(current_user, "attendance.all_view", db) or has_permission(
+        current_user, action_permission, db
+    ):
+        return None
+    raise HTTPException(status_code=403, detail="You do not have permission to view these requests")
+
+
+def _require_approval_request_team_scope(db: Session, current_user: User, employee_id: int) -> None:
+    if effective_role_key(current_user) == "team_leader":
+        if not has_permission(current_user, "leave.team_view", db):
+            raise HTTPException(status_code=403, detail="You do not have permission to view team requests")
+        if not is_team_member(db, current_user, employee_id):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
+
+
 @router.get("/half-day-requests", response_model=List[HalfDayOut])
 def all_half_day_requests(
     status_filter: Optional[str] = None,
@@ -2077,10 +2117,15 @@ def all_half_day_requests(
     year: Optional[int] = Query(None, ge=2020, le=2100),
     date_value: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(get_current_user),
 ):
-    """Admin gets all half day requests with optional month filter."""
-    query = db.query(HalfDayRequestModel).options(joinedload(HalfDayRequestModel.user))
+    """List half-day requests within the caller's permitted scope."""
+    team_ids = _approval_request_view_scope(db, current_user, "attendance.half_day.approve")
+    query = db.query(HalfDayRequestModel).join(User).options(joinedload(HalfDayRequestModel.user)).filter(
+        User.attendance_mode == "office"
+    )
+    if team_ids is not None:
+        query = query.filter(HalfDayRequestModel.user_id.in_(team_ids))
     if status_filter:
         query = query.filter(HalfDayRequestModel.status == status_filter)
     if month and year:
@@ -2115,6 +2160,8 @@ def get_user_half_day_requests(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if _is_onsite_user(user):
+        return []
     if current_user.id != user_id:
         require_team_member_access(db, current_user, user_id, "leave.team_view")
     
@@ -2143,17 +2190,24 @@ def decide_half_day(
     request_id: int,
     payload: HalfDayDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(get_current_user),
 ):
-    """Admin approves or rejects a half day request."""
+    """Approve or reject a half-day request with its action permission."""
+    if not has_permission(current_user, "attendance.half_day.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to approve half-day requests")
     if payload.status not in ("Approved", "Rejected"):
         raise HTTPException(status_code=400, detail="Status must be 'Approved' or 'Rejected'")
 
     half_day_request = db.query(HalfDayRequestModel).filter(HalfDayRequestModel.id == request_id).first()
     if not half_day_request:
         raise HTTPException(status_code=404, detail="Half day request not found")
+    _require_approval_request_team_scope(db, current_user, half_day_request.user_id)
     if half_day_request.status != "Pending":
         raise HTTPException(status_code=400, detail="This request has already been processed")
+    request_user = db.query(User).filter(User.id == half_day_request.user_id).first()
+    if not request_user:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _require_office_request_mode(request_user, "Half-day")
 
     if payload.status == "Approved":
         if _has_approved_wfh(db, half_day_request.user_id, half_day_request.attendance_date):
@@ -2228,6 +2282,10 @@ def cancel_approved_half_day(
         raise HTTPException(status_code=404, detail="Half day request not found")
     if request.status != "Approved":
         raise HTTPException(status_code=400, detail="Only approved half day requests can be cancelled")
+    request_user = db.query(User).filter(User.id == request.user_id).first()
+    if not request_user:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _require_office_request_mode(request_user, "Half-day")
     if effective_role_key(current_user) == "team_leader":
         require_team_member_access(db, current_user, request.user_id, "leave.approve")
 
@@ -2263,6 +2321,7 @@ def admin_request_half_day_for_user(
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
+    _require_office_request_mode(target_user, "Half-day")
     
     if payload.slot not in HALF_DAY_SLOTS:
         raise HTTPException(status_code=400, detail="Slot must be 'morning' or 'afternoon'")
@@ -2429,7 +2488,7 @@ def request_wfh(
     for approver_id in get_approver_user_ids(
         db,
         employee_id=current_user.id,
-        permission_key="leave.approve",
+        permission_key="attendance.wfh.approve",
         actor_user_id=current_user.id,
         include_team_leaders=False,
     ):
@@ -2457,6 +2516,8 @@ def my_wfh_requests(
     current_user: User = Depends(get_current_user),
 ):
     """Get current user's WFH requests, optional month filter."""
+    if _is_onsite_user(current_user):
+        return []
     query = db.query(WFHRequestModel).filter(WFHRequestModel.user_id == current_user.id)
     if month and year:
         start_date = date(year, month, 1)
@@ -2474,10 +2535,15 @@ def all_wfh_requests(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(get_current_user),
 ):
-    """Admin gets all WFH requests, optional status/month filter."""
-    query = db.query(WFHRequestModel).options(joinedload(WFHRequestModel.user))
+    """List WFH requests within the caller's permitted scope."""
+    team_ids = _approval_request_view_scope(db, current_user, "attendance.wfh.approve")
+    query = db.query(WFHRequestModel).join(User).options(joinedload(WFHRequestModel.user)).filter(
+        User.attendance_mode == "office"
+    )
+    if team_ids is not None:
+        query = query.filter(WFHRequestModel.user_id.in_(team_ids))
     if status_filter:
         query = query.filter(WFHRequestModel.status == status_filter)
     if month and year:
@@ -2502,6 +2568,8 @@ def get_user_wfh_requests(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if _is_onsite_user(user):
+        return []
     if current_user.id != user_id:
         require_team_member_access(db, current_user, user_id, "leave.team_view")
 
@@ -2521,17 +2589,24 @@ def decide_wfh(
     request_id: int,
     payload: WFHDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(get_current_user),
 ):
-    """Admin approves or rejects a WFH request."""
+    """Approve or reject a WFH request with its action permission."""
+    if not has_permission(current_user, "attendance.wfh.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to approve WFH requests")
     if payload.status not in ("Approved", "Rejected"):
         raise HTTPException(status_code=400, detail="Status must be 'Approved' or 'Rejected'")
 
     wfh_request = db.query(WFHRequestModel).filter(WFHRequestModel.id == request_id).first()
     if not wfh_request:
         raise HTTPException(status_code=404, detail="WFH request not found")
+    _require_approval_request_team_scope(db, current_user, wfh_request.user_id)
     if wfh_request.status != "Pending":
         raise HTTPException(status_code=400, detail="This request has already been processed")
+    request_user = db.query(User).filter(User.id == wfh_request.user_id).first()
+    if not request_user:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _require_office_request_mode(request_user, "WFH")
 
     ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if wfh_request.attendance_date < ist_today:
@@ -2624,6 +2699,10 @@ def cancel_approved_wfh(
         raise HTTPException(status_code=404, detail="WFH request not found")
     if request.status != "Approved":
         raise HTTPException(status_code=400, detail="Only approved WFH requests can be cancelled")
+    request_user = db.query(User).filter(User.id == request.user_id).first()
+    if not request_user:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _require_office_request_mode(request_user, "WFH")
     if effective_role_key(current_user) == "team_leader":
         require_team_member_access(db, current_user, request.user_id, "leave.approve")
     request.status = "Cancelled"
@@ -2647,6 +2726,7 @@ def admin_request_wfh_for_user(
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
+    _require_office_request_mode(target_user, "WFH")
 
     ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if payload.attendance_date < ist_today:

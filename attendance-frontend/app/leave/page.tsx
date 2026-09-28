@@ -136,6 +136,12 @@ export default function LeavePage() {
   const teamView = session?.role === "team_leader" &&
     hasPermission(permissions, "leave.team_view");
   const canApprove = hasPermission(permissions, "leave.approve");
+  const canReject = hasPermission(permissions, "leave.reject");
+  const canEditAllocations = hasPermission(permissions, "leave.edit_allocations");
+  const canCancelLeave = hasPermission(permissions, "leave.cancel");
+  const canApproveHalfDay = hasPermission(permissions, "attendance.half_day.approve");
+  const canApproveWfh = hasPermission(permissions, "attendance.wfh.approve");
+  const canViewRequestQueues = admin || teamView || hasPermission(permissions, "attendance.all_view");
   const today = new Date();
 
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -228,6 +234,20 @@ export default function LeavePage() {
         setMyHalfDayRequests([]);
         setMyEncashmentRequests([]);
         setMyWfhRequests([]);
+      } else if (teamView && effectiveEmployeeIds.length === 0) {
+        const [halfDayRes, wfhRes] = await Promise.all([
+          api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
+          api.get<WFHRequestRow[]>("/attendance/wfh", { params }),
+        ]);
+        setAllRequests([]);
+        setHalfDayRequests(halfDayRes.data || []);
+        setWfhRequests(wfhRes.data || []);
+        setEncashmentRequests([]);
+        setMyRequests([]);
+        setMyHalfDayRequests([]);
+        setMyWfhRequests([]);
+        setMyEncashmentRequests([]);
+        setBalance(null);
       } else if ((admin || teamView) && effectiveEmployeeIds.length > 0) {
         // Admin filtering by specific employees
         const userLeavePromises = effectiveEmployeeIds.map((userId) =>
@@ -319,7 +339,7 @@ export default function LeavePage() {
       setAllocationModalCanCancel(false);
       return;
     }
-    setAllocationModalCanCancel(leave.status === "Approved");
+    setAllocationModalCanCancel(leave.status === "Approved" && canCancelLeave);
     // build rows: if server returned allocations, use them; otherwise derive from range
     if (leave.allocations && leave.allocations.length > 0) {
       setAllocationRows(
@@ -587,7 +607,7 @@ export default function LeavePage() {
                       </span>
                     )}
                   </button>
-                  {admin && <>
+                  {(canViewRequestQueues && (teamView || canApproveHalfDay)) && <>
                     <button
                       onClick={() => setTab("halfday")}
                       className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "halfday" ? "bg-brand-500 text-white" : "text-ink-600"}`}
@@ -599,6 +619,8 @@ export default function LeavePage() {
                         </span>
                       )}
                     </button>
+                  </>}
+                  {(canViewRequestQueues && (teamView || canApproveWfh)) && <>
                     <button
                       onClick={() => setTab("wfh")}
                       className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "wfh" ? "bg-brand-500 text-white" : "text-ink-600"}`}
@@ -610,6 +632,8 @@ export default function LeavePage() {
                         </span>
                       )}
                     </button>
+                  </>}
+                  {admin && <>
                     <button
                       onClick={() => setTab("encashment")}
                       className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "encashment" ? "bg-brand-500 text-white" : "text-ink-600"}`}
@@ -727,17 +751,19 @@ export default function LeavePage() {
             )}
 
             {/* All Leave Requests tab - only for admin viewing all employees */}
-            {canApprove && tab === "all" && (
+            {(admin || teamView) && tab === "all" && (
               <LeaveTable
                 requests={allRequests}
-                canDecide={canApprove}
+                canApprove={canApprove}
+                canReject={canReject}
+                canEditAllocations={canEditAllocations}
                 onDecide={handleDecide}
                 onEditAllocations={(id) => openAllocationModal(id)}
               />
             )}
 
             {/* Half Day Requests tab - only for admin viewing all employees */}
-            {admin && tab === "halfday" && (
+            {canViewRequestQueues && (teamView || canApproveHalfDay) && tab === "halfday" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {halfDayRequests.length === 0 ? (
                   <div className="py-12 text-center">
@@ -780,7 +806,7 @@ export default function LeavePage() {
                               >
                                 Edit
                               </button>
-                            ) : r.status === "Pending" ? (
+                            ) : r.status === "Pending" && canApproveHalfDay ? (
                               <div className="flex justify-end gap-1.5">
                                 <button
                                   onClick={() => handleDecideHalfDay(r.id, "Approved")}
@@ -810,7 +836,7 @@ export default function LeavePage() {
             )}
 
             {/* WFH Requests tab - only for admin viewing all employees */}
-            {admin && tab === "wfh" && (
+            {canViewRequestQueues && (teamView || canApproveWfh) && tab === "wfh" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {wfhRequests.length === 0 ? (
                   <div className="py-12 text-center">
@@ -851,7 +877,7 @@ export default function LeavePage() {
                               >
                                 Edit
                               </button>
-                            ) : r.status === "Pending" ? (
+                            ) : r.status === "Pending" && canApproveWfh ? (
                               <div className="flex justify-end gap-1.5">
                                 <button
                                   onClick={() => handleDecideWfh(r.id, "Approved")}

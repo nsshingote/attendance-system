@@ -30,6 +30,7 @@ interface HalfDayFormProps {
 interface UserOption {
   id: number;
   name: string;
+  attendance_mode?: string | null;
 }
 
 const SLOTS = [
@@ -62,10 +63,11 @@ export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, o
       api
         .get<UserOption[]>("/users/")
         .then(({ data }) => {
-          setUsers(data);
+          const officeEmployees = data.filter((user) => (user.attendance_mode || "office").toLowerCase() !== "onsite");
+          setUsers(officeEmployees);
           // If no targetUserId provided, default to first user
-          if (!propTargetUserId && data.length > 0) {
-            setSelectedUserId(data[0].id);
+          if (!propTargetUserId && officeEmployees.length > 0) {
+            setSelectedUserId(officeEmployees[0].id);
           }
         })
         .catch(() => toast.error("Failed to load users"));

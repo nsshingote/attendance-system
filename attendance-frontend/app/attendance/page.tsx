@@ -467,6 +467,10 @@ export default function AttendancePage() {
   const admin = hasPermission(permissions, "attendance.all_view");
   const teamView = session?.role === "team_leader" &&
     hasPermission(permissions, "attendance.team_view");
+  const canOverrideAttendance = hasPermission(permissions, "attendance.manual_override");
+  const canOverrideTable = canOverrideAttendance && (
+    session?.role !== "team_leader" || (teamView && selectedUserIds.length === 1)
+  );
 
   const normalizeOverrideStatus = (status: string) => {
     return status;
@@ -777,7 +781,7 @@ setSummary(
               showRequestCorrection={!admin || (selectedUserIds.length === 1 && selectedUserIds[0] === session?.userId)}
               onRequestCorrection={setCorrectionModal}
               showEmployeeName={admin || teamView}
-              showAdminActions={admin}
+              showAdminActions={canOverrideTable}
               onManualOverride={(record) => {
                 setManualOverrideModal(record);
                 setOverrideStatus(record.status);
@@ -792,7 +796,7 @@ setSummary(
                   departmentId={selectedDepartmentId || undefined}
                   year={year}
                   month={month}
-                  canOverride={admin && selectedUserIds.length === 1}
+                  canOverride={canOverrideAttendance && (admin || (teamView && selectedUserIds.length === 1))}
                   refreshKey={calendarRefreshKey}
                   selectedDate={calendarSelectedDate || undefined}
                   onOverrideSaved={() => {
@@ -810,7 +814,7 @@ setSummary(
                 />
               </div>
 
-              {calendarSelectedDate && calendarSelectedUserId && (
+              {canOverrideAttendance && (admin || teamView) && calendarSelectedDate && calendarSelectedUserId && (
                 <div className="w-full rounded-xl border border-ink-200 bg-white p-4 shadow-card">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>

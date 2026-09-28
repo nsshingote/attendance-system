@@ -24,7 +24,7 @@ from schemas import (
     LeaveEncashmentDecision, LeaveCategoryOverride, LeaveAllocationOverride
 )
 from auth import get_current_user, has_permission, require_roles, require_admin_permission, effective_role_key
-from team_scope import require_team_member_access
+from team_scope import is_team_member, require_team_member_access
 from services.notifications import create_notification, get_approver_user_ids
 from services.recycle_bin import archive_object
 from utils.leave_calculator import (
@@ -52,6 +52,15 @@ from utils.attendance_status import (
 )
 
 router = APIRouter()
+
+
+def _require_leave_team_scope(db: Session, current_user: User, employee_id: int) -> None:
+    """Keep Team Leader leave actions limited to their assigned teams."""
+    require_team_member_access(db, current_user, employee_id, "leave.team_view")
+    if effective_role_key(current_user) == "team_leader" and not is_team_member(
+        db, current_user, employee_id
+    ):
+        raise HTTPException(status_code=403, detail="Employee is outside your active team")
 
 
 def _is_sandwich_date_in_request(
@@ -670,7 +679,7 @@ def cancel_leave(
     target_user = db.query(User).filter(User.id == leave_request.user_id).with_for_update().first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
-    require_team_member_access(db, current_user, target_user.id, "leave.approve")
+    _require_leave_team_scope(db, current_user, target_user.id)
 
     carried_days = sum(
         1 for allocation in leave_request.allocations
@@ -769,7 +778,7 @@ def cancel_leave_allocation(
     target_user = db.query(User).filter(User.id == leave_request.user_id).with_for_update().first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
-    require_team_member_access(db, current_user, target_user.id, "leave.approve")
+    _require_leave_team_scope(db, current_user, target_user.id)
 
     allocation = next(
         (
@@ -969,6 +978,10 @@ def decide_leave(
     if payload.status not in ("Approved", "Rejected"):
         raise HTTPException(status_code=400, detail="Status must be 'Approved' or 'Rejected'")
 
+    action_permission = "leave.approve" if payload.status == "Approved" else "leave.reject"
+    if not has_permission(current_user, action_permission, db):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+
     leave_request = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).with_for_update().first()
     
     if not leave_request:
@@ -983,7 +996,7 @@ def decide_leave(
     target_user = db.query(User).filter(User.id == leave_request.user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
-    require_team_member_access(db, current_user, target_user.id, "leave.approve")
+    _require_leave_team_scope(db, current_user, target_user.id)
 
     leave_request.status = payload.status
     leave_request.approved_by = current_user.id
@@ -1380,7 +1393,7 @@ def override_leave_allocations(
     leave_id: int,
     payload: LeaveAllocationOverride,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("leave.approve"))
+    current_user: User = Depends(require_admin_permission("leave.edit_allocations"))
 ):
     """Admin edits the per-day allocation for a leave request."""
     # Lock the leave request and user rows to avoid concurrent modifications.
@@ -1395,6 +1408,7 @@ def override_leave_allocations(
     )
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
+    _require_leave_team_scope(db, current_user, target_user.id)
 
     allowed_categories = {"Paid", "Carried", "Unpaid", "Privilege", "Emergency", "Sick"}
     allocation_map = {}
