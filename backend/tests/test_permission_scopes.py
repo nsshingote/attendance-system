@@ -122,10 +122,10 @@ def test_team_leader_activity_logs_restrict_empty_and_forged_filters(db_session:
         team_ids=[outsider_team.id],
     )
 
-    assert {item["user_id"] for item in unfiltered} == {leader.id, member.id}
+    assert {item["user_id"] for item in unfiltered} == {member.id}
     assert forged_filter == []
 
-    _grant(monkeypatch, activity_logs_router, {"activity_logs.view"})
+    _grant(monkeypatch, activity_logs_router, {"activity_logs.view", "activity_logs.team_view"})
     legacy_all_user_results = activity_logs_router.list_activity_logs(
         user_id=None,
         employee_ids=None,
@@ -133,7 +133,7 @@ def test_team_leader_activity_logs_restrict_empty_and_forged_filters(db_session:
         db=db_session,
         current_user=leader,
     )
-    assert {item["user_id"] for item in legacy_all_user_results} == {leader.id, member.id, outsider.id}
+    assert {item["user_id"] for item in legacy_all_user_results} == {member.id}
 
 
 def test_profile_and_report_approval_lists_are_team_scoped(db_session: Session, monkeypatch):

@@ -40,7 +40,7 @@ const PERMISSION_NAV_ITEMS = [
   { href: "/requests", label: "Requests", icon: ClipboardEdit, permission: "requests.view" },
   { href: "/holidays", label: "Holidays", icon: CalendarDays, permission: "holidays.view" },
   { href: "/reports", label: "Monthly Summary", icon: FileBarChart, permission: "monthly_summary.view" },
-  { href: "/device-requests", label: "Device Requests", icon: Smartphone, permission: "device_requests.view" },
+  { href: "/device-requests", label: "Device Requests", icon: Smartphone, permission: "device_requests.view", alternatives: ["device_requests.team_view"] },
   { href: "/notification-emails", label: "Notification Emails", icon: Mail, permission: "notification_emails.view" },
   { href: "/office-ip", label: "Office IPs", icon: Wifi, permission: "office_ips.view" },
   { href: "/activity-logs", label: "Activity Logs", icon: History, permission: "activity_logs.view", alternatives: ["activity_logs.team_view"] },
@@ -87,6 +87,7 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
   );
   const navItems = [...EMPLOYEE_NAV_ITEMS, ...permissionItems, ...teamItems]
     .filter((item, index, items) => items.findIndex((candidate) => candidate.href === item.href) === index)
+    .filter((item) => !(session?.role === "team_leader" && item.href === "/corrections"))
     .filter((item) => !(session?.role === "team_leader" && item.href === "/daily-report"))
     .map((item) => {
     if (session?.role !== "team_leader") return item;

@@ -49,7 +49,7 @@ export function CorrectionsContent() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const requests: Promise<any>[] = [api.get<CorrectionRow[]>("/corrections/me")];
+      const requests: Promise<{ data: CorrectionRow[] }>[] = [api.get<CorrectionRow[]>("/corrections/me")];
       if (admin || teamView) requests.push(api.get<CorrectionRow[]>("/corrections/"));
       if (teamView) {
         requests.push(...selectedEmployeeIds.map((userId) => api.get<CorrectionRow[]>(`/corrections/user/${userId}`)));
@@ -66,7 +66,8 @@ export function CorrectionsContent() {
   }, [admin, teamView, selectedEmployeeIds, teamEmployeeIds]);
 
   useEffect(() => {
-    fetchData();
+    const load = async () => { await fetchData(); };
+    void load();
   }, [fetchData]);
 
   useEffect(() => {

@@ -44,13 +44,14 @@ def list_activity_logs(
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(ActivityLog)
-    team_leader_scope = effective_role_key(current_user) == "team_leader" and not has_permission(
-        current_user, "activity_logs.view", db
-    )
+    team_leader_scope = effective_role_key(current_user) == "team_leader"
     if team_leader_scope:
-        if not has_permission(current_user, "activity_logs.team_view", db):
+        if not (
+            has_permission(current_user, "activity_logs.team_view", db)
+            or has_permission(current_user, "activity_logs.view", db)
+        ):
             raise HTTPException(status_code=403, detail="You do not have permission to view activity logs")
-        allowed_user_ids = {current_user.id, *get_team_member_ids(db, current_user)}
+        allowed_user_ids = set(get_team_member_ids(db, current_user))
         requested_user_ids = set(employee_ids or [])
         if user_id is not None:
             requested_user_ids.add(user_id)
@@ -162,6 +163,7 @@ def list_activity_logs(
         {
             "id": log.id,
             "user_id": log.user_id,
+            "user_name": users_by_id.get(log.user_id),
             "activity": resolve_target_names(log.activity),
             "created_at": serialize_created_at(log.created_at),
         }

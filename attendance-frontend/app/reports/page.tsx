@@ -56,6 +56,7 @@ export default function ReportsPage() {
   const { permissions, loading: permissionsLoading } = usePermissions();
   const teamReports = session?.role === "team_leader" &&
     hasPermission(permissions, "reports.team_view");
+  const canExport = hasPermission(permissions, "monthly_summary.export");
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -83,7 +84,8 @@ export default function ReportsPage() {
   }, [year, month, teamReports, permissionsLoading]);
 
   useEffect(() => {
-    fetchData();
+    const load = async () => { await fetchData(); };
+    void load();
   }, [fetchData]);
 
   const handleDownloadCSV = () => {
@@ -98,7 +100,6 @@ export default function ReportsPage() {
           r.WFH,
           r["Extra Working Day"],
           r["Paid Leave"],
-          r["Carried Leave Used"],
           r.LWP,
           r["Privilege Leave"],
           r["Carried Leave Used"],
@@ -264,7 +265,7 @@ export default function ReportsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
-              {!teamReports && <><button
+              {canExport && <><button
                 onClick={handleDownloadCSV}
                 className="flex min-h-11 items-center gap-2 rounded-2xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
               >

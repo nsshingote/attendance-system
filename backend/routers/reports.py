@@ -432,7 +432,7 @@ def employee_wise_summary(
     current Carry Forward balance, and whether they have any pending or
     approved Encashment request on record.
     """
-    if effective_role_key(current_user) != "team_leader" and not has_permission(current_user, "monthly_summary.view", db):
+    if not has_permission(current_user, "monthly_summary.view", db):
         raise HTTPException(status_code=403, detail="You do not have permission to view monthly summary")
     team_member_ids = require_team_permission(db, current_user, "reports.team_view")
     users_query = db.query(User).filter(User.status == "active")

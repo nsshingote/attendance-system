@@ -710,6 +710,7 @@ class OfficeIPOut(ORMBase):
 class ActivityLogOut(ORMBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     activity: str
     created_at: datetime
 

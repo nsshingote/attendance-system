@@ -11,12 +11,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import require_admin_permission
+from auth import effective_role_key, get_current_user, has_permission
 from database import get_db
 from models import DeviceRequest, User, ActivityLog
 from schemas import DeviceRequestDecision, DeviceRequestOut
 from services.notifications import create_notification
 from routers.changed_logs import record_changed_log
+from team_scope import is_team_member, get_team_member_ids
 
 router = APIRouter()
 
@@ -25,9 +26,19 @@ router = APIRouter()
 def list_device_requests(
     status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("device_requests.view")),
+    current_user: User = Depends(get_current_user),
 ):
     query = db.query(DeviceRequest, User.name).join(User, User.id == DeviceRequest.user_id)
+    role_key = effective_role_key(current_user)
+    if role_key == "team_leader":
+        if not (
+            has_permission(current_user, "device_requests.team_view", db)
+            or has_permission(current_user, "device_requests.view", db)
+        ):
+            raise HTTPException(status_code=403, detail="You do not have permission to view team device requests")
+        query = query.filter(DeviceRequest.user_id.in_(get_team_member_ids(db, current_user)))
+    elif role_key != "superadmin" and not has_permission(current_user, "device_requests.view", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to view device requests")
     if status_filter:
         query = query.filter(DeviceRequest.status == status_filter)
     return [
@@ -51,14 +62,22 @@ def decide_device_request(
     request_id: int,
     payload: DeviceRequestDecision,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("device_requests.approve")),
+    current_user: User = Depends(get_current_user),
 ):
+    role_key = effective_role_key(current_user)
+    if role_key not in ("admin", "superadmin", "team_leader"):
+        raise HTTPException(status_code=403, detail="You do not have permission to approve device requests")
+    if role_key != "superadmin" and not has_permission(current_user, "device_requests.approve", db):
+        raise HTTPException(status_code=403, detail="You do not have permission to approve device requests")
     if payload.status not in ("Approved", "Rejected"):
         raise HTTPException(status_code=400, detail="Status must be 'Approved' or 'Rejected'")
 
     device_request = db.query(DeviceRequest).filter(DeviceRequest.id == request_id).first()
     if not device_request:
         raise HTTPException(status_code=404, detail="Device request not found")
+    if role_key == "team_leader":
+        if not is_team_member(db, current_user, device_request.user_id):
+            raise HTTPException(status_code=403, detail="Employee is outside your active team")
     if device_request.status != "Pending":
         raise HTTPException(status_code=400, detail="This request has already been processed")
 

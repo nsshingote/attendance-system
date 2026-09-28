@@ -119,9 +119,18 @@ export default function PermissionsPage() {
     }
   }, [assignmentType, roles, target]);
 
-  useEffect(() => { void loadPermissionCatalog(); }, [loadPermissionCatalog]);
-  useEffect(() => { void loadTargets(); }, [loadTargets]);
-  useEffect(() => { void loadAssignment(); }, [loadAssignment]);
+  useEffect(() => {
+    const load = async () => { await loadPermissionCatalog(); };
+    void load();
+  }, [loadPermissionCatalog]);
+  useEffect(() => {
+    const load = async () => { await loadTargets(); };
+    void load();
+  }, [loadTargets]);
+  useEffect(() => {
+    const load = async () => { await loadAssignment(); };
+    void load();
+  }, [loadAssignment]);
 
   const changeType = (type: "role" | "user") => {
     setAssignmentType(type);
@@ -308,7 +317,7 @@ export default function PermissionsPage() {
                 </label>
               </div>
               <div className="table-wrapper">
-                <table className="w-full min-w:760px text-left text-sm">
+                <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Module</th>

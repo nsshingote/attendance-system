@@ -14,6 +14,8 @@ import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
 import { parseISTDateTime } from "@/lib/date";
+import { getSession } from "@/lib/auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 
 interface DeviceRequest {
   id: number;
@@ -26,6 +28,9 @@ interface DeviceRequest {
 }
 
 export default function DeviceRequestsPage() {
+  const teamLeader = getSession()?.role === "team_leader";
+  const { permissions } = usePermissions();
+  const canDecide = hasPermission(permissions, "device_requests.approve");
   const [requests, setRequests] = useState<DeviceRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -42,7 +47,8 @@ export default function DeviceRequestsPage() {
   }, []);
 
   useEffect(() => {
-    fetchRequests();
+    const load = async () => { await fetchRequests(); };
+    void load();
   }, [fetchRequests]);
 
   const handleDecide = async (id: number, status: "Approved" | "Rejected") => {
@@ -56,7 +62,10 @@ export default function DeviceRequestsPage() {
   };
 
   return (
-    <AppShell requiredPermission="device_requests.view">
+    <AppShell
+      requiredPermission={teamLeader ? "device_requests.team_view" : "device_requests.view"}
+      alternativePermissions={teamLeader ? ["device_requests.view"] : []}
+    >
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Device Requests</h1>
@@ -79,7 +88,7 @@ export default function DeviceRequestsPage() {
                   <th className="px-4 py-3 font-medium">Browser</th>
                   <th className="px-4 py-3 font-medium">Requested</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium text-right">Actions</th>
+                  {canDecide && <th className="px-4 py-3 font-medium text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
@@ -94,9 +103,9 @@ export default function DeviceRequestsPage() {
                         return date ? formatInTimeZone(date, "Asia/Kolkata", "dd MMM, hh:mm a") : r.requested_at;
                       })()}
                     </td>
-                    <td className="px-4 py-3">
+                    {canDecide && <td className="px-4 py-3">
                       <Badge status={r.status} />
-                    </td>
+                    </td>}
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
                         {r.status === "Pending" ? (
