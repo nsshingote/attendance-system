@@ -668,6 +668,7 @@ def test_approval_rebuilds_allocations_and_total_days_from_final_chargeable_date
     db_session: Session,
 ):
     create_company_settings(db_session)
+    approver = create_user(db_session, role="superadmin")
     user = create_user(db_session)
     user.last_leave_accrual_date = date(2026, 9, 1)
     user.paid_leave_available = 1
@@ -684,15 +685,12 @@ def test_approval_rebuilds_allocations_and_total_days_from_final_chargeable_date
         status="Pending",
     )
 
-    with (
-        patch("routers.leave.require_team_member_access"),
-        patch("routers.leave.refresh_leave_accrual"),
-    ):
+    with patch("routers.leave.refresh_leave_accrual"):
         approved = decide_leave(
             pending.id,
             LeaveDecision(status="Approved"),
             db=db_session,
-            current_user=user,
+            current_user=approver,
         )
 
     assert approved.status == "Approved"
@@ -1189,6 +1187,7 @@ def test_reconcile_sandwich_allocation_uses_current_company_settings(
 
 def test_manual_override_accepts_saved_sandwich_allocation(db_session: Session):
     create_company_settings(db_session, sandwich_method_enabled=True)
+    admin = create_user(db_session, role="superadmin")
     user = create_user(db_session)
     saturday, sunday, monday = (
         date(2026, 10, 10),
@@ -1223,7 +1222,7 @@ def test_manual_override_accepts_saved_sandwich_allocation(db_session: Session):
             request.id,
             payload,
             db=db_session,
-            current_user=user,
+            current_user=admin,
         )
 
     assert updated.total_days == len(updated.allocations) == 2
@@ -1321,6 +1320,7 @@ def test_manual_allocation_override_rejects_excluded_weekly_off_and_syncs_total(
     db_session: Session,
 ):
     create_company_settings(db_session, sandwich_method_enabled=False)
+    admin = create_user(db_session, role="superadmin")
     user = create_user(db_session)
     user.carried_leave = 0
     leave_request = create_leave_request(
@@ -1357,7 +1357,7 @@ def test_manual_allocation_override_rejects_excluded_weekly_off_and_syncs_total(
             leave_request.id,
             payload,
             db=db_session,
-            current_user=user,
+            current_user=admin,
         )
 
     assert [row.allocation_date for row in updated.allocations] == [
@@ -1370,6 +1370,7 @@ def test_manual_allocation_override_rejects_excluded_weekly_off_and_syncs_total(
 
 def test_manual_allocation_override_rejects_holiday_date(db_session: Session):
     create_company_settings(db_session)
+    admin = create_user(db_session, role="superadmin")
     user = create_user(db_session)
     target_date = date(2026, 10, 13)
     create_holiday(db_session, user.id, target_date)
@@ -1397,6 +1398,6 @@ def test_manual_allocation_override_rejects_holiday_date(db_session: Session):
             leave_request.id,
             payload,
             db=db_session,
-            current_user=user,
+            current_user=admin,
         )
     assert error.value.detail == "Allocations must contain exactly the chargeable dates in the leave range."

@@ -9,7 +9,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, has_permission, require_admin_permission, effective_role_key
+from auth import get_current_user, require_admin_permission
 from database import get_db
 from models import NotificationEmail, User, ActivityLog
 from schemas import NotificationEmailCreate, NotificationEmailOut
@@ -18,8 +18,8 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[NotificationEmailOut])
-def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("notification_emails.view"))):
-    """Users with notification-email view permission can view recipients for leave composition."""
+def list_notification_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Signed-in users can load recipients to compose leave request emails."""
     return db.query(NotificationEmail).filter(
         NotificationEmail.is_active == 1
     ).order_by(NotificationEmail.id.desc()).all()
