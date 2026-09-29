@@ -158,11 +158,11 @@ def has_other_approved_or_pending_paid_leave_this_month(
 
 def _leave_accrual_start_date(user: User) -> date:
     """Return the first day of the employee's eligible starting month."""
-    joining_date = user.date_of_joining
-    if joining_date is None:
+    created_at = user.created_at
+    if created_at is None:
         return LEAVE_TRACKING_START_DATE
-    joining_month = joining_date.replace(day=1)
-    return max(LEAVE_TRACKING_START_DATE, joining_month)
+    created_month = created_at.date().replace(day=1)
+    return max(LEAVE_TRACKING_START_DATE, created_month)
 
 
 def accrue_monthly_leave(db: Session, user: User) -> User:

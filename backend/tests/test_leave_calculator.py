@@ -127,9 +127,10 @@ def test_create_user_stores_supplied_date_of_joining(db_session: Session):
     assert created_user.carried_leave == 0
 
 
-def test_october_joiner_accrues_only_from_joining_month(db_session: Session):
+def test_october_created_user_accrues_only_from_creation_month(db_session: Session):
     user = create_user(db_session)
-    user.date_of_joining = date(2026, 10, 10)
+    user.created_at = datetime(2026, 10, 10, 9, 0)
+    user.date_of_joining = date(2026, 8, 10)
     db_session.commit()
     assert user.last_leave_accrual_date is None
     assert user.carried_leave == 0
@@ -166,7 +167,8 @@ def test_october_joiner_accrues_only_from_joining_month(db_session: Session):
 
 def test_future_joiner_has_no_paid_slot_before_eligible_month(db_session: Session):
     user = create_user(db_session)
-    user.date_of_joining = date(2026, 10, 10)
+    user.created_at = datetime(2026, 10, 10, 9, 0)
+    user.date_of_joining = date(2026, 8, 10)
     db_session.commit()
 
     assert paid_leave_available_this_month(db_session, user, date(2026, 8, 1)) is False
