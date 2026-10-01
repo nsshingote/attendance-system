@@ -44,7 +44,6 @@ const CATEGORY_CLASS: Record<string, string> = {
 };
 
 export default function LeaveTable({ requests, canApprove, canReject, canEditAllocations, onDecide, onEditAllocations }: LeaveTableProps) {
-  const showEmployee = canApprove || canReject || canEditAllocations;
   const showActions = canApprove || canReject || canEditAllocations;
   if (requests.length === 0) {
     return (
@@ -59,7 +58,7 @@ export default function LeaveTable({ requests, canApprove, canReject, canEditAll
       <table className="w-full max-w-none table-fixed text-left text-xs sm:text-sm" style={{ minWidth: "900px" }}>
         <thead>
           <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
-            {showEmployee && <th className="px-3 py-3 font-medium sm:px-4">Employee</th>}
+            <th className="px-3 py-3 font-medium sm:px-4">Employee</th>
             <th className="px-3 py-3 font-medium sm:px-4">From</th>
             <th className="px-3 py-3 font-medium sm:px-4">To</th>
             <th className="px-3 py-3 font-medium sm:px-4">Days</th>
@@ -72,11 +71,9 @@ export default function LeaveTable({ requests, canApprove, canReject, canEditAll
         <tbody className="divide-y divide-ink-100">
           {requests.map((r) => (
             <tr key={r.id} className="hover:bg-ink-50/60">
-              {showEmployee && (
-                <td className="wrap-break-word whitespace-normal px-3 py-3 font-medium text-ink-900 sm:px-4">
-                  {r.user_name ?? `User #${r.user_id}`}
-                </td>
-              )}
+              <td className="wrap-break-word whitespace-normal px-3 py-3 font-medium text-ink-900 sm:px-4">
+                {r.user_name ?? `User #${r.user_id}`}
+              </td>
               <td className="px-3 py-3 whitespace-nowrap text-ink-700 sm:px-4">
                 {format(parseISO(r.from_date), "dd MMM yyyy")}
               </td>

@@ -87,6 +87,14 @@ def request_correction(
     attendance = db.query(Attendance).filter(Attendance.id == payload.attendance_id).first()
     if not attendance:
         raise HTTPException(status_code=404, detail="Attendance record not found")
+    if (
+        effective_role_key(current_user) == "team_leader"
+        and (target_user_id != current_user.id or attendance.user_id != current_user.id)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Team Leaders can only request corrections for their own attendance",
+        )
     
     # Parse time string to datetime if provided
     new_check_in = None

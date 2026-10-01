@@ -783,6 +783,9 @@ setSummary(
             <AttendanceTable
               records={filteredRecords}
               showRequestCorrection={!admin || (selectedUserIds.length === 1 && selectedUserIds[0] === session?.userId)}
+              canRequestCorrection={(record) =>
+                session?.role !== "team_leader" || record.user_id === session.userId
+              }
               onRequestCorrection={setCorrectionModal}
               showEmployeeName={admin || teamView}
               showAdminActions={canOverrideTable}

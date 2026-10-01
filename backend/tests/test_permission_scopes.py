@@ -24,7 +24,7 @@ from models import (
     TeamMember,
     User,
 )
-from schemas import CorrectionDecision, ProfileEditRequestDecision
+from schemas import CorrectionCreate, CorrectionDecision, ProfileEditRequestDecision
 
 
 @pytest.fixture
@@ -89,6 +89,31 @@ def test_team_leader_pending_corrections_require_approval_and_stay_team_scoped(d
     results = corrections_router.get_pending_corrections(db=db_session, current_user=leader)
 
     assert [item.requested_by for item in results] == [member.id]
+
+
+def test_team_leader_cannot_request_correction_for_team_member_attendance(
+    db_session: Session, monkeypatch
+):
+    leader = _create_user(db_session, "team_leader")
+    member = _create_user(db_session)
+    _create_team(db_session, leader, member)
+    member_attendance = Attendance(
+        user_id=member.id,
+        attendance_date=date(2026, 9, 25),
+    )
+    db_session.add(member_attendance)
+    db_session.commit()
+    _grant(monkeypatch, corrections_router, set())
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.request_correction(
+            CorrectionCreate(attendance_id=member_attendance.id, reason="Wrong checkout"),
+            db_session,
+            leader,
+        )
+
+    assert exc_info.value.status_code == 403
+    assert db_session.query(AttendanceCorrection).count() == 0
 
 
 def test_team_leader_activity_logs_restrict_empty_and_forged_filters(db_session: Session, monkeypatch):

@@ -37,6 +37,7 @@ export interface AttendanceRecord {
 interface AttendanceTableProps {
   records: AttendanceRecord[];
   showRequestCorrection?: boolean;
+  canRequestCorrection?: (record: AttendanceRecord) => boolean;
   onRequestCorrection?: (record: AttendanceRecord) => void;
   showEmployeeName?: boolean;
   showAdminActions?: boolean;
@@ -136,6 +137,7 @@ function getMapUrl(latitude?: number | null, longitude?: number | null): string 
 export default function AttendanceTable({
   records,
   showRequestCorrection,
+  canRequestCorrection,
   onRequestCorrection,
   showEmployeeName = false,
   showAdminActions = false,
@@ -238,7 +240,7 @@ export default function AttendanceTable({
                 {(showRequestCorrection || showAdminActions) && (
                   <td className="px-2 py-2 whitespace-nowrap">
                     <div className="flex flex-col gap-1">
-                      {showRequestCorrection && r.check_out && (
+                      {showRequestCorrection && canRequestCorrection?.(r) !== false && r.check_out && (
                         <button
                           onClick={() => onRequestCorrection?.(r)}
                           className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
