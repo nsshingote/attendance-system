@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import { Toaster } from "react-hot-toast";
+import { Toaster, ToastBar, toast } from "react-hot-toast";
+import { X } from "lucide-react";
 import "./globals.css";
 
 const inter = Inter({
@@ -36,7 +37,28 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body suppressHydrationWarning>
         {children}
-        <Toaster />
+        <Toaster>
+          {(toastItem) => (
+            <ToastBar toast={toastItem}>
+              {({ icon, message }) => (
+                <>
+                  {icon}
+                  {message}
+                  {toastItem.type === "error" && (
+                    <button
+                      type="button"
+                      onClick={() => toast.dismiss(toastItem.id)}
+                      aria-label="Dismiss error message"
+                      className="ml-2 rounded p-1 text-ink-500 hover:bg-ink-100 hover:text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </>
+              )}
+            </ToastBar>
+          )}
+        </Toaster>
       </body>
     </html>
   );

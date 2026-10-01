@@ -23,22 +23,35 @@ export default function CheckOutButton({ disabled, onSuccess }: CheckOutButtonPr
     
     setLoading(true);
     try {
-      const { data: user } = await api.get<{ attendance_mode?: string }>("/users/me").catch(() => ({ data: { attendance_mode: "office" } }));
+      const userRequest = api.get<{ attendance_mode?: string }>("/users/me")
+        .catch(() => ({ data: { attendance_mode: "office" } }));
+      const validationSettingsRequest = api
+        .get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings")
+        .then(
+          (response) => ({ response } as const),
+          (error: unknown) => ({ error } as const)
+        );
+      const { data: user } = await userRequest;
       const payload: { reason?: string; latitude?: number; longitude?: number; accuracy?: number } = reasonText ? { reason: reasonText } : {};
-      const today = new Date();
-      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-      const { data: wfhRequests } = user.attendance_mode === "onsite"
-        ? await api.get<{ attendance_date: string; status: string }[]>("/attendance/wfh/me", { params: { month: today.getMonth() + 1, year: today.getFullYear() } })
-        : { data: [] };
-      const approvedWfh = wfhRequests.some((request) => request.attendance_date === todayIso && request.status === "Approved");
-      const { data: validationSettings } = await api.get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings");
+      const captureLocation = () => getCurrentLocation("check out").then(
+        (position) => ({ position } as const),
+        (error: unknown) => ({ error } as const)
+      );
+      const locationRequest = user.attendance_mode === "onsite"
+        ? captureLocation()
+        : null;
+      const validationSettingsResult = await validationSettingsRequest;
+      if ("error" in validationSettingsResult) throw validationSettingsResult.error;
+      const { data: validationSettings } = validationSettingsResult.response;
       const needsLocation = user.attendance_mode === "onsite" || (
         validationSettings.location_enabled &&
         ["location_only", "ip_or_location"].includes(validationSettings.validation_mode)
       );
-      if (needsLocation && !approvedWfh) {
+      if (needsLocation) {
         try {
-          const position = await getCurrentLocation("check out");
+          const result = await (locationRequest ?? captureLocation());
+          if ("error" in result) throw result.error;
+          const position = result.position;
           payload.latitude = position.coords.latitude;
           payload.longitude = position.coords.longitude;
           payload.accuracy = position.coords.accuracy;

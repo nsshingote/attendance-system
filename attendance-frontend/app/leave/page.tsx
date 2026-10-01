@@ -132,8 +132,9 @@ const SLOT_LABELS: Record<string, string> = {
 export default function LeavePage() {
   const session = useSession();
   const { permissions } = usePermissions();
+  const isTeamLeader = session?.role === "team_leader";
   const admin = hasPermission(permissions, "leave.all_view");
-  const teamView = session?.role === "team_leader" &&
+  const teamView = isTeamLeader &&
     hasPermission(permissions, "leave.team_view");
   const canApprove = hasPermission(permissions, "leave.approve");
   const canReject = hasPermission(permissions, "leave.reject");
@@ -190,11 +191,11 @@ export default function LeavePage() {
   }, [admin, teamView]);
 
   useEffect(() => {
-    if (!session || admin || teamView) return;
+    if (!session || admin) return;
     api.get<{ attendance_mode?: string | null }>("/users/me")
       .then(({ data }) => setAttendanceMode(data.attendance_mode || "office"))
       .catch(() => {});
-  }, [session, admin, teamView]);
+  }, [session, admin]);
 
   const fetchAll = useCallback(async () => {
     if (!session) return;
@@ -235,13 +236,18 @@ export default function LeavePage() {
         setMyEncashmentRequests([]);
         setMyWfhRequests([]);
       } else if (teamView && effectiveEmployeeIds.length === 0) {
-        const [halfDayRes, wfhRes] = await Promise.all([
-          api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
-          api.get<WFHRequestRow[]>("/attendance/wfh", { params }),
-        ]);
+        if (!isOnsite) {
+          const [halfDayRes, wfhRes] = await Promise.all([
+            api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
+            api.get<WFHRequestRow[]>("/attendance/wfh", { params }),
+          ]);
+          setHalfDayRequests(halfDayRes.data || []);
+          setWfhRequests(wfhRes.data || []);
+        } else {
+          setHalfDayRequests([]);
+          setWfhRequests([]);
+        }
         setAllRequests([]);
-        setHalfDayRequests(halfDayRes.data || []);
-        setWfhRequests(wfhRes.data || []);
         setEncashmentRequests([]);
         setMyRequests([]);
         setMyHalfDayRequests([]);
@@ -293,7 +299,7 @@ export default function LeavePage() {
     } finally {
       setLoading(false);
     }
-  }, [session, admin, teamView, effectiveEmployeeIds, fromDate, toDate, selectedYear, selectedMonth]);
+  }, [session, admin, teamView, isOnsite, effectiveEmployeeIds, fromDate, toDate, selectedYear, selectedMonth]);
 
   useEffect(() => {
     let active = true;
@@ -509,7 +515,9 @@ export default function LeavePage() {
                   onChange={setSelectedUserIds}
                   allLabel="All Employees"
                 />
-                <TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} />
+                {admin && (
+                  <TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} />
+                )}
                 <input
                   type="date"
                   value={fromDate}
@@ -607,7 +615,7 @@ export default function LeavePage() {
                       </span>
                     )}
                   </button>
-                  {(canViewRequestQueues && (teamView || canApproveHalfDay)) && <>
+                  {(canViewRequestQueues && !(isTeamLeader && isOnsite) && (teamView || canApproveHalfDay)) && <>
                     <button
                       onClick={() => setTab("halfday")}
                       className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "halfday" ? "bg-brand-500 text-white" : "text-ink-600"}`}
@@ -620,7 +628,7 @@ export default function LeavePage() {
                       )}
                     </button>
                   </>}
-                  {(canViewRequestQueues && (teamView || canApproveWfh)) && <>
+                  {(canViewRequestQueues && !(isTeamLeader && isOnsite) && (teamView || canApproveWfh)) && <>
                     <button
                       onClick={() => setTab("wfh")}
                       className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "wfh" ? "bg-brand-500 text-white" : "text-ink-600"}`}
@@ -763,7 +771,7 @@ export default function LeavePage() {
             )}
 
             {/* Half Day Requests tab - only for admin viewing all employees */}
-            {canViewRequestQueues && (teamView || canApproveHalfDay) && tab === "halfday" && (
+            {canViewRequestQueues && !(isTeamLeader && isOnsite) && (teamView || canApproveHalfDay) && tab === "halfday" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {halfDayRequests.length === 0 ? (
                   <div className="py-12 text-center">
@@ -836,7 +844,7 @@ export default function LeavePage() {
             )}
 
             {/* WFH Requests tab - only for admin viewing all employees */}
-            {canViewRequestQueues && (teamView || canApproveWfh) && tab === "wfh" && (
+            {canViewRequestQueues && !(isTeamLeader && isOnsite) && (teamView || canApproveWfh) && tab === "wfh" && (
               <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">
                 {wfhRequests.length === 0 ? (
                   <div className="py-12 text-center">
