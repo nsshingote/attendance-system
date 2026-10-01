@@ -146,13 +146,6 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
             </Link>
           );
         })}
-        {session?.role === "team_leader" && hasPermission(permissions, "reports.team_view") && (
-          <div className="mt-3 border-t border-ink-100 pt-3">
-            <Link href="/admin-reports" onClick={onClose} className={clsx("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium", pathname === "/admin-reports" ? "bg-brand-50 text-brand-700" : "text-ink-600 hover:bg-ink-50 hover:text-ink-900")}>
-              <FileBarChart size={17} /> Reports
-            </Link>
-          </div>
-        )}
       </nav>
     </aside>
   );

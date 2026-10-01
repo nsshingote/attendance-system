@@ -766,15 +766,6 @@ export default function UserDetailPage() {
                             )}
                           </tr>
                         ))}
-                        {!group.reports[0]?.day_label && (
-                          <tr className="border-t border-ink-200 bg-ink-50">
-                            <td colSpan={6} className="px-5 py-2 text-right text-xs font-semibold text-ink-600">Total duration for {group.date}</td>
-                            <td className="px-5 py-2 text-right text-xs font-semibold text-ink-900">
-                              {group.reports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)}
-                            </td>
-                            <td />
-                          </tr>
-                        )}
                       </Fragment>
                     ))}
                   </tbody>

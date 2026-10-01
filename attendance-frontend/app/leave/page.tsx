@@ -204,7 +204,7 @@ export default function LeavePage() {
       const params: Record<string, string | number> = {};
       
       // For admin viewing all employees with date range filter
-      if (admin && effectiveEmployeeIds.length === 0 && fromDate && toDate) {
+      if ((admin || teamView) && effectiveEmployeeIds.length === 0 && fromDate && toDate) {
         params.from_date = fromDate;
         params.to_date = toDate;
       } else if ((admin || teamView) && effectiveEmployeeIds.length > 0) {
@@ -236,18 +236,22 @@ export default function LeavePage() {
         setMyEncashmentRequests([]);
         setMyWfhRequests([]);
       } else if (teamView && effectiveEmployeeIds.length === 0) {
+        const allLeavePromise = api.get<LeaveRow[]>("/leave/team", { params });
         if (!isOnsite) {
-          const [halfDayRes, wfhRes] = await Promise.all([
+          const [allLeaveRes, halfDayRes, wfhRes] = await Promise.all([
+            allLeavePromise,
             api.get<HalfDayRequestRow[]>("/attendance/half-day-requests", { params }),
             api.get<WFHRequestRow[]>("/attendance/wfh", { params }),
           ]);
+          setAllRequests(allLeaveRes.data || []);
           setHalfDayRequests(halfDayRes.data || []);
           setWfhRequests(wfhRes.data || []);
         } else {
+          const allLeaveRes = await allLeavePromise;
+          setAllRequests(allLeaveRes.data || []);
           setHalfDayRequests([]);
           setWfhRequests([]);
         }
-        setAllRequests([]);
         setEncashmentRequests([]);
         setMyRequests([]);
         setMyHalfDayRequests([]);

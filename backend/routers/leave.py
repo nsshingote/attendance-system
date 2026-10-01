@@ -24,7 +24,7 @@ from schemas import (
     LeaveEncashmentDecision, LeaveCategoryOverride, LeaveAllocationOverride
 )
 from auth import get_current_user, has_permission, require_roles, require_admin_permission, effective_role_key
-from team_scope import is_team_member, require_team_member_access
+from team_scope import get_team_member_ids, is_team_member, require_team_member_access
 from services.notifications import create_notification, get_approver_user_ids
 from services.recycle_bin import archive_object
 from utils.leave_calculator import (
@@ -860,6 +860,37 @@ def get_my_leave_requests(
             LeaveRequest.from_date >= start_date,
             LeaveRequest.from_date < end_date
         )
+    return query.order_by(LeaveRequest.created_at.desc()).all()
+
+
+@router.get("/team", response_model=List[LeaveRequestOut])
+def get_team_leave_requests(
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return leave requests for a Team Leader's own account and active teams."""
+    if effective_role_key(current_user) != "team_leader" or not has_permission(
+        current_user, "leave.team_view", db
+    ):
+        raise HTTPException(status_code=403, detail="You do not have permission to view team leave requests")
+
+    team_user_ids = {current_user.id, *get_team_member_ids(db, current_user)}
+    query = db.query(LeaveRequest).filter(LeaveRequest.user_id.in_(team_user_ids))
+    if month and year:
+        start_date = date(year, month, 1)
+        end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        query = query.filter(
+            LeaveRequest.from_date >= start_date,
+            LeaveRequest.from_date < end_date,
+        )
+    if from_date:
+        query = query.filter(LeaveRequest.to_date >= from_date)
+    if to_date:
+        query = query.filter(LeaveRequest.from_date <= to_date)
     return query.order_by(LeaveRequest.created_at.desc()).all()
 
 

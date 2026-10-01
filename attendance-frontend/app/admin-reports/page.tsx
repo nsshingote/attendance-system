@@ -112,7 +112,9 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
     }
     Promise.all([
       api.get<UserOption[]>("/users/"),
-      api.get<DepartmentOption[]>("/reports/departments"),
+      teamLeader
+        ? Promise.resolve({ data: [] as DepartmentOption[] })
+        : api.get<DepartmentOption[]>("/reports/departments"),
     ])
       .then(([usersRes, departmentsRes]) => {
         // A duplicate option ID makes React reuse the wrong option and can
@@ -121,7 +123,7 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
         setDepartments(uniqueById(departmentsRes.data || []));
       })
       .catch(() => toast.error("Failed to load report filters"));
-  }, [compact, reportTeamLeader]);
+  }, [compact, teamLeader]);
 
   const fetchReports = async () => {
     if (compact) return;
@@ -331,17 +333,19 @@ const getTotalDuration = (activities: ReportRow[]) => {
 
             <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto sm:flex-nowrap">
               <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
-              <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="order-1 min-w-52" />
+              {!teamLeader && <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="order-1 min-w-52" />}
               <label className="order-3 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
               <label className="order-4 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
-              <select
-                value={selectedDepartmentId}
-                onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
-                className="order-2 h-9 min-w-40 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
-              >
-                <option value="">All Departments</option>
-                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-              </select>
+              {!teamLeader && (
+                <select
+                  value={selectedDepartmentId}
+                  onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
+                  className="order-2 h-9 min-w-40 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+                </select>
+              )}
               <div className="hidden">
                 <button onClick={() => setShowDatePicker(!showDatePicker)} className={`flex items-center gap-1 rounded border px-2 py-1 text-xs ${selectedDate ? "border-brand-500 bg-brand-50 text-brand-600" : "border-ink-200 bg-white text-ink-600"}`}>
                   <CalendarIcon size={13} />

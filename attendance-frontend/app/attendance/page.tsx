@@ -465,6 +465,8 @@ export default function AttendancePage() {
 
   const { permissions } = usePermissions();
   const admin = hasPermission(permissions, "attendance.all_view");
+  const isAdminRole = session?.role === "admin" || session?.role === "superadmin";
+  const canFilterDepartments = isAdminRole && admin;
   const teamView = session?.role === "team_leader" &&
     hasPermission(permissions, "attendance.team_view");
   const canOverrideAttendance = hasPermission(permissions, "attendance.manual_override");
@@ -703,21 +705,23 @@ setSummary(
               {(admin || teamView) && (
                 <>
                   <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} />
-                  <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">
-                    Department
-                    <select
-                      value={selectedDepartmentId}
-                      onChange={(e) => setSelectedDepartmentId(e.target.value ? Number(e.target.value) : "")}
-                      className="h-10 rounded-lg border border-ink-200 bg-white px-2 py-1 text-sm"
-                    >
-                      <option value="">All Departments</option>
-                      {departments.map((department) => (
-                        <option key={department.id} value={department.id}>
-                          {department.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {canFilterDepartments && (
+                    <label className="inline-flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-600">
+                      Department
+                      <select
+                        value={selectedDepartmentId}
+                        onChange={(e) => setSelectedDepartmentId(e.target.value ? Number(e.target.value) : "")}
+                        className="h-10 rounded-lg border border-ink-200 bg-white px-2 py-1 text-sm"
+                      >
+                        <option value="">All Departments</option>
+                        {departments.map((department) => (
+                          <option key={department.id} value={department.id}>
+                            {department.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </>
               )}
 

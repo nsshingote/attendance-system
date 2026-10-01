@@ -108,7 +108,12 @@ export function CorrectionsContent() {
           <p className="text-sm text-ink-500">Request or review corrections to attendance records</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {(admin || teamView) && <><EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} /><TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} /></>}
+          {(admin || teamView) && (
+            <>
+              <EmployeeMultiSelect employees={employees} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} />
+              {admin && <TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} />}
+            </>
+          )}
           <button
             type="button"
             onClick={fetchData}
