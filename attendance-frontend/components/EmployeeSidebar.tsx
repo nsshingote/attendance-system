@@ -70,9 +70,12 @@ export default function EmployeeSidebar({ isMobile = false, onClose }: EmployeeS
   }, [session?.role]);
   const teamItems = session?.role === "team_leader"
     ? [
-        (hasPermission(permissions, "corrections.team_view") || hasPermission(permissions, "corrections.all_view") ||
-          hasPermission(permissions, "profile_corrections.team_view") || hasPermission(permissions, "profile_corrections.all_view") ||
-          hasPermission(permissions, "report_approvals.team_view") || hasPermission(permissions, "report_approvals.all_view")) &&
+      (hasPermission(permissions, "corrections.view_own") ||
+        hasPermission(permissions, "corrections.team_view") ||
+        hasPermission(permissions, "corrections.all_view") ||
+        hasPermission(permissions, "corrections.approve") ||
+        hasPermission(permissions, "profile_corrections.team_view") || hasPermission(permissions, "profile_corrections.all_view") ||
+        hasPermission(permissions, "report_approvals.team_view") || hasPermission(permissions, "report_approvals.all_view")) &&
           { href: "/requests", label: "Requests", icon: ClipboardEdit },
         hasPermission(permissions, "employees.team_view") && { href: "/team-employees", label: "Team Employees", icon: Users },
         hasPermission(permissions, "kundli.team_view") && { href: "/kundli", label: "Team Kundli", icon: NotebookPen },

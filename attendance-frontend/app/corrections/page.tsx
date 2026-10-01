@@ -27,11 +27,14 @@ export function CorrectionsContent() {
   const teamView = session?.role === "team_leader" &&
     hasPermission(permissions, "corrections.team_view");
   const canDecide = hasPermission(permissions, "corrections.approve");
+  const canViewOwn = hasPermission(permissions, "corrections.view_own");
+  const canViewAll = admin || teamView;
+  const canReviewOnly = canDecide && !canViewAll;
 
   const [mine, setMine] = useState<CorrectionRow[]>([]);
   const [all, setAll] = useState<CorrectionRow[]>([]);
   const [tab, setTab] = useState<"mine" | "all">(
-    hasPermission(permissions, "corrections.all_view") || teamView ? "all" : "mine"
+    canViewAll || canDecide ? "all" : "mine"
   );
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
@@ -41,29 +44,39 @@ export function CorrectionsContent() {
   const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
-    if (admin || teamView) {
+    if (canViewAll) {
       api.get<EmployeeOption[]>("/users/").then(({ data }) => setEmployees(data)).catch(() => toast.error("Failed to load employees"));
     }
-  }, [admin, teamView]);
+  }, [canViewAll]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const requests: Promise<{ data: CorrectionRow[] }>[] = [api.get<CorrectionRow[]>("/corrections/me")];
-      if (admin || teamView) requests.push(api.get<CorrectionRow[]>("/corrections/"));
+      const requests: Promise<{ data: CorrectionRow[] }>[] = [
+        canViewOwn
+          ? api.get<CorrectionRow[]>("/corrections/me")
+          : Promise.resolve({ data: [] }),
+      ];
+      const reviewRequest = canViewAll
+        ? api.get<CorrectionRow[]>("/corrections/")
+        : canReviewOnly
+          ? api.get<CorrectionRow[]>("/corrections/pending")
+          : null;
+      if (reviewRequest) requests.push(reviewRequest);
       if (teamView) {
         requests.push(...selectedEmployeeIds.map((userId) => api.get<CorrectionRow[]>(`/corrections/user/${userId}`)));
       }
 
       const results = await Promise.all(requests);
       setMine(results[0].data);
-      if (admin || teamView) setAll(results[1].data.filter((row: CorrectionRow) => (selectedEmployeeIds.length === 0 && teamEmployeeIds.length === 0) || selectedEmployeeIds.includes(row.requested_by) || teamEmployeeIds.includes(row.requested_by)));
+      if (reviewRequest && canViewAll) setAll(results[1].data.filter((row: CorrectionRow) => (selectedEmployeeIds.length === 0 && teamEmployeeIds.length === 0) || selectedEmployeeIds.includes(row.requested_by) || teamEmployeeIds.includes(row.requested_by)));
+      else if (reviewRequest) setAll(results[1].data);
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [admin, teamView, selectedEmployeeIds, teamEmployeeIds]);
+  }, [canReviewOnly, canViewAll, canViewOwn, teamView, selectedEmployeeIds, teamEmployeeIds]);
 
   useEffect(() => {
     const load = async () => { await fetchData(); };
@@ -106,30 +119,36 @@ export function CorrectionsContent() {
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             Refresh
           </button>
-          <button
-            onClick={() => setFormOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
-          >
-            <Plus size={16} />
-            Request Correction
-          </button>
+          {canViewOwn && (
+            <button
+              onClick={() => setFormOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+            >
+              <Plus size={16} />
+              Request Correction
+            </button>
+          )}
         </div>
       </div>
 
-      {(admin || teamView) && (
+      {(canViewAll || canDecide || canViewOwn) && (
         <div className="flex w-fit rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
-          <button
-            onClick={() => setTab("all")}
-            className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "all" ? "bg-brand-500 text-white" : "text-ink-600"}`}
-          >
-            All Requests
-          </button>
-          <button
-            onClick={() => setTab("mine")}
-            className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
-          >
-            My Requests
-          </button>
+          {(canViewAll || canDecide) && (
+            <button
+              onClick={() => setTab("all")}
+              className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "all" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+            >
+              {canReviewOnly ? "Pending Requests" : "All Requests"}
+            </button>
+          )}
+          {canViewOwn && (
+            <button
+              onClick={() => setTab("mine")}
+              className={`rounded-md px-3.5 py-1.5 font-medium ${tab === "mine" ? "bg-brand-500 text-white" : "text-ink-600"}`}
+            >
+              My Requests
+            </button>
+          )}
         </div>
       )}
 
@@ -145,15 +164,17 @@ export function CorrectionsContent() {
         />
       )}
 
-      <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Request Attendance Correction">
-        <CorrectionForm
-          onSuccess={() => {
-            setFormOpen(false);
-            fetchData();
-          }}
-          onCancel={() => setFormOpen(false)}
-        />
-      </Modal>
+      {canViewOwn && (
+        <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Request Attendance Correction">
+          <CorrectionForm
+            onSuccess={() => {
+              setFormOpen(false);
+              fetchData();
+            }}
+            onCancel={() => setFormOpen(false)}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

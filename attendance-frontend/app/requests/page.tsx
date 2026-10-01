@@ -23,6 +23,7 @@ export default function RequestsPage() {
     "corrections.view_own",
     "corrections.team_view",
     "corrections.all_view",
+    "corrections.approve",
   ].some((key) => hasPermission(permissions, key));
   const canViewProfileCorrections = legacyRequestsAccess || [
     "profile_corrections.team_view",
@@ -44,7 +45,7 @@ export default function RequestsPage() {
     <AppShell
       requiredPermission={teamLeader ? "corrections.team_view" : "requests.view"}
       alternativePermissions={teamLeader
-        ? ["corrections.view_own", "corrections.all_view", "profile_corrections.team_view", "profile_corrections.all_view", "report_approvals.team_view", "report_approvals.all_view"]
+        ? ["corrections.view_own", "corrections.all_view", "corrections.approve", "profile_corrections.team_view", "profile_corrections.all_view", "report_approvals.team_view", "report_approvals.all_view"]
         : ["profile_corrections.all_view", "report_approvals.all_view"]}
     >
       <div className="space-y-5">
