@@ -56,6 +56,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   const session = getSession();
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isOnsiteTeamLeader, setIsOnsiteTeamLeader] = useState(false);
   
   // Use local date string, not UTC
   const [selectedDate, setSelectedDate] = useState(attendanceDate || getLocalDateString());
@@ -69,6 +70,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   const [plainDescription, setPlainDescription] = useState("");
 
   const [showHistory, setShowHistory] = useState(false);
+  const [isEditingReport, setIsEditingReport] = useState(false);
   const [historyReports, setHistoryReports] = useState<any[]>([]);
   const [historyMonth, setHistoryMonth] = useState<number | "">("");
   const [historyDate, setHistoryDate] = useState<string>("");
@@ -101,15 +103,27 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       const targetUserId = userId || session?.userId || 0;
       if (!targetUserId) return;
       
-      const [deptRes, typeRes, subtypeRes] = await Promise.all([
+      const currentUserPromise = session?.role === "team_leader"
+        ? api.get<{ attendance_mode?: string | null }>("/users/me").catch((error) => {
+            console.error("Failed to determine attendance mode:", error);
+            toast.error(getErrorMessage(error));
+            return null;
+          })
+        : Promise.resolve(null);
+      const [deptRes, typeRes, subtypeRes, currentUserRes] = await Promise.all([
         api.get("/reports/departments"),
         api.get("/reports/types"),
         api.get("/reports/subtypes"),
+        currentUserPromise,
       ]);
       
       setDepartments(deptRes.data);
       setAllTypes(typeRes.data);
       setAllSubtypesList(subtypeRes.data);
+      setIsOnsiteTeamLeader(
+        session?.role === "team_leader" &&
+          currentUserRes?.data.attendance_mode?.toLowerCase() === "onsite",
+      );
     } catch (error) {
       console.error("Error loading data:", error);
       toast.error(getErrorMessage(error));
@@ -144,8 +158,6 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
 
         const defaultIds = res.data.default_subtype_ids || [];
         const customRows = res.data.custom_rows || [];
-        const reportDataRes = res.data.report_data || [];
-        
         const allRows: any[] = [];
         
         defaultIds.forEach((id: number) => {
@@ -169,12 +181,11 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         });
         
         setRows([...allRows]);
-        
         const dataMap: Record<number, any> = {};
-        reportDataRes.forEach((item: any) => {
+        (res.data.report_data || []).forEach((item: any) => {
           dataMap[item.subtype_id] = item;
         });
-        setReportData(dataMap);
+        setReportData(isOnsiteTeamLeader && !isEditingReport ? {} : dataMap);
       }
     } catch (error) {
       console.error("Failed to load daily report:", error);
@@ -283,31 +294,10 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
   // ============================================================
   const handleEditReport = async (date: string, departmentId: number) => {
     try {
+      setIsEditingReport(true);
       setSelectedDept(departmentId);
       setSelectedDate(date);
       setShowHistory(false);
-      
-      // Find the report for this date and populate the description
-      const reportForDate = historyReports.find(r => r.attendance_date === date);
-      if (reportForDate) {
-        // Check if it's HR/IT (no subtype_id)
-        if (reportForDate.subtype_id === null || reportForDate.subtype_id === undefined) {
-          // For HR/IT - set the description
-          //setHrDescription(reportForDate.description || "");
-        } else {
-          // For B2B/B2C - populate the reportData
-          setReportData((prev: any) => ({
-            ...prev,
-            [reportForDate.subtype_id]: {
-              ...prev[reportForDate.subtype_id],
-              subtype_id: reportForDate.subtype_id,
-              quantity: reportForDate.quantity || null,
-              duration: reportForDate.duration || null,
-              description: reportForDate.description || null
-            }
-          }));
-        }
-      }
       
       toast.success(`Editing report for ${new Date(date).toLocaleDateString()}`);
     } catch (error) {
@@ -453,7 +443,21 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       }
 
       toast.success("Report submitted successfully!");
-      setReportData({});
+      setIsEditingReport(false);
+      if (isOnsiteTeamLeader) {
+        setReportData({});
+      } else {
+        const clearedData: Record<number, any> = {};
+        Object.keys(reportData).forEach((key) => {
+          clearedData[Number(key)] = {
+            ...reportData[Number(key)],
+            quantity: null,
+            duration: null,
+            description: null,
+          };
+        });
+        setReportData(clearedData);
+      }
       setNewRowValues({ quantity: "", duration: "", description: "" });
 
       await completeApprovedPastDate();
@@ -879,7 +883,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       loadDailyReport();
       loadHistory();
     }
-  }, [selectedDate, selectedDept, historyMonth, historyDate, loading]);
+  }, [selectedDate, selectedDept, historyMonth, historyDate, loading, isEditingReport]);
 
   useEffect(() => {
     if (!loading && assignedDepartments.length > 0 && selectedDept === null) {
@@ -980,7 +984,10 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
         <label className="mb-1.5 block text-sm font-medium text-ink-700">Department</label>
         <select
           value={selectedDept || ""}
-          onChange={(e) => setSelectedDept(e.target.value ? Number(e.target.value) : null)}
+          onChange={(e) => {
+            setSelectedDept(e.target.value ? Number(e.target.value) : null);
+            setReportData({});
+          }}
           disabled={!canChooseDepartment}
           className={`w-full rounded-lg border border-ink-200 px-3 py-2.5 text-sm ${!canChooseDepartment ? "bg-ink-50 text-ink-600 cursor-not-allowed" : "bg-white text-ink-900"}`}
         >
