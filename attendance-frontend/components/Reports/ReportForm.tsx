@@ -453,17 +453,8 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
       }
 
       toast.success("Report submitted successfully!");
-
-      const clearedData: Record<number, any> = {};
-      Object.keys(reportData).forEach((key) => {
-        clearedData[Number(key)] = {
-          ...reportData[Number(key)],
-          quantity: null,
-          duration: null,
-          description: null,
-        };
-      });
-      setReportData(clearedData);
+      setReportData({});
+      setNewRowValues({ quantity: "", duration: "", description: "" });
 
       await completeApprovedPastDate();
       await loadHistory();
@@ -604,6 +595,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
             <input
               type="number"
               min="0"
+              inputMode="numeric"
               value={data.quantity ?? ""}
               onChange={(e) => {
                 setReportData((prev: any) => ({
@@ -618,7 +610,7 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
                 }));
               }}
               placeholder="Qty"
-              className="w-20 rounded border border-ink-200 px-2 py-1 text-sm"
+              className="number-input-no-spinner w-20 rounded border border-ink-200 px-2 py-1 text-sm"
             />
           ) : (
             <span className="text-ink-400">—</span>
@@ -1079,9 +1071,10 @@ export default function ReportForm({ userId, attendanceDate, onSuccess, onCancel
                         <input
                           type="number"
                           min="0"
+                          inputMode="numeric"
                           value={newRowValues.quantity}
                           onChange={(e) => setNewRowValues((prev) => ({ ...prev, quantity: e.target.value }))}
-                          className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+                          className="number-input-no-spinner w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
                           placeholder="Enter quantity"
                         />
                       </div>
