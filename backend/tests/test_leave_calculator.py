@@ -15,15 +15,19 @@ from database import Base, engine, SessionLocal
 from models import (
     Attendance,
     CompanySettings,
+    DailyReportData,
     Holiday,
     LeaveHolidayAllocationHistory,
     LeaveRequest,
     LeaveRequestAllocation,
     User,
+    WFHRequest,
+    WorkingSunday,
 )
 from routers.holidays import add_holiday, delete_holiday
 from routers.company_settings import _read_company_settings_row, _upsert_company_settings_row
-from routers.attendance import attendance_calendar
+from routers.attendance import attendance_calendar, monthly_summary
+import routers.reports as reports_router
 from routers.leave import (
     _apply_sandwich_rule_on_request,
     _reconcile_sandwich_allocations_for_user,
@@ -1255,6 +1259,134 @@ def test_removed_allocation_does_not_leave_attendance_as_on_leave(db_session: Se
 
     assert determine_attendance_status_for_date(db_session, user.id, target_date) == "Absent"
     assert request.total_days == len(request.allocations) == 0
+
+
+@pytest.mark.parametrize(
+    ("attendance_mode", "approved_wfh"),
+    [("onsite", False), ("office", True)],
+)
+def test_worked_assigned_holiday_counts_as_extra_working_day(
+    db_session: Session,
+    attendance_mode: str,
+    approved_wfh: bool,
+):
+    user = create_user(db_session)
+    user.attendance_mode = attendance_mode
+    target_date = date(2026, 10, 2)
+    create_holiday(db_session, user.id, target_date)
+    db_session.add(
+        WorkingSunday(
+            user_id=user.id,
+            work_date=target_date,
+        )
+    )
+    db_session.add(
+        Attendance(
+            user_id=user.id,
+            attendance_date=target_date,
+            check_in=datetime(2026, 10, 2, 9, 0),
+            check_out=datetime(2026, 10, 2, 17, 0),
+            status="Present",
+        )
+    )
+    if approved_wfh:
+        db_session.add(
+            WFHRequest(
+                user_id=user.id,
+                attendance_date=target_date,
+                status="Approved",
+            )
+        )
+    db_session.commit()
+
+    summary = monthly_summary(
+        user_id=user.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert summary["Extra Working Day"] == 1
+
+
+def test_monthly_employee_summary_lists_worked_assigned_holiday_as_extra_day(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    target_date = date(2026, 10, 2)
+    create_holiday(db_session, admin.id, target_date)
+    db_session.add(
+        WorkingSunday(
+            user_id=user.id,
+            work_date=target_date,
+            marked_by=admin.id,
+        )
+    )
+    db_session.add(
+        Attendance(
+            user_id=user.id,
+            attendance_date=target_date,
+            check_in=datetime(2026, 10, 2, 9, 0),
+            check_out=datetime(2026, 10, 2, 17, 0),
+            status="Present",
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(reports_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(reports_router, "require_team_permission", lambda *_args: [])
+
+    summary = reports_router.employee_wise_summary(
+        year=2026,
+        month=10,
+        db=db_session,
+        current_user=admin,
+    )
+
+    employee = next(row for row in summary if row["user_id"] == user.id)
+    assert employee["Extra Working Day"] == 1
+    assert employee["Present"] == 0
+
+
+def test_report_history_orders_holiday_between_report_dates(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    first_date = date(2026, 10, 1)
+    holiday_date = date(2026, 10, 2)
+    last_date = date(2026, 10, 3)
+    create_holiday(db_session, admin.id, holiday_date)
+    db_session.add_all(
+        [
+            DailyReportData(user_id=user.id, attendance_date=first_date),
+            DailyReportData(user_id=user.id, attendance_date=last_date),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(reports_router, "has_permission", lambda *_args: True)
+
+    history = reports_router.get_report_history(
+        days=None,
+        month=None,
+        date_value=None,
+        department_id=None,
+        user_id=user.id,
+        db=db_session,
+        current_user=admin,
+    )
+
+    assert [row["attendance_date"] for row in history] == [
+        last_date.isoformat(),
+        holiday_date.isoformat(),
+        first_date.isoformat(),
+    ]
+    assert history[1]["day_label"] == "Test Holiday"
 
 
 def test_deleting_holiday_reallocates_new_chargeable_date_without_negative_balance(

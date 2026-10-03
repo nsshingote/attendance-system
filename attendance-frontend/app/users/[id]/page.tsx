@@ -766,18 +766,20 @@ export default function UserDetailPage() {
                             )}
                           </tr>
                         ))}
+                        {!group.reports[0]?.day_label && (
+                          <tr className="border-t border-ink-200 bg-ink-50/60 font-medium text-ink-900">
+                            <td colSpan={6} className="px-5 py-2 text-right">Daily Total:</td>
+                            <td className="px-5 py-2 text-right">
+                              {group.reports.some((report) => report.duration != null && report.duration !== "")
+                                ? group.reports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)
+                                : "-"}
+                            </td>
+                            <td />
+                          </tr>
+                        )}
                       </Fragment>
                     ))}
                   </tbody>
-                  <tfoot className="border-t border-ink-200 bg-ink-50 font-medium text-ink-900">
-                    <tr>
-                      <td colSpan={6} className="px-5 py-3 text-right">Total:</td>
-                      <td className="px-5 py-3 text-right">
-                        {dailyReports.reduce((total, report) => total + getReportDuration(report.duration), 0).toFixed(2)}
-                      </td>
-                      <td />
-                    </tr>
-                  </tfoot>
                 </table>
               </div>
             )}

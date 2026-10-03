@@ -1246,7 +1246,8 @@ def get_report_history(
                         "submitted_at": None,
                     })
             current_date += timedelta(days=1)
-    
+
+    result.sort(key=lambda row: row["attendance_date"], reverse=True)
     return result
 
 

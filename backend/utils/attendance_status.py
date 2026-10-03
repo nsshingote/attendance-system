@@ -86,6 +86,12 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                 return "Extra Working Day"
         return status
 
+    is_assigned_working_day = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == target_date,
+    ).first() is not None
+
+    holiday = applicable_holiday(db, user_id, target_date)
     # An approved WFH request permits remote attendance, but does not by
     # itself prove that the employee worked. Only classify the day as WFH
     # after attendance activity has been recorded.
@@ -95,16 +101,10 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         WFHRequest.status == "Approved",
     ).first()
     if wfh and attendance and (attendance.check_in or attendance.check_out):
-        return "WFH"
-
-    is_assigned_working_day = db.query(WorkingSunday).filter(
-        WorkingSunday.user_id == user_id,
-        WorkingSunday.work_date == target_date,
-    ).first() is not None
+        return "Extra Working Day" if holiday and is_assigned_working_day else "WFH"
 
     # A holiday remains a holiday unless this employee was explicitly assigned
     # to work that date.
-    holiday = applicable_holiday(db, user_id, target_date)
     if holiday and not is_assigned_working_day:
         return "Holiday"
 
@@ -133,7 +133,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                 return "On Leave"
 
     if user and (getattr(user, "attendance_mode", None) or "office").lower() == "onsite" and attendance and attendance.check_in:
-        return "Present"
+        return "Extra Working Day" if holiday and is_assigned_working_day else "Present"
 
     if not attendance or not attendance.check_in:
         # If it's a weekly off and the user is not explicitly marked as working, return Weekly Off
