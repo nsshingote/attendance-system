@@ -107,7 +107,7 @@ export default function CorrectionTable({ corrections, canDecide, excludeRequest
                   "—"
                 )}
               </td>
-              <td className="max-w-48 truncate px-3 py-2 text-[11px] text-ink-600" title={c.reason ?? ""}>
+              <td className="max-w-64 whitespace-normal wrap-break-word px-3 py-2 align-top text-[11px] leading-4 text-ink-600" title={c.reason ?? ""}>
                 {c.reason ?? "—"}
               </td>
               <td className="px-3 py-2">

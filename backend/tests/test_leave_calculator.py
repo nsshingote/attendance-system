@@ -55,6 +55,7 @@ from utils.leave_calculator import (
     _get_chargeable_leave_dates,
     accrue_monthly_leave,
     allocate_leave_days,
+    get_leave_year_quota,
     paid_leave_available_this_month,
 )
 
@@ -167,6 +168,25 @@ def test_october_created_user_accrues_only_from_creation_month(db_session: Sessi
         accrue_monthly_leave(db_session, user)
         assert user.last_leave_accrual_date == date(2026, 12, 1)
         assert user.carried_leave + user.paid_leave_available == 3
+
+
+@pytest.mark.parametrize(
+    ("created_at", "expected_quota"),
+    [
+        (datetime(2026, 9, 29, 9, 0), 3),
+        (datetime(2026, 9, 20, 9, 0), 4),
+    ],
+)
+def test_2026_leave_quota_skips_creation_month_after_twentieth(
+    db_session: Session,
+    created_at: datetime,
+    expected_quota: int,
+):
+    user = create_user(db_session)
+    user.created_at = created_at
+    db_session.commit()
+
+    assert get_leave_year_quota(2026, user) == expected_quota
 
 
 def test_future_joiner_has_no_paid_slot_before_eligible_month(db_session: Session):

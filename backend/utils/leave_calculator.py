@@ -162,6 +162,8 @@ def _leave_accrual_start_date(user: User) -> date:
     if created_at is None:
         return LEAVE_TRACKING_START_DATE
     created_month = created_at.date().replace(day=1)
+    if created_at.day > 20:
+        created_month += relativedelta(months=1)
     return max(LEAVE_TRACKING_START_DATE, created_month)
 
 
