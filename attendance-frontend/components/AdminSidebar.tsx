@@ -106,7 +106,7 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
-        {NAV_ITEMS.filter((item) => item.href === "/my-profile" || isSuperAdmin(session?.role) || hasPermission(permissions, item.permission) || item.alternatives?.some((key) => hasPermission(permissions, key))).map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.filter((item) => item.href === "/my-profile" || isSuperAdmin(session?.role) || (item.permission !== undefined && hasPermission(permissions, item.permission)) || item.alternatives?.some((key) => hasPermission(permissions, key))).map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <Link
