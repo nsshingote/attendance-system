@@ -184,6 +184,21 @@ class EmployeeSelectorOut(ORMBase):
     name: str
     role: str
     role_key: Optional[str] = None
+    designation: str = ""
+    department: str = ""
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    place_of_posting: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
 
 
 class PersonalProfileUpdate(BaseModel):
