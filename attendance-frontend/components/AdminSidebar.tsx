@@ -32,6 +32,7 @@ import {
   BookOpen,
   Trash2,
   HistoryIcon,
+  ContactRound,
 } from "lucide-react";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
@@ -39,6 +40,7 @@ import api from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
+  { href: "/my-profile", label: "My Profile", icon: ContactRound },
   { href: "/users", label: "Users", icon: Users, permission: "employees.all_view" },
   { href: "/teams", label: "Teams", icon: Users, permission: "teams.view" },
   { href: "/permissions", label: "Permissions", icon: UserRoundCog, permission: "permissions.manage" },
@@ -104,7 +106,7 @@ export default function AdminSidebar({ isMobile = false, onClose }: AdminSidebar
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
-        {NAV_ITEMS.filter((item) => isSuperAdmin(session?.role) || hasPermission(permissions, item.permission) || item.alternatives?.some((key) => hasPermission(permissions, key))).map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.filter((item) => item.href === "/my-profile" || isSuperAdmin(session?.role) || hasPermission(permissions, item.permission) || item.alternatives?.some((key) => hasPermission(permissions, key))).map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <Link
