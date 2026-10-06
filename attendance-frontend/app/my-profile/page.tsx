@@ -41,6 +41,7 @@ type User = {
 };
 
 type Slip = { id: number; month: number; year: number; total_amount: number; status: string; particulars: string };
+type SalaryRequestRow = { name: string; amount: string; custom?: boolean };
 type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
 type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
 type GeneratedDocument = { id: number; document_type: string; title: string; content: string; created_at: string };
@@ -79,6 +80,8 @@ const getImageDataUrl = async (imageUrl: string) => {
     reader.readAsDataURL(blob);
   });
 };
+// Local copy of https://propcheckup.com/wp-content/uploads/2024/01/Original-Main-Logo-01.png
+const OFFICIAL_SALARY_SLIP_LOGO_URL = "/propcheckup-logo.png";
 const personalDocLabels: Record<string, string> = {
   aadhaar: "Aadhaar Card",
   pan: "PAN Card",
@@ -86,6 +89,7 @@ const personalDocLabels: Record<string, string> = {
   highest_degree: "Highest Degree",
   other: "Other",
 };
+const salaryRequestBaseRows: SalaryRequestRow[] = ["Salary", "Incentive", "Overtime", "Extra Working Day"].map(name => ({ name, amount: "" }));
 
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
 
@@ -131,7 +135,7 @@ export default function MyProfilePage() {
   const [filteredSlips, setFilteredSlips] = useState<Slip[]>([]);
   const [showSalaryRequest, setShowSalaryRequest] = useState(false);
   const [salaryRequestPeriod, setSalaryRequestPeriod] = useState(() => new Date().toISOString().slice(0, 7));
-  const [salaryRequestAmounts, setSalaryRequestAmounts] = useState({ salary: "", incentive: "", overtime: "", extra_working_day: "", other: "" });
+  const [salaryRequestRows, setSalaryRequestRows] = useState<SalaryRequestRow[]>(salaryRequestBaseRows.map(row => ({ ...row })));
   const [sendingSalaryRequest, setSendingSalaryRequest] = useState(false);
 
   const loadPersonalDocuments = async () => {
@@ -145,26 +149,18 @@ export default function MyProfilePage() {
     try {
       await api.post("/employee-documents/salary-slips/request", {
         year: requestYear, month: requestMonth,
-        salary: Number(salaryRequestAmounts.salary) || 0,
-        incentive: Number(salaryRequestAmounts.incentive) || 0,
-        overtime: Number(salaryRequestAmounts.overtime) || 0,
-        extra_working_day: Number(salaryRequestAmounts.extra_working_day) || 0,
-        other: Number(salaryRequestAmounts.other) || 0,
+        particulars: salaryRequestRows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
       });
       const { data } = await api.get<Slip[]>("/employee-documents/salary-slips/mine");
       setSlips(data);
       setShowSalaryRequest(false);
-      setSalaryRequestAmounts({ salary: "", incentive: "", overtime: "", extra_working_day: "", other: "" });
+      setSalaryRequestRows(salaryRequestBaseRows.map(row => ({ ...row })));
       toast.success("Salary slip request sent for review");
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSendingSalaryRequest(false); }
   };
 
-  const salaryRequestFields = [
-    ["Salary", "salary"], ["Incentive", "incentive"], ["Overtime", "overtime"],
-    ["Extra Working Day", "extra_working_day"], ["Other", "other"],
-  ] as const;
-  const salaryRequestTotal = Object.values(salaryRequestAmounts).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const salaryRequestTotal = salaryRequestRows.reduce((sum, row) => sum + (row.name.trim() ? Number(row.amount) || 0 : 0), 0);
   const [requestYear, requestMonth] = salaryRequestPeriod.split("-").map(Number);
   const selectedPeriodSlip = slips.find(slip => slip.year === requestYear && slip.month === requestMonth);
   const finalSalarySlips = slips.filter(slip => slip.status === "Sent");
@@ -301,14 +297,17 @@ export default function MyProfilePage() {
     const contentWidth = pageWidth - margin * 2;
     let y = 17;
 
-    // Company-branded header
-    if (companyBranding?.logo_url) {
-      try {
-        const logo = await getImageDataUrl(companyBranding.logo_url);
-        pdf.addImage(logo, "JPEG", margin, y - 5, 22, 22);
-      } catch {
-        // The salary slip remains usable if the optional branding image is unavailable.
-      }
+    // Official PropCheckup logo, contained in the existing 22 mm header box.
+    try {
+      const logo = await getImageDataUrl(OFFICIAL_SALARY_SLIP_LOGO_URL);
+      const logoProperties = pdf.getImageProperties(logo);
+      const logoBoxSize = 22;
+      const logoScale = Math.min(logoBoxSize / logoProperties.width, logoBoxSize / logoProperties.height);
+      const logoWidth = logoProperties.width * logoScale;
+      const logoHeight = logoProperties.height * logoScale;
+      pdf.addImage(logo, "PNG", margin, y - 5 + (logoBoxSize - logoHeight) / 2, logoWidth, logoHeight);
+    } catch {
+      // Keep the salary slip usable if the optional branding image is unavailable.
     }
     pdf.setTextColor(31, 41, 55);
     pdf.setFontSize(16);
@@ -918,11 +917,12 @@ export default function MyProfilePage() {
                 <div><h2 className="font-semibold">Salary Slip Requests</h2><p className="mt-1 text-sm text-ink-500">Choose a month and submit your salary details for review.</p></div>
                 {!showSalaryRequest && <button onClick={() => setShowSalaryRequest(true)} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
               </div>
-              {pendingSalaryRequests.length > 0 && <div className="mt-4 space-y-2">{pendingSalaryRequests.map(slip => <div key={slip.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm"><span>{new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span><span className="font-medium text-amber-800">Pending Review</span></div>)}</div>}
+              {pendingSalaryRequests.length > 0 && <div className="mt-4 space-y-2">{pendingSalaryRequests.map(slip => <div key={slip.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm"><span>{new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span><div className="flex items-center gap-3"><span className="font-medium text-amber-800">Pending Review</span><button onClick={async () => { if (!window.confirm("Cancel this pending salary slip request?")) return; try { await api.delete(`/employee-documents/salary-slips/mine/${slip.id}`); setSlips(current => current.filter(item => item.id !== slip.id)); toast.success("Salary slip request cancelled"); } catch (error) { toast.error(getErrorMessage(error)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Cancel Request</button></div></div>)}</div>}
               {showSalaryRequest && <div className="mt-5 border-t border-ink-100 pt-5">
                 <label className="block max-w-xs text-sm font-medium">Month &amp; Year<input type="month" value={salaryRequestPeriod} onChange={event => setSalaryRequestPeriod(event.target.value)} className="mt-1 block w-full rounded-lg border-ink-200" /></label>
                 {selectedPeriodSlip ? <p className="mt-4 rounded-lg bg-ink-50 p-3 text-sm text-ink-600">A request for this month already exists: <strong>{selectedPeriodSlip.status}</strong>.</p> : <>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{salaryRequestFields.map(([label, key]) => <label key={key} className="text-sm font-medium">{label}<input type="number" min="0" inputMode="decimal" value={salaryRequestAmounts[key]} onChange={event => setSalaryRequestAmounts(current => ({ ...current, [key]: event.target.value }))} className="mt-1 block w-full rounded-lg border-ink-200" /></label>)}</div>
+                  <div className="mt-4 space-y-3">{salaryRequestRows.map((row, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-2">{row.custom ? <label className="text-sm font-medium">Particular / Name<input value={row.name} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="mt-1 block w-full rounded-lg border-ink-200" /></label> : <label className="text-sm font-medium">{row.name}<input readOnly value={row.name} className="mt-1 block w-full rounded-lg border-ink-200 bg-ink-50" /></label>}<div className="flex items-end gap-2"><label className="flex-1 text-sm font-medium">Amount<input type="number" min="0" inputMode="decimal" value={row.amount} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="mt-1 block w-full rounded-lg border-ink-200" /></label>{row.custom && <button aria-label="Remove custom particular" onClick={() => setSalaryRequestRows(current => current.filter((_, rowIndex) => rowIndex !== index))} className="rounded-lg border border-ink-300 p-2 text-red-600"><Trash2 size={18} /></button>}</div></div>)}</div>
+                  <button onClick={() => setSalaryRequestRows(current => [...current, { name: "", amount: "", custom: true }])} className="mt-3 text-sm font-medium text-brand-700">Other +</button>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="font-semibold">Total Amount: <span className="text-emerald-700">{money(salaryRequestTotal)}</span></p><div className="flex gap-2"><button onClick={() => setShowSalaryRequest(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button><button disabled={sendingSalaryRequest} onClick={() => void submitSalarySlipRequest()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{sendingSalaryRequest ? "Sending…" : "Send Request"}</button></div></div>
                 </>}
               </div>}

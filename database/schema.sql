@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
     late_grace_minutes INT NOT NULL DEFAULT 20,
     weekly_off_day VARCHAR(20) DEFAULT 'Sunday',
     sandwich_method_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    salary_slip_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     company_name VARCHAR(255) DEFAULT 'Your Company Name',
     company_address TEXT DEFAULT '',
     attendance_location_enabled BOOLEAN NOT NULL DEFAULT FALSE,

@@ -29,6 +29,7 @@ def _settings_default_payload():
         "late_grace_minutes": 30,
         "weekly_off_day": "Sunday",
         "sandwich_method_enabled": False,
+        "salary_slip_notifications_enabled": True,
         "company_name": DEFAULT_COMPANY_NAME,
         "company_address": DEFAULT_COMPANY_ADDRESS,
         "attendance_location_enabled": False,
@@ -65,6 +66,8 @@ def _read_company_settings_row(db: Session):
     ]
     if "sandwich_method_enabled" in columns:
         select_columns.append("sandwich_method_enabled")
+    if "salary_slip_notifications_enabled" in columns:
+        select_columns.append("salary_slip_notifications_enabled")
     if "company_name" in columns:
         select_columns.append("company_name")
     if "company_address" in columns:
@@ -91,6 +94,7 @@ def _read_company_settings_row(db: Session):
         "late_grace_minutes": raw_row.get("late_grace_minutes") or 30,
         "weekly_off_day": raw_row.get("weekly_off_day") or "Sunday",
         "sandwich_method_enabled": bool(raw_row.get("sandwich_method_enabled", False)),
+        "salary_slip_notifications_enabled": bool(raw_row.get("salary_slip_notifications_enabled", True)),
         "company_name": raw_row.get("company_name") or DEFAULT_COMPANY_NAME,
         "company_address": raw_row.get("company_address") or DEFAULT_COMPANY_ADDRESS,
         "attendance_location_enabled": bool(raw_row.get("attendance_location_enabled", False)),
@@ -116,6 +120,13 @@ def _upsert_company_settings_row(db: Session, payload: dict):
         raise HTTPException(
             status_code=503,
             detail="Company settings database migration is required before changing Sandwich Method.",
+        )
+    if "salary_slip_notifications_enabled" in columns:
+        normalized["salary_slip_notifications_enabled"] = bool(payload.get("salary_slip_notifications_enabled", True))
+    elif "salary_slip_notifications_enabled" in payload:
+        raise HTTPException(
+            status_code=503,
+            detail="Company settings database migration is required before changing salary slip notifications.",
         )
     if "company_name" in columns:
         normalized["company_name"] = payload.get("company_name") or DEFAULT_COMPANY_NAME

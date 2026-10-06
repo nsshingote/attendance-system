@@ -278,11 +278,7 @@ class SalarySlipCreate(BaseModel):
 class SalarySlipRequestCreate(BaseModel):
     month: int
     year: int
-    salary: float = Field(ge=0)
-    incentive: float = Field(ge=0)
-    overtime: float = Field(ge=0)
-    extra_working_day: float = Field(ge=0)
-    other: float = Field(ge=0)
+    particulars: List[SalarySlipParticular]
 
 
 class SalarySlipReviewUpdate(BaseModel):
@@ -650,6 +646,7 @@ class CompanySettingsUpdate(BaseModel):
     late_grace_minutes: Optional[int] = None
     weekly_off_day: Optional[str] = None
     sandwich_method_enabled: Optional[bool] = None
+    salary_slip_notifications_enabled: Optional[bool] = None
     company_name: Optional[str] = None
     company_address: Optional[str] = None
     attendance_location_enabled: Optional[bool] = None
@@ -666,6 +663,7 @@ class CompanySettingsOut(ORMBase):
     late_grace_minutes: int
     weekly_off_day: str
     sandwich_method_enabled: bool = False
+    salary_slip_notifications_enabled: bool = True
     company_name: str
     company_address: str
     attendance_location_enabled: bool = False

@@ -20,6 +20,7 @@ interface Settings {
   late_grace_minutes: number;
   weekly_off_day: string;
   sandwich_method_enabled: boolean;
+  salary_slip_notifications_enabled: boolean;
   company_name: string;
   company_address: string;
   attendance_location_enabled: boolean;
@@ -198,6 +199,21 @@ export default function CompanySettings() {
           </label>
           <p className="mt-1 text-xs text-ink-500">
             Count the configured weekly-off day as leave only when it falls between leave days. This applies to new requests and pending approvals; approved leave stays unchanged.
+          </p>
+        </div>
+
+        <div className="border-t border-ink-100 pt-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-ink-700">
+            <input
+              type="checkbox"
+              checked={form.salary_slip_notifications_enabled}
+              onChange={(e) => setForm({ ...form, salary_slip_notifications_enabled: e.target.checked })}
+              className="h-4 w-4 rounded border-ink-300 text-brand-600"
+            />
+            Enable in-app salary slip notifications
+          </label>
+          <p className="mt-1 text-xs text-ink-500">
+            Notify Admin/Super Admin when employees submit requests, and employees when their slips are approved and sent. Other notification types are unaffected.
           </p>
         </div>
 

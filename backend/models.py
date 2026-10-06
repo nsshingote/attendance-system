@@ -393,6 +393,7 @@ class CompanySettings(Base):
     late_grace_minutes = Column(Integer, nullable=False, default=30)
     weekly_off_day = Column(String(20), default="Sunday")
     sandwich_method_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    salary_slip_notifications_enabled = Column(Boolean, nullable=False, default=True, server_default="1")
     company_name = Column(String(255), default="Your Company Name")
     company_address = Column(Text, default="")
     attendance_location_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
