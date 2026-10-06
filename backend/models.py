@@ -187,10 +187,11 @@ class SalarySlip(Base):
     year = Column(Integer, nullable=False)
     particulars = Column(Text, nullable=False)
     total_amount = Column(DECIMAL(12, 2), nullable=False, default=0)
-    status = Column(Enum("Saved", "Sent", name="salary_slip_status"), nullable=False, default="Saved")
+    status = Column(Enum("Pending Review", "Saved", "Sent", name="salary_slip_status"), nullable=False, default="Saved")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
     sent_at = Column(DateTime, nullable=True)
+    request_key = Column(String(64), nullable=True, unique=True)
 
     employee = relationship("User", back_populates="salary_slips", foreign_keys=[employee_id])
     creator = relationship("User", foreign_keys=[created_by])

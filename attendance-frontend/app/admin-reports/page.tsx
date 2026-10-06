@@ -152,6 +152,8 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
       const groups = new Map<string, ReportGroup>();
 
       filteredData.forEach((report) => {
+        // Keep the employee and date grouped; the table renders each
+        // department as its own labeled section within this report group.
         const key = `${report.user_id}-${report.attendance_date}`;
         const group = groups.get(key);
 
@@ -250,7 +252,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
   const exportRows = reports.flatMap((group) =>
     group.activities.map((activity) => ({
       Employee: group.user_name,
-      Department: group.department_name,
+      Department: activity.department_name,
       Date: format(parseISO(group.attendance_date), "yyyy-MM-dd"),
       Type: activity.type_name || "",
       Subtype: activity.subtype_name || "",
@@ -403,36 +405,55 @@ const getTotalDuration = (activities: ReportRow[]) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {reports.map((group) => (
-                    <Fragment key={group.key}>
-                      {group.activities.map((activity, index) => (
-                        <tr key={activity.id} className={`hover:bg-ink-50/60 ${index === 0 ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
-                          {index === 0 && (
-                            <>
-                              <td rowSpan={group.activities.length + (group.activities[0]?.day_label ? 0 : 1)} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>
-                              <td rowSpan={group.activities.length + (group.activities[0]?.day_label ? 0 : 1)} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{group.department_name}</td>
-                              <td rowSpan={group.activities.length + (group.activities[0]?.day_label ? 0 : 1)} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>
-                            </>
-                          )}
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.type_name || "—")}</td>
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.subtype_name || "—")}</td>
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.quantity ?? "—")}</td>
-                          <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "—" : (activity.duration || "—")}</td>
-                          <td className="max-w-64 px-3 py-2 text-ink-700">
-                            {activity.day_label ? <span className="font-medium text-amber-700">{activity.day_label}</span> : <ExpandableText text={activity.description} limit={52} />}
-                          </td>
-                          {index === 0 && <td rowSpan={group.activities.length + (activity.day_label ? 0 : 1)} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={activity.day_label || group.status} /></td>}
-                        </tr>
-                      ))}
-                      {!group.activities[0]?.day_label && (
-                        <tr className="border-t border-ink-200 bg-ink-50/40">
-                          <td colSpan={3} />
-                          <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(group.activities)}</td>
-                          <td />
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
+                  {reports.map((group) => {
+                    const isDayMarker = Boolean(group.activities[0]?.day_label);
+                    const departments = Array.from(
+                      group.activities.reduce((map, activity) => {
+                        const key = String(activity.department_id);
+                        const department = map.get(key);
+                        if (department) department.activities.push(activity);
+                        else map.set(key, { activities: [activity] });
+                        return map;
+                      }, new Map<string, { activities: ReportRow[] }>()).values()
+                    );
+                    const reportRowCount = group.activities.length + (isDayMarker ? 0 : departments.length);
+                    let firstReportRow = true;
+
+                    return (
+                      <Fragment key={group.key}>
+                        {departments.map((department, departmentIndex) => (
+                          <Fragment key={`${group.key}-${departmentIndex}`}>
+                            {department.activities.map((activity, activityIndex) => {
+                              const isFirstReportRow = firstReportRow;
+                              firstReportRow = false;
+                              return (
+                                <tr key={activity.id} className={`hover:bg-ink-50/60 ${isFirstReportRow ? "border-t-2 border-ink-200" : "border-t border-ink-100"}`}>
+                                  {isFirstReportRow && <td rowSpan={reportRowCount} className="max-w-32 wrap-break-word whitespace-normal px-3 py-2 align-top font-medium text-ink-900">{group.user_name}</td>}
+                                  {activityIndex === 0 && <td rowSpan={department.activities.length + (isDayMarker ? 0 : 1)} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{department.activities[0].department_name || ""}</td>}
+                                  {isFirstReportRow && <td rowSpan={reportRowCount} className="px-3 py-2 align-top text-ink-600 whitespace-nowrap">{format(parseISO(group.attendance_date), "dd MMM yyyy")}</td>}
+                                  <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "\u2014" : (activity.type_name || "\u2014")}</td>
+                                  <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "\u2014" : (activity.subtype_name || "\u2014")}</td>
+                                  <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "\u2014" : (activity.quantity ?? "\u2014")}</td>
+                                  <td className="px-3 py-2 text-ink-700 whitespace-nowrap">{activity.day_label ? "\u2014" : (activity.duration || "\u2014")}</td>
+                                  <td className="max-w-64 px-3 py-2 text-ink-700">
+                                    {activity.day_label ? <span className="font-medium text-amber-700">{activity.day_label}</span> : <ExpandableText text={activity.description} limit={52} />}
+                                  </td>
+                                  {isFirstReportRow && <td rowSpan={reportRowCount} className="px-3 py-2 align-top whitespace-nowrap"><Badge status={activity.day_label || group.status} /></td>}
+                                </tr>
+                              );
+                            })}
+                            {!isDayMarker && (
+                              <tr className="border-t border-ink-200 bg-ink-50/40">
+                                <td colSpan={3} />
+                                <td className="px-3 py-2 font-semibold text-ink-900 whitespace-nowrap">Total: {getTotalDuration(department.activities)}</td>
+                                <td />
+                              </tr>
+                            )}
+                          </Fragment>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

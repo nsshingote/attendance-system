@@ -1,5 +1,6 @@
 """Admin salary slips, employee docs, and employee-uploaded personal files."""
 import json
+import math
 import os
 import re
 from datetime import datetime
@@ -9,13 +10,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from auth import get_current_user, has_permission, require_admin, require_admin_permission, effective_role_key
 from team_scope import get_team_member_ids, is_team_member, require_team_member_access
 from config import settings
 from database import get_db
 from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
-from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate
+from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate, SalarySlipRequestCreate, SalarySlipReviewUpdate
 from utils.email_service import send_email
 from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
 from routers.changed_logs import record_changed_log
@@ -183,6 +185,51 @@ def _salary_slip_dict(item: SalarySlip):
             "total_amount": float(item.total_amount), "status": item.status, "created_at": item.created_at, "sent_at": item.sent_at}
 
 
+SALARY_SLIP_REQUEST_FIELDS = (
+    ("Salary", "salary"), ("Incentive", "incentive"), ("Overtime", "overtime"),
+    ("Extra Working Day", "extra_working_day"), ("Other", "other"),
+)
+
+
+def _salary_slip_request_key(employee_id: int, year: int, month: int) -> str:
+    return f"{employee_id}:{year}:{month}"
+
+
+def _validated_salary_particulars(particulars, fixed_fields=False):
+    rows = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in particulars if row.name.strip()]
+    if not rows:
+        raise HTTPException(status_code=422, detail="Add at least one salary particular")
+    if any(not math.isfinite(row["amount"]) or row["amount"] < 0 for row in rows):
+        raise HTTPException(status_code=422, detail="Salary amounts cannot be negative")
+    if fixed_fields:
+        amounts = {row["name"]: row["amount"] for row in rows}
+        expected = [label for label, _field in SALARY_SLIP_REQUEST_FIELDS]
+        if len(rows) != len(expected) or set(amounts) != set(expected):
+            raise HTTPException(status_code=422, detail="All five salary request fields are required")
+        rows = [{"name": label, "amount": amounts[label]} for label in expected]
+    return rows, round(sum(row["amount"] for row in rows), 2)
+
+
+def _send_final_salary_slip(db: Session, item: SalarySlip, employee: User, current_user: User):
+    """Persist final availability before attempting optional email delivery."""
+    item.status = "Sent"
+    item.sent_at = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+    email_sent = bool(employee.email) and send_email(
+        [employee.email], f"Salary slip for {datetime(item.year, item.month, 1).strftime('%B %Y')}",
+        f"<p>Hi {employee.name},</p><p>Your salary slip for <b>{datetime(item.year, item.month, 1).strftime('%B %Y')}</b> is now available in My Profile → Salary Slips.</p>",
+    )
+    if employee.id != current_user.id:
+        create_notification(
+            db, recipient_user_id=employee.id, actor_user_id=current_user.id,
+            notification_type="salary_slip.available", title="Salary slip available",
+            message=f"Your salary slip for {item.month}/{item.year} is now available.",
+            route="/my-profile", entity_type="salary_slip", entity_id=item.id,
+        )
+    return {**_salary_slip_dict(item), "email_sent": email_sent, "email_error": None if email_sent else "Salary slip finalized and available, but the email could not be sent."}
+
+
 @router.get("/salary-slips")
 def list_salary_slips(db: Session = Depends(get_db), current_user: User = Depends(require_admin_permission("employee_documents.salary_slips.view"))):
     query = db.query(SalarySlip)
@@ -194,7 +241,57 @@ def list_salary_slips(db: Session = Depends(get_db), current_user: User = Depend
 
 @router.get("/salary-slips/mine")
 def list_my_salary_slips(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return [_salary_slip_dict(item) for item in db.query(SalarySlip).filter(SalarySlip.employee_id == current_user.id).order_by(SalarySlip.created_at.desc()).all()]
+    return [_salary_slip_dict(item) for item in db.query(SalarySlip).filter(
+        SalarySlip.employee_id == current_user.id, SalarySlip.status.in_(["Pending Review", "Sent"])
+    ).order_by(SalarySlip.created_at.desc()).all()]
+
+
+@router.post("/salary-slips/request", status_code=201)
+def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not 1 <= payload.month <= 12 or not 1900 <= payload.year <= 9999:
+        raise HTTPException(status_code=422, detail="Invalid month or year")
+    request_key = _salary_slip_request_key(current_user.id, payload.year, payload.month)
+    if db.query(SalarySlip.id).filter(SalarySlip.employee_id == current_user.id, SalarySlip.year == payload.year, SalarySlip.month == payload.month).first():
+        raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
+    particulars = [{"name": label, "amount": round(getattr(payload, field), 2)} for label, field in SALARY_SLIP_REQUEST_FIELDS]
+    item = SalarySlip(employee_id=current_user.id, month=payload.month, year=payload.year,
+        particulars=json.dumps(particulars), total_amount=round(sum(row["amount"] for row in particulars), 2),
+        status="Pending Review", created_by=current_user.id, request_key=request_key)
+    db.add(item)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
+    db.refresh(item)
+    return _salary_slip_dict(item)
+
+
+@router.put("/salary-slips/{slip_id}/review")
+def review_salary_slip(slip_id: int, payload: SalarySlipReviewUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.salary_slips.edit")
+    item = db.query(SalarySlip).filter(SalarySlip.id == slip_id, SalarySlip.status == "Pending Review").first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Pending salary slip request not found")
+    _require_employee_document_scope(db, current_user, item.employee_id)
+    rows, total = _validated_salary_particulars(payload.particulars, fixed_fields=True)
+    item.particulars, item.total_amount = json.dumps(rows), total
+    db.commit()
+    db.refresh(item)
+    return _salary_slip_dict(item)
+
+
+@router.post("/salary-slips/{slip_id}/approve")
+def approve_salary_slip(slip_id: int, payload: SalarySlipReviewUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_document_permissions(current_user, db, "employee_documents.salary_slips.edit", "employee_documents.salary_slips.send")
+    item = db.query(SalarySlip).filter(SalarySlip.id == slip_id, SalarySlip.status == "Pending Review").first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Pending salary slip request not found")
+    _require_employee_document_scope(db, current_user, item.employee_id)
+    rows, total = _validated_salary_particulars(payload.particulars, fixed_fields=True)
+    item.particulars, item.total_amount = json.dumps(rows), total
+    employee = item.employee
+    return _send_final_salary_slip(db, item, employee, current_user)
 
 
 @router.post("/salary-slips", status_code=201)
@@ -209,12 +306,15 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
     _require_employee_document_scope(db, current_user, employee.id)
+    request_key = _salary_slip_request_key(employee.id, payload.year, payload.month)
+    if db.query(SalarySlip.id).filter(SalarySlip.employee_id == employee.id, SalarySlip.year == payload.year, SalarySlip.month == payload.month).first():
+        raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
     particulars = [{"name": item.name.strip(), "amount": round(item.amount, 2)} for item in payload.particulars if item.name.strip()]
     if not particulars:
         raise HTTPException(status_code=422, detail="Add at least one salary particular")
     total = sum(max(0, item["amount"]) for item in particulars)
     item = SalarySlip(employee_id=employee.id, month=payload.month, year=payload.year, particulars=json.dumps(particulars),
-                      total_amount=total, status="Saved", created_by=current_user.id)
+                      total_amount=total, status="Saved", created_by=current_user.id, request_key=request_key)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -250,6 +350,8 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
     _require_document_permissions(current_user, db, *required_permissions)
     item = db.query(SalarySlip).filter(SalarySlip.id == slip_id).first()
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
+    if item.status == "Pending Review":
+        raise HTTPException(status_code=409, detail="Use the pending request review workflow")
     _require_employee_document_scope(db, current_user, item.employee_id)
     old_employee = item.employee.name if item.employee else str(item.employee_id)
     old_values = {"employee": old_employee, "month": item.month, "year": item.year,
@@ -257,9 +359,16 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee: raise HTTPException(status_code=404, detail="Active employee not found")
     _require_employee_document_scope(db, current_user, employee.id)
+    request_key = _salary_slip_request_key(employee.id, payload.year, payload.month)
+    duplicate = db.query(SalarySlip.id).filter(
+        SalarySlip.employee_id == employee.id, SalarySlip.year == payload.year, SalarySlip.month == payload.month,
+        SalarySlip.id != item.id,
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
     particulars = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in payload.particulars if row.name.strip()]
     if not particulars: raise HTTPException(status_code=422, detail="Add at least one salary particular")
-    item.employee_id, item.month, item.year, item.particulars = employee.id, payload.month, payload.year, json.dumps(particulars)
+    item.employee_id, item.month, item.year, item.particulars, item.request_key = employee.id, payload.month, payload.year, json.dumps(particulars), request_key
     item.total_amount, item.status, item.sent_at = sum(max(0, row["amount"]) for row in particulars), "Saved", None
     if payload.send and employee.email:
         period = datetime(payload.year, payload.month, 1).strftime("%B %Y")

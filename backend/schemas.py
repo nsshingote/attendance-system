@@ -275,6 +275,20 @@ class SalarySlipCreate(BaseModel):
     send: bool = False
 
 
+class SalarySlipRequestCreate(BaseModel):
+    month: int
+    year: int
+    salary: float = Field(ge=0)
+    incentive: float = Field(ge=0)
+    overtime: float = Field(ge=0)
+    extra_working_day: float = Field(ge=0)
+    other: float = Field(ge=0)
+
+
+class SalarySlipReviewUpdate(BaseModel):
+    particulars: List[SalarySlipParticular]
+
+
 class SalarySlipOut(ORMBase):
     id: int
     employee_id: int
