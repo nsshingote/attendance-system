@@ -297,22 +297,19 @@ export default function MyProfilePage() {
     const contentWidth = pageWidth - margin * 2;
     let y = 17;
 
-    // Official PropCheckup logo, contained in the existing 22 mm header box.
+    // Use the full wordmark once, fitted proportionally in the left header area.
     try {
       const logo = await getImageDataUrl(OFFICIAL_SALARY_SLIP_LOGO_URL);
       const logoProperties = pdf.getImageProperties(logo);
-      const logoBoxSize = 22;
-      const logoScale = Math.min(logoBoxSize / logoProperties.width, logoBoxSize / logoProperties.height);
+      const logoBoxWidth = 65;
+      const logoBoxHeight = 22;
+      const logoScale = Math.min(logoBoxWidth / logoProperties.width, logoBoxHeight / logoProperties.height);
       const logoWidth = logoProperties.width * logoScale;
       const logoHeight = logoProperties.height * logoScale;
-      pdf.addImage(logo, "PNG", margin, y - 5 + (logoBoxSize - logoHeight) / 2, logoWidth, logoHeight);
+      pdf.addImage(logo, "PNG", margin, y - 5 + (logoBoxHeight - logoHeight) / 2, logoWidth, logoHeight);
     } catch {
       // Keep the salary slip usable if the optional branding image is unavailable.
     }
-    pdf.setTextColor(31, 41, 55);
-    pdf.setFontSize(16);
-    pdf.setFont("helvetica", "bold");
-    pdf.text(companyBranding?.company_name || "PropCheckup", margin + 28, y + 3);
     pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(107, 114, 128);
@@ -921,9 +918,20 @@ export default function MyProfilePage() {
               {showSalaryRequest && <div className="mt-5 border-t border-ink-100 pt-5">
                 <label className="block max-w-xs text-sm font-medium">Month &amp; Year<input type="month" value={salaryRequestPeriod} onChange={event => setSalaryRequestPeriod(event.target.value)} className="mt-1 block w-full rounded-lg border-ink-200" /></label>
                 {selectedPeriodSlip ? <p className="mt-4 rounded-lg bg-ink-50 p-3 text-sm text-ink-600">A request for this month already exists: <strong>{selectedPeriodSlip.status}</strong>.</p> : <>
-                  <div className="mt-4 space-y-3">{salaryRequestRows.map((row, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-2">{row.custom ? <label className="text-sm font-medium">Particular / Name<input value={row.name} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="mt-1 block w-full rounded-lg border-ink-200" /></label> : <label className="text-sm font-medium">{row.name}<input readOnly value={row.name} className="mt-1 block w-full rounded-lg border-ink-200 bg-ink-50" /></label>}<div className="flex items-end gap-2"><label className="flex-1 text-sm font-medium">Amount<input type="number" min="0" inputMode="decimal" value={row.amount} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="mt-1 block w-full rounded-lg border-ink-200" /></label>{row.custom && <button aria-label="Remove custom particular" onClick={() => setSalaryRequestRows(current => current.filter((_, rowIndex) => rowIndex !== index))} className="rounded-lg border border-ink-300 p-2 text-red-600"><Trash2 size={18} /></button>}</div></div>)}</div>
+                  <div className="mt-4 overflow-x-auto rounded-lg border border-ink-200">
+                    <table className="w-full table-fixed text-sm">
+                      <thead className="bg-ink-50 text-left text-ink-600"><tr><th className="w-3/5 px-3 py-3">Particulars</th><th className="w-2/5 px-3 py-3">Amount</th></tr></thead>
+                      <tbody>{salaryRequestRows.map((row, index) => <tr key={index} className="border-t border-ink-100">
+                        <td className="p-2">{row.custom ? <div className="flex min-w-0 items-center gap-1"><input aria-label="Particular / Name" placeholder="Particular / Name" value={row.name} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="min-w-0 w-full rounded-lg border-ink-200 px-2" /><button aria-label="Remove custom particular" onClick={() => setSalaryRequestRows(current => current.filter((_, rowIndex) => rowIndex !== index))} className="shrink-0 rounded-lg border border-ink-300 p-2 text-red-600"><Trash2 size={16} /></button></div> : <span className="px-1 font-medium">{row.name}</span>}</td>
+                        <td className="p-2"><input aria-label={`${row.name || "Custom particular"} amount`} type="number" min="0" inputMode="decimal" value={row.amount} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="min-w-0 w-full rounded-lg border-ink-200 px-2" /></td>
+                      </tr>)}</tbody>
+                      <tfoot className="border-t border-ink-200 bg-ink-50">
+                        <tr><td className="px-3 py-3 font-semibold">Total Amount</td><td className="px-3 py-3 font-semibold text-emerald-700">{money(salaryRequestTotal)}</td></tr>
+                      </tfoot>
+                    </table>
+                  </div>
                   <button onClick={() => setSalaryRequestRows(current => [...current, { name: "", amount: "", custom: true }])} className="mt-3 text-sm font-medium text-brand-700">Other +</button>
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="font-semibold">Total Amount: <span className="text-emerald-700">{money(salaryRequestTotal)}</span></p><div className="flex gap-2"><button onClick={() => setShowSalaryRequest(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button><button disabled={sendingSalaryRequest} onClick={() => void submitSalarySlipRequest()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{sendingSalaryRequest ? "Sending…" : "Send Request"}</button></div></div>
+                  <div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowSalaryRequest(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button><button disabled={sendingSalaryRequest} onClick={() => void submitSalarySlipRequest()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{sendingSalaryRequest ? "Sending…" : "Send Request"}</button></div>
                 </>}
               </div>}
             </section>
