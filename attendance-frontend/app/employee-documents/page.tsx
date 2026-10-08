@@ -38,6 +38,9 @@ const rowsFromSlip = (slip: Slip | undefined, type: "earnings" | "deductions"): 
   });
   return rows;
 };
+const latestSlipFor = (slips: Slip[], employeeId: string) => slips
+  .filter(slip => slip.employee_id === Number(employeeId) && slip.status === "Sent" && Boolean(slip.sent_at))
+  .sort((first, second) => Date.parse(second.sent_at!) - Date.parse(first.sent_at!))[0];
 const formatMoney = (value: number | string) => {
   const normalized = Number(String(value).replace(/[^0-9.-]/g, ""));
   if (!Number.isFinite(normalized)) return "₹0.00";
@@ -52,6 +55,8 @@ export default function EmployeeDocumentsPage() {
   const [tab, setTab] = useState("Salary Slips");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [slips, setSlips] = useState<Slip[]>([]);
+  const [salaryHistoryLoading, setSalaryHistoryLoading] = useState(true);
+  const [salaryHistoryLoaded, setSalaryHistoryLoaded] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [employeeDetails, setEmployeeDetails] = useState<SalaryEmployeeDetails>(() => blankDetails(new Date().toISOString().slice(0, 7)));
@@ -82,19 +87,24 @@ export default function EmployeeDocumentsPage() {
   const visibleTabs = [canLetters && "Letters", canSalarySlips && "Salary Slips", canTemplates && "Letter Templates"].filter(Boolean) as string[];
   const load = async () => {
     if (!canSalarySlips) return;
+    setSalaryHistoryLoading(true);
     try {
       const [users, history] = await Promise.all([api.get<EmployeeOption[]>("/users/employee-selector"), api.get("/employee-documents/salary-slips")]);
       setEmployees(users.data); setSlips(history.data);
+      setSalaryHistoryLoaded(true);
     } catch (error) { toast.error(getErrorMessage(error)); }
+    finally { setSalaryHistoryLoading(false); }
   };
   useEffect(() => {
     if (!canSalarySlips) return;
     api.get<EmployeeOption[]>("/users/employee-selector")
       .then(({ data }) => setEmployees(data))
       .catch(error => toast.error(getErrorMessage(error)));
+    setSalaryHistoryLoading(true);
     api.get<Slip[]>("/employee-documents/salary-slips")
-      .then(({ data }) => setSlips(data))
-      .catch(error => toast.error(getErrorMessage(error)));
+      .then(({ data }) => { setSlips(data); setSalaryHistoryLoaded(true); })
+      .catch(error => toast.error(getErrorMessage(error)))
+      .finally(() => setSalaryHistoryLoading(false));
   }, [canSalarySlips]);
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
   const totalEarnings = useMemo(() => roundMoney(earnings.reduce((sum, row) => sum + (row.name.trim() ? Math.max(0, Number(row.amount) || 0) : 0), 0)), [earnings]);
@@ -111,10 +121,12 @@ export default function EmployeeDocumentsPage() {
   const changePeriod = (value: string) => { setPeriod(value); const days = new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)), 0).getDate(); setEmployeeDetails(current => ({ ...current, days_in_month: days })); };
   const resetForm = () => { setEmployeeId(""); setEditingSlipId(null); setReviewSlipId(null); setEmployeeDetails(blankDetails(period)); setEarnings(blankRows(earningLabels)); setDeductions(blankRows(deductionLabels)); setLwpDays("0"); };
   const applyEmployeeDefaults = (selectedId: string) => {
+    if (!salaryHistoryLoaded) return;
     const employee = employees.find(item => String(item.id) === selectedId);
     const details = blankDetails(period);
     if (employee) Object.assign(details, { name: employee.name || "", designation: employee.designation || "", department: employee.department || "", phone_number: employee.mobile || "", email: employee.email || "", joining_date: employee.date_of_joining ? new Date(`${employee.date_of_joining}T00:00:00`).toLocaleDateString("en-GB") : "", location: employee.place_of_posting || "" });
-    setEmployeeDetails(details); setEarnings(blankRows(earningLabels)); setDeductions(blankRows(deductionLabels)); setLwpDays("0");
+    const latestSlip = latestSlipFor(slips, selectedId);
+    setEmployeeDetails(details); setEarnings(rowsFromSlip(latestSlip, "earnings")); setDeductions(rowsFromSlip(latestSlip, "deductions")); setLwpDays("0");
   };
   const payloadRows = (rows: EditableSlipRow[]) => rows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 }));
   const save = async (send: boolean) => {
@@ -174,7 +186,7 @@ export default function EmployeeDocumentsPage() {
         <h2 className="text-lg font-semibold">{reviewSlipId ? "Review Salary Slip Request" : editingSlipId ? "Edit Salary Slip" : "Generate Salary Slip"}</h2>
         <p className="mb-5 text-sm text-ink-500">{reviewSlipId ? "Review and correct employee details, earnings, LWP, and deductions before approval." : "Prepare the employee details and salary components for this month."}</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm font-medium">Select Employee<select disabled={Boolean(reviewSlipId)} value={employeeId} onChange={event => { const id = event.target.value; setEmployeeId(id); setEditingSlipId(null); applyEmployeeDefaults(id); }} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50"><option value="">Select employee</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
+          <label className="text-sm font-medium">Select Employee<select disabled={Boolean(reviewSlipId) || salaryHistoryLoading || !salaryHistoryLoaded} value={employeeId} onChange={event => { const id = event.target.value; setEmployeeId(id); setEditingSlipId(null); applyEmployeeDefaults(id); }} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50"><option value="">{salaryHistoryLoading ? "Loading salary history..." : "Select employee"}</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
           <label className="text-sm font-medium">Month &amp; Year<input disabled={Boolean(reviewSlipId)} type="month" value={period} onChange={event => changePeriod(event.target.value)} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50" /></label>
         </div>
         <h3 className="mt-6 font-semibold">Employee Details</h3>
