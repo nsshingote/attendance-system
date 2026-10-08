@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 import routers.employee_documents as salary_router
 from database import Base, SessionLocal, engine
 from models import CompanySettings, Notification, SalarySlip, User
-from schemas import SalarySlipRequestCreate, SalarySlipReviewUpdate, SalarySlipParticular
+from schemas import SalarySlipEmployeeDetails, SalarySlipRequestCreate, SalarySlipReviewUpdate, SalarySlipParticular, SalarySlipRow
 
 
 @pytest.fixture
@@ -55,6 +55,28 @@ def review_payload(*amounts):
     if len(amounts) > 4:
         rows.append(SalarySlipParticular(name="Travel Allowance", amount=amounts[4]))
     return SalarySlipReviewUpdate(particulars=rows)
+
+
+def structured_rows():
+    return [SalarySlipRow(name=name, amount=amount) for name, amount in (
+        ("Basic Salary", 10000), ("House Rent Allowance", 2000), ("Incentive Pay", 100),
+        ("Travelling Allowance", 200), ("Overtime", 100), ("Extra Working Day", 100),
+    )]
+
+
+def structured_deductions():
+    return [SalarySlipRow(name=name, amount=amount) for name, amount in (
+        ("Provident Fund", 100), ("Professional Tax", 50), ("Health Insurance Contribution", 25),
+    )]
+
+
+def structured_details(days_in_month=30):
+    return SalarySlipEmployeeDetails(
+        name="Employee", designation="Tester", department="Test", phone_number="123",
+        email="employee@example.com", joining_date="01/01/2025", pan_number="", account_number="",
+        location="Office", payment_mode="Bank Transfer", days_in_month=days_in_month,
+        days_worked=min(28, days_in_month), days_paid=min(28, days_in_month),
+    )
 
 
 def test_employee_submits_own_request_and_duplicate_is_rejected(db_session: Session, monkeypatch):
@@ -191,3 +213,77 @@ def test_company_toggle_suppresses_only_salary_slip_notifications(db_session: Se
     created = salary_router.request_salary_slip(request_payload(), db_session, employee)
     salary_router.approve_salary_slip(created["id"], review_payload(), db_session, admin)
     assert notifications == []
+
+
+def test_structured_earnings_lop_deductions_and_net_pay_are_server_calculated(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda _user, _key, _db: True)
+    created = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions()),
+        db_session, employee,
+    )
+    edited = salary_router.review_salary_slip(
+        created["id"],
+        SalarySlipReviewUpdate(
+            employee_details=structured_details(30),
+            earnings=structured_rows() + [SalarySlipRow(name="Joining Bonus", amount=500)],
+            deductions=structured_deductions() + [SalarySlipRow(name="Other Recovery", amount=125)],
+            lwp_days=2,
+        ),
+        db_session,
+        admin,
+    )
+    assert edited["total_earnings"] == 13000
+    assert edited["lop_deduction"] == 866.67
+    assert edited["total_deductions"] == 1166.67
+    assert edited["net_pay"] == 11833.33
+    assert edited["total_amount"] == edited["net_pay"]
+    assert edited["earnings"][-1] == {"name": "Joining Bonus", "amount": 500.0}
+    assert edited["deductions"][-1] == {"name": "Other Recovery", "amount": 125.0}
+    assert edited["status"] == "Pending Review"
+
+
+def test_zero_lwp_produces_no_lop_deduction(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda _user, _key, _db: True)
+    created = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions()),
+        db_session, employee,
+    )
+    reviewed = salary_router.review_salary_slip(
+        created["id"], SalarySlipReviewUpdate(employee_details=structured_details(), lwp_days=0), db_session, admin,
+    )
+    assert reviewed["lop_deduction"] == 0
+    assert reviewed["total_deductions"] == 175
+    assert reviewed["net_pay"] == 12325
+
+
+def test_approval_uses_reviewed_structured_values(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda _user, _key, _db: True)
+    monkeypatch.setattr(salary_router, "send_email", lambda *_args, **_kwargs: False)
+    created = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions()),
+        db_session, employee,
+    )
+    result = salary_router.approve_salary_slip(
+        created["id"],
+        SalarySlipReviewUpdate(
+            employee_details=structured_details(20),
+            earnings=[SalarySlipRow(name=name, amount=2000 if name == "Basic Salary" else 0) for name in (
+                "Basic Salary", "House Rent Allowance", "Incentive Pay", "Travelling Allowance", "Overtime", "Extra Working Day",
+            )],
+            deductions=[SalarySlipRow(name=name, amount=0) for name in ("Provident Fund", "Professional Tax", "Health Insurance Contribution")],
+            lwp_days=1,
+        ),
+        db_session,
+        admin,
+    )
+    assert result["status"] == "Sent"
+    assert result["total_earnings"] == 2000
+    assert result["lop_deduction"] == 100
+    assert result["total_deductions"] == 100
+    assert result["net_pay"] == 1900

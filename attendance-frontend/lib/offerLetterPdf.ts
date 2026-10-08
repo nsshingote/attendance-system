@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { loadEmployeeDocumentLogoDataUrl } from "@/lib/employeeDocumentBranding";
 import { deliverPdf } from "@/lib/pdfDownload";
 
 export type OfferLetterValues = {
@@ -12,15 +13,7 @@ export type OfferLetterValues = {
   acceptance_date?: string;
 };
 
-function drawHeaderTagline(pdf: jsPDF, x: number, y: number) {
-  let currentX = x;
-  for (const word of "India's First Home Inspection Startup".split(" ")) {
-    pdf.text(word, currentX, y);
-    currentX += pdf.getTextWidth(word) + 0.8;
-  }
-}
-
-export function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFileReady?: (file: File) => void) {
+export async function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFileReady?: (file: File) => void) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
   let y = 18;
@@ -32,15 +25,15 @@ export function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFileReady
     y += lines.length * 6 + 4;
   };
 
-  // Header
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(20);
-  pdf.setTextColor(234, 88, 12);
-  pdf.text("Prop", 17, y);
-  pdf.setTextColor(30, 58, 138);
-  pdf.text("Checkup", 36, y);
-  pdf.setFontSize(7);
-  drawHeaderTagline(pdf, 17, y + 5);
+  // Keep the logo within the existing header area.
+  const logo = await loadEmployeeDocumentLogoDataUrl();
+  const logoProperties = pdf.getImageProperties(logo);
+  const logoBoxWidth = 45;
+  const logoBoxHeight = 12;
+  const logoScale = Math.min(logoBoxWidth / logoProperties.width, logoBoxHeight / logoProperties.height);
+  const logoWidth = logoProperties.width * logoScale;
+  const logoHeight = logoProperties.height * logoScale;
+  pdf.addImage(logo, "PNG", 17, y + (logoBoxHeight - logoHeight) / 2, logoWidth, logoHeight);
   y += 12;
 
   // Divider line

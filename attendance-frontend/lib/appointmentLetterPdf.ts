@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { loadEmployeeDocumentLogoDataUrl } from "@/lib/employeeDocumentBranding";
 import { deliverPdf } from "@/lib/pdfDownload";
 
 export type AppointmentLetterValues = {
@@ -7,20 +8,20 @@ export type AppointmentLetterValues = {
   working_hours: string; working_days: string; authorized_signatory: string;
 };
 
-function drawHeaderTagline(pdf: jsPDF, x: number, y: number) {
-  let currentX = x;
-  for (const word of "India's First Home Inspection Startup".split(" ")) {
-    pdf.text(word, currentX, y);
-    currentX += pdf.getTextWidth(word) + 0.8;
-  }
-}
-
-export function downloadAppointmentLetterPdf(values: AppointmentLetterValues, onIOSFileReady?: (file: File) => void) {
+export async function downloadAppointmentLetterPdf(values: AppointmentLetterValues, onIOSFileReady?: (file: File) => void) {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const width = pdf.internal.pageSize.getWidth();
   let y = 18;
   const paragraph = (text: string, bold = false) => { pdf.setFont("times", bold ? "bold" : "normal"); const lines = pdf.splitTextToSize(text, width - 34); pdf.text(lines, 17, y); y += lines.length * 6 + 4; };
-  pdf.setFont("helvetica", "bold"); pdf.setFontSize(20); pdf.setTextColor(234, 88, 12); pdf.text("Prop", 17, y); pdf.setTextColor(30, 58, 138); pdf.text("Checkup", 36, y); pdf.setFontSize(7); drawHeaderTagline(pdf, 17, y + 5); y += 12;
+  const logo = await loadEmployeeDocumentLogoDataUrl();
+  const logoProperties = pdf.getImageProperties(logo);
+  const logoBoxWidth = 45;
+  const logoBoxHeight = 12;
+  const logoScale = Math.min(logoBoxWidth / logoProperties.width, logoBoxHeight / logoProperties.height);
+  const logoWidth = logoProperties.width * logoScale;
+  const logoHeight = logoProperties.height * logoScale;
+  pdf.addImage(logo, "PNG", 17, y + (logoBoxHeight - logoHeight) / 2, logoWidth, logoHeight);
+  y += 12;
   pdf.setDrawColor(249, 115, 22); pdf.setLineWidth(1); pdf.line(17, y, width - 17, y); y += 10;
   pdf.setTextColor(0, 0, 0); pdf.setFont("times", "bold"); pdf.setFontSize(16); pdf.text("APPOINTMENT LETTER", width / 2, y, { align: "center" }); y += 12; pdf.setFontSize(11);
   paragraph(`Date: ${values.letter_date}`); paragraph(`Company Address - ${values.company_address}`); y += 2;

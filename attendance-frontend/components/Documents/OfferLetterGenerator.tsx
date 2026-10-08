@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Eye, FilePlus2, Send } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
+import { EMPLOYEE_DOCUMENT_LOGO_PATH } from "@/lib/employeeDocumentBranding";
 import { type OfferLetterValues } from "@/lib/offerLetterPdf";
 
 type Employee = { 
@@ -25,13 +26,7 @@ export function OfferLetterPreview({ values }: { values: OfferLetterValues }) {
     <article className="mx-auto min-h-760px max-w-760px bg-white p-6 font-serif text-[13px] leading-relaxed text-slate-900 shadow-sm sm:p-10">
       <header className="border-b-4 border-orange-500 pb-4">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-3xl font-bold">
-              <span className="text-orange-500">Prop</span>
-              <span className="text-blue-900">Checkup</span>
-            </div>
-            <p className="text-xs font-semibold text-orange-600">India's First Home Inspection Startup</p>
-          </div>
+          <img src={EMPLOYEE_DOCUMENT_LOGO_PATH} alt="PropCheckup logo" className="h-12 w-auto max-w-[220px] object-contain" />
           <div className="text-right font-sans text-xs text-blue-900">
             <p>www.propcheckup.com</p>
             <p>info@propcheckup.com</p>

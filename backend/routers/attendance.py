@@ -72,7 +72,7 @@ from utils.leave_calculator import (
 from utils.email_service import send_wfh_decision_notification
 from services.notifications import create_notification, get_approver_user_ids
 from utils.calender import build_month_calendar
-from utils.date_helpers import iso_with_offset
+from utils.date_helpers import india_now, india_today, iso_with_offset
 from routers.changed_logs import record_changed_log
 from config import settings
 
@@ -501,7 +501,7 @@ def _mark_absent_records_for_date_range(
     if not user_ids:
         return
 
-    today = date.today()
+    today = india_today()
     all_dates = [d for d in _get_date_range(start_date, end_date) if d < today]
     if not all_dates:
         return
@@ -614,7 +614,7 @@ def check_in(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    ist_now = india_now()
     today = ist_now.date()
 
     if _has_pending_wfh(db, current_user.id, today):
@@ -800,7 +800,7 @@ def check_out(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    ist_now = india_now()
     today = ist_now.date()
 
     if _has_pending_wfh(db, current_user.id, today):
@@ -1078,6 +1078,7 @@ def get_all_attendance(
     current_user: User = Depends(get_current_user)
 ):
     """Get attendance for all employees (admin only)"""
+    today = india_today()
     team_member_ids = require_team_permission(db, current_user, "attendance.team_view")
     if effective_role_key(current_user) == "team_leader":
         team_member_ids = list(dict.fromkeys([current_user.id, *team_member_ids]))
@@ -1136,7 +1137,6 @@ def get_all_attendance(
     # until someone checks in. Add an in-memory row so the admin table still
     # shows every active employee with the canonical Absent/Holiday/Leave
     # status instead of hiding employees who have not marked attendance.
-    today = date.today()
     if target_start and target_end and target_start <= today <= target_end:
         existing_today_ids = {
             attendance.user_id
@@ -1179,10 +1179,10 @@ def get_all_attendance(
         ).filter(
             LeaveRequest.user_id.in_(result_user_ids),
             LeaveRequest.status.in_(["Pending", "Approved"]),
-            LeaveRequest.to_date >= date.today(),
+            LeaveRequest.to_date >= today,
         ).all()
         for user_id, from_date, to_date in future_rows:
-            start = max(from_date, date.today())
+            start = max(from_date, today)
             current = start
             while current <= to_date:
                 future_scheduled_keys.add((user_id, current))
@@ -1195,13 +1195,13 @@ def get_all_attendance(
             request_dates = db.query(model.user_id, date_column).filter(
                 model.user_id.in_(result_user_ids),
                 model.status.in_(["Pending", "Approved"]),
-                date_column >= date.today(),
+                date_column >= today,
             ).all()
             future_scheduled_keys.update(request_dates)
 
     results = [
         row for row in results
-        if row[0].attendance_date <= date.today()
+        if row[0].attendance_date <= today
         or (row[0].user_id, row[0].attendance_date) in future_scheduled_keys
     ]
     user_ids = {attendance.user_id for attendance, _, _, _ in results}
@@ -2445,7 +2445,7 @@ def request_wfh(
     """
     if _is_onsite_user(current_user):
         raise HTTPException(status_code=400, detail="WFH requests are not available for onsite employees.")
-    ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    ist_today = india_today()
     if payload.attendance_date < ist_today:
         raise HTTPException(status_code=400, detail="Cannot request WFH for a past date.")
 
@@ -2616,7 +2616,7 @@ def decide_wfh(
         raise HTTPException(status_code=404, detail="Employee not found")
     _require_office_request_mode(request_user, "WFH")
 
-    ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    ist_today = india_today()
     if wfh_request.attendance_date < ist_today:
         raise HTTPException(status_code=400, detail="Cannot approve or reject WFH requests for past dates.")
 
@@ -2736,7 +2736,7 @@ def admin_request_wfh_for_user(
         raise HTTPException(status_code=404, detail="User not found")
     _require_office_request_mode(target_user, "WFH")
 
-    ist_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    ist_today = india_today()
     if payload.attendance_date < ist_today:
         raise HTTPException(status_code=400, detail="Cannot create WFH for a past date.")
 

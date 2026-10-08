@@ -267,22 +267,53 @@ class SalarySlipParticular(BaseModel):
     amount: float = 0
 
 
+class SalarySlipEmployeeDetails(BaseModel):
+    name: str = ""
+    designation: str = ""
+    department: str = ""
+    phone_number: str = ""
+    email: str = ""
+    joining_date: str = ""
+    pan_number: str = ""
+    account_number: str = ""
+    location: str = ""
+    payment_mode: str = ""
+    days_in_month: float
+    days_worked: float = 0
+    days_paid: float = 0
+
+
+class SalarySlipRow(BaseModel):
+    name: str
+    amount: float = 0
+
+
 class SalarySlipCreate(BaseModel):
     employee_id: int
     month: int
     year: int
-    particulars: List[SalarySlipParticular]
+    employee_details: Optional[SalarySlipEmployeeDetails] = None
+    earnings: Optional[List[SalarySlipRow]] = None
+    deductions: Optional[List[SalarySlipRow]] = None
+    lwp_days: Optional[float] = None
+    particulars: Optional[List[SalarySlipParticular]] = None
     send: bool = False
 
 
 class SalarySlipRequestCreate(BaseModel):
     month: int
     year: int
-    particulars: List[SalarySlipParticular]
+    earnings: Optional[List[SalarySlipRow]] = None
+    deductions: Optional[List[SalarySlipRow]] = None
+    particulars: Optional[List[SalarySlipParticular]] = None
 
 
 class SalarySlipReviewUpdate(BaseModel):
-    particulars: List[SalarySlipParticular]
+    employee_details: Optional[SalarySlipEmployeeDetails] = None
+    earnings: Optional[List[SalarySlipRow]] = None
+    deductions: Optional[List[SalarySlipRow]] = None
+    lwp_days: Optional[float] = None
+    particulars: Optional[List[SalarySlipParticular]] = None
 
 
 class SalarySlipOut(ORMBase):
@@ -293,6 +324,14 @@ class SalarySlipOut(ORMBase):
     year: int
     particulars: str
     total_amount: float
+    employee_details: Optional[dict] = None
+    earnings: Optional[List[SalarySlipRow]] = None
+    deductions: Optional[List[SalarySlipRow]] = None
+    lwp_days: Optional[float] = None
+    total_earnings: Optional[float] = None
+    lop_deduction: Optional[float] = None
+    total_deductions: Optional[float] = None
+    net_pay: Optional[float] = None
     status: str
     created_at: datetime
 

@@ -7,6 +7,7 @@ import schemas
 from database import get_db
 from auth import get_current_user, require_admin_permission
 from utils.attendance_status import determine_attendance_status_for_date
+from utils.date_helpers import india_today
 
 
 router = APIRouter(
@@ -25,7 +26,7 @@ def dashboard(
 ):
 
     # Role check
-    today = date.today()
+    today = india_today()
 
 
     total_employees = (

@@ -23,7 +23,7 @@ from schemas import (
 from auth import get_current_user, require_admin_permission
 from utils.attendance_status import get_today_attendance_status, determine_attendance_status_for_date, applicable_holiday
 from utils.logger import log_activity
-from utils.date_helpers import iso_with_offset
+from utils.date_helpers import india_today, iso_with_offset
 
 router = APIRouter()
 
@@ -64,7 +64,7 @@ def get_employee_dashboard(
     current_user: User = Depends(get_current_user)
 ):
     """Employee dashboard stats with check-in/out status."""
-    today = date.today()
+    today = india_today()
     
     # Today's attendance
     today_attendance = db.query(Attendance).filter(
@@ -104,7 +104,7 @@ def get_admin_dashboard(
     current_user: User = Depends(require_admin_permission("attendance.all_view"))
 ):
     """Admin dashboard stats with today's attendance table including report info."""
-    today = date.today()
+    today = india_today()
     start_of_month = date(today.year, today.month, 1)
     
     # Calculate end of month

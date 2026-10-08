@@ -3,7 +3,9 @@ import json
 import math
 import os
 import re
+import calendar
 from datetime import datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -180,14 +182,220 @@ def _document_dict(item: EmployeeDocument):
 
 
 def _salary_slip_dict(item: SalarySlip):
-    return {"id": item.id, "employee_id": item.employee_id, "employee_name": item.employee.name if item.employee else None,
-            "month": item.month, "year": item.year, "particulars": item.particulars,
-            "total_amount": float(item.total_amount), "status": item.status, "created_at": item.created_at, "sent_at": item.sent_at}
+    employee = item.employee
+    if item.earnings and item.deductions and item.employee_details:
+        earnings = json.loads(item.earnings)
+        deductions = json.loads(item.deductions)
+        employee_details = json.loads(item.employee_details)
+        lwp_days = float(item.lwp_days or 0)
+        total_earnings = float(item.total_earnings or 0)
+        lop_deduction = float(item.lop_deduction or 0)
+        total_deductions = float(item.total_deductions or 0)
+        net_pay = float(item.net_pay if item.net_pay is not None else item.total_amount)
+    else:
+        earnings, deductions = _legacy_salary_rows(item.particulars)
+        employee_details = _default_salary_employee_details(employee, item.month, item.year)
+        lwp_days = 0.0
+        total_earnings = round(sum(row["amount"] for row in earnings), 2)
+        lop_deduction = total_deductions = 0.0
+        # Keep the historical final amount as-is for old slips.
+        net_pay = float(item.total_amount)
+    return {
+        "id": item.id, "employee_id": item.employee_id, "employee_name": employee.name if employee else None,
+        "month": item.month, "year": item.year, "particulars": item.particulars,
+        "employee_details": employee_details, "earnings": earnings, "deductions": deductions,
+        "lwp_days": lwp_days, "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+        "total_deductions": total_deductions, "net_pay": net_pay, "total_amount": net_pay,
+        "status": item.status, "created_at": item.created_at, "sent_at": item.sent_at,
+    }
 
 
-SALARY_SLIP_REQUEST_FIELDS = (
-    "Salary", "Incentive", "Overtime", "Extra Working Day",
-)
+MONEY_QUANTUM = Decimal("0.01")
+EARNING_FIELDS = ("Basic Salary", "House Rent Allowance", "Incentive Pay", "Travelling Allowance", "Overtime", "Extra Working Day")
+DEDUCTION_FIELDS = ("Provident Fund", "Professional Tax", "Health Insurance Contribution")
+LEGACY_EARNING_NAMES = {
+    "salary": "Basic Salary", "incentive": "Incentive Pay", "overtime": "Overtime",
+    "extra working day": "Extra Working Day",
+}
+
+
+def _round_money(value) -> Decimal:
+    try:
+        amount = Decimal(str(value)).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Salary amounts must be valid numbers")
+    if not amount.is_finite() or amount < 0:
+        raise HTTPException(status_code=422, detail="Salary amounts cannot be negative")
+    return amount
+
+
+def _row_name(row) -> str:
+    value = row.get("name", "") if isinstance(row, dict) else row.name
+    name = str(value).strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=422, detail="Each salary row must have a name of at most 100 characters")
+    return name
+
+
+def _normalize_rows(rows, required_fields: tuple[str, ...], label: str) -> list[dict]:
+    collected: dict[str, Decimal] = {}
+    seen: set[str] = set()
+    for row in rows or []:
+        name = _row_name(row)
+        key = name.casefold()
+        if key in seen:
+            raise HTTPException(status_code=422, detail=f"Duplicate {label.lower()} row: {name}")
+        seen.add(key)
+        raw_amount = row.get("amount", 0) if isinstance(row, dict) else row.amount
+        collected[name] = _round_money(raw_amount)
+    normalized_by_name = {name.casefold(): (name, amount) for name, amount in collected.items()}
+    if any(name.casefold() not in normalized_by_name for name in required_fields):
+        raise HTTPException(status_code=422, detail=f"All standard {label.lower()} rows are required")
+    normalized = [{"name": name, "amount": float(normalized_by_name[name.casefold()][1])} for name in required_fields]
+    required_keys = {name.casefold() for name in required_fields}
+    normalized.extend({"name": name, "amount": float(amount)} for name, amount in collected.items() if name.casefold() not in required_keys)
+    return normalized
+
+
+def _legacy_salary_rows(particulars) -> tuple[list[dict], list[dict]]:
+    try:
+        rows = json.loads(particulars or "[]") if isinstance(particulars, str) else particulars or []
+    except (TypeError, json.JSONDecodeError):
+        rows = []
+    amounts = {name.casefold(): Decimal("0.00") for name in EARNING_FIELDS}
+    custom: list[dict] = []
+    for row in rows:
+        if isinstance(row, dict):
+            raw_name, raw_amount = row.get("name", ""), row.get("amount", 0)
+        else:
+            raw_name, raw_amount = getattr(row, "name", ""), getattr(row, "amount", 0)
+        name = str(raw_name).strip()
+        if not name:
+            continue
+        try:
+            amount = Decimal(str(raw_amount))
+        except (InvalidOperation, ValueError, TypeError):
+            continue
+        if not amount.is_finite():
+            continue
+        canonical = LEGACY_EARNING_NAMES.get(name.casefold(), name if name.casefold() in amounts else None)
+        if canonical:
+            key = canonical.casefold()
+            amounts[key] += max(Decimal("0.00"), amount).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        else:
+            custom.append({"name": name, "amount": float(max(Decimal("0.00"), amount).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP))})
+    earnings = [{"name": name, "amount": float(amounts[name.casefold()])} for name in EARNING_FIELDS]
+    earnings.extend(custom)
+    deductions = [{"name": name, "amount": 0.0} for name in DEDUCTION_FIELDS]
+    return earnings, deductions
+
+
+def _default_salary_employee_details(employee: User | None, month: int, year: int) -> dict:
+    month_days = calendar.monthrange(year, month)[1]
+    return {
+        "name": employee.name if employee else "", "designation": employee.designation if employee else "",
+        "department": employee.department if employee else "", "phone_number": employee.mobile if employee else "",
+        "email": employee.email or "" if employee else "",
+        "joining_date": employee.date_of_joining.strftime("%d/%m/%Y") if employee and employee.date_of_joining else "",
+        "pan_number": "", "account_number": "", "location": employee.place_of_posting or "" if employee else "",
+        "payment_mode": "", "days_in_month": float(month_days), "days_worked": 0.0, "days_paid": 0.0,
+    }
+
+
+def _validated_employee_details(details, employee: User | None, month: int, year: int) -> dict:
+    defaults = _default_salary_employee_details(employee, month, year)
+    data = details.model_dump() if hasattr(details, "model_dump") else dict(details or {})
+    result = {**defaults, **data}
+    for key in ("name", "designation", "department", "phone_number", "email", "joining_date", "pan_number", "account_number", "location", "payment_mode"):
+        result[key] = str(result.get(key) or "").strip()
+        if len(result[key]) > 255:
+            raise HTTPException(status_code=422, detail=f"{key.replace('_', ' ').title()} is too long")
+    for key in ("days_in_month", "days_worked", "days_paid"):
+        try:
+            value = Decimal(str(result[key])).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="Day values must be valid non-negative numbers")
+        if not value.is_finite() or value < 0:
+            raise HTTPException(status_code=422, detail="Day values must be valid non-negative numbers")
+        result[key] = float(value)
+    if result["days_in_month"] <= 0 or result["days_worked"] > result["days_in_month"] or result["days_paid"] > result["days_in_month"]:
+        raise HTTPException(status_code=422, detail="Days in month must be positive and worked/paid days cannot exceed it")
+    return result
+
+
+def _calculate_salary_slip(employee: User | None, month: int, year: int, *, employee_details=None, earnings=None, deductions=None, lwp_days=0, particulars=None, default_details=None) -> dict:
+    if earnings is None:
+        earnings, legacy_deductions = _legacy_salary_rows(particulars)
+        if deductions is None:
+            deductions = legacy_deductions
+    if deductions is None:
+        deductions = [{"name": name, "amount": 0} for name in DEDUCTION_FIELDS]
+    earnings = _normalize_rows(earnings, EARNING_FIELDS, "Earnings")
+    deductions = _normalize_rows(deductions, DEDUCTION_FIELDS, "Deductions")
+    details = _validated_employee_details(employee_details or default_details, employee, month, year)
+    lwp = _round_money(lwp_days or 0)
+    days_in_month = Decimal(str(details["days_in_month"]))
+    if lwp > days_in_month:
+        raise HTTPException(status_code=422, detail="LWP Days cannot exceed Days in Month")
+    total_earnings = sum((_round_money(row["amount"]) for row in earnings), Decimal("0.00")).quantize(MONEY_QUANTUM)
+    lop_deduction = (total_earnings / days_in_month * lwp).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    other_deductions = sum((_round_money(row["amount"]) for row in deductions), Decimal("0.00")).quantize(MONEY_QUANTUM)
+    total_deductions = (lop_deduction + other_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    net_pay = (total_earnings - total_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    if net_pay < 0:
+        raise HTTPException(status_code=422, detail="Total deductions cannot exceed total earnings")
+    return {"employee_details": details, "earnings": earnings, "deductions": deductions, "lwp_days": float(lwp),
+            "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+            "total_deductions": total_deductions, "net_pay": net_pay}
+
+
+def _persist_salary_calculation(item: SalarySlip, calculation: dict) -> None:
+    item.employee_details = json.dumps(calculation["employee_details"])
+    item.earnings = json.dumps(calculation["earnings"])
+    item.deductions = json.dumps(calculation["deductions"])
+    item.lwp_days = calculation["lwp_days"]
+    item.total_earnings = calculation["total_earnings"]
+    item.lop_deduction = calculation["lop_deduction"]
+    item.total_deductions = calculation["total_deductions"]
+    item.net_pay = calculation["net_pay"]
+    item.total_amount = calculation["net_pay"]
+    # Retain the old row field for clients that still display legacy particulars.
+    item.particulars = json.dumps(calculation["earnings"])
+
+
+def _salary_calculation_from_payload(payload, employee: User, month: int, year: int, item: SalarySlip | None = None) -> dict:
+    legacy_particulars = payload.particulars
+    earnings = payload.earnings
+    deductions = payload.deductions
+    if item is not None:
+        if payload.employee_details is None:
+            try:
+                existing_details = json.loads(item.employee_details) if item.employee_details else None
+            except (TypeError, json.JSONDecodeError):
+                existing_details = None
+        else:
+            existing_details = payload.employee_details
+        existing_earnings, existing_deductions = _legacy_salary_rows(item.particulars)
+        if item.earnings:
+            existing_earnings = json.loads(item.earnings)
+        if item.deductions:
+            existing_deductions = json.loads(item.deductions)
+        if earnings is None and legacy_particulars is None:
+            earnings = existing_earnings
+        if deductions is None:
+            deductions = existing_deductions
+        if payload.lwp_days is None:
+            lwp_days = item.lwp_days or 0
+        else:
+            lwp_days = payload.lwp_days
+        employee_details = existing_details
+    else:
+        employee_details = payload.employee_details
+        lwp_days = payload.lwp_days or 0
+    return _calculate_salary_slip(
+        employee, month, year, employee_details=employee_details, earnings=earnings,
+        deductions=deductions, lwp_days=lwp_days, particulars=legacy_particulars,
+    )
 
 
 def _salary_slip_request_key(employee_id: int, year: int, month: int) -> str:
@@ -259,10 +467,16 @@ def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(
     request_key = _salary_slip_request_key(current_user.id, payload.year, payload.month)
     if db.query(SalarySlip.id).filter(SalarySlip.employee_id == current_user.id, SalarySlip.year == payload.year, SalarySlip.month == payload.month).first():
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
-    particulars, total = _validated_salary_particulars(payload.particulars, fixed_fields=True)
+    if payload.earnings is None and payload.particulars is None:
+        raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
+    calculation = _calculate_salary_slip(
+        current_user, payload.month, payload.year, earnings=payload.earnings,
+        deductions=payload.deductions, particulars=payload.particulars,
+    )
     item = SalarySlip(employee_id=current_user.id, month=payload.month, year=payload.year,
-        particulars=json.dumps(particulars), total_amount=total,
+        particulars="[]", total_amount=calculation["net_pay"],
         status="Pending Review", created_by=current_user.id, request_key=request_key)
+    _persist_salary_calculation(item, calculation)
     db.add(item)
     try:
         db.commit()
@@ -291,8 +505,8 @@ def review_salary_slip(slip_id: int, payload: SalarySlipReviewUpdate, db: Sessio
     if not item:
         raise HTTPException(status_code=404, detail="Pending salary slip request not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
-    rows, total = _validated_salary_particulars(payload.particulars, fixed_fields=True)
-    item.particulars, item.total_amount = json.dumps(rows), total
+    calculation = _salary_calculation_from_payload(payload, item.employee, item.month, item.year, item)
+    _persist_salary_calculation(item, calculation)
     db.commit()
     db.refresh(item)
     return _salary_slip_dict(item)
@@ -305,8 +519,8 @@ def approve_salary_slip(slip_id: int, payload: SalarySlipReviewUpdate, db: Sessi
     if not item:
         raise HTTPException(status_code=404, detail="Pending salary slip request not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
-    rows, total = _validated_salary_particulars(payload.particulars, fixed_fields=True)
-    item.particulars, item.total_amount = json.dumps(rows), total
+    calculation = _salary_calculation_from_payload(payload, item.employee, item.month, item.year, item)
+    _persist_salary_calculation(item, calculation)
     employee = item.employee
     return _send_final_salary_slip(db, item, employee, current_user)
 
@@ -317,8 +531,8 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     if payload.send:
         required_permissions.append("employee_documents.salary_slips.send")
     _require_document_permissions(current_user, db, *required_permissions)
-    if not 1 <= payload.month <= 12:
-        raise HTTPException(status_code=422, detail="Month must be between 1 and 12")
+    if not 1 <= payload.month <= 12 or not 1900 <= payload.year <= 9999:
+        raise HTTPException(status_code=422, detail="Invalid month or year")
     employee = db.query(User).filter(User.id == payload.employee_id, User.status == "active").first()
     if not employee:
         raise HTTPException(status_code=404, detail="Active employee not found")
@@ -326,12 +540,12 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     request_key = _salary_slip_request_key(employee.id, payload.year, payload.month)
     if db.query(SalarySlip.id).filter(SalarySlip.employee_id == employee.id, SalarySlip.year == payload.year, SalarySlip.month == payload.month).first():
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
-    particulars = [{"name": item.name.strip(), "amount": round(item.amount, 2)} for item in payload.particulars if item.name.strip()]
-    if not particulars:
-        raise HTTPException(status_code=422, detail="Add at least one salary particular")
-    total = sum(max(0, item["amount"]) for item in particulars)
-    item = SalarySlip(employee_id=employee.id, month=payload.month, year=payload.year, particulars=json.dumps(particulars),
-                      total_amount=total, status="Saved", created_by=current_user.id, request_key=request_key)
+    if payload.earnings is None and payload.particulars is None:
+        raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
+    calculation = _salary_calculation_from_payload(payload, employee, payload.month, payload.year)
+    item = SalarySlip(employee_id=employee.id, month=payload.month, year=payload.year, particulars="[]",
+                      total_amount=calculation["net_pay"], status="Saved", created_by=current_user.id, request_key=request_key)
+    _persist_salary_calculation(item, calculation)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -369,6 +583,8 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
     if not item: raise HTTPException(status_code=404, detail="Salary slip not found")
     if item.status == "Pending Review":
         raise HTTPException(status_code=409, detail="Use the pending request review workflow")
+    if not 1 <= payload.month <= 12 or not 1900 <= payload.year <= 9999:
+        raise HTTPException(status_code=422, detail="Invalid month or year")
     _require_employee_document_scope(db, current_user, item.employee_id)
     old_employee = item.employee.name if item.employee else str(item.employee_id)
     old_values = {"employee": old_employee, "month": item.month, "year": item.year,
@@ -383,10 +599,12 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
     ).first()
     if duplicate:
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
-    particulars = [{"name": row.name.strip(), "amount": round(row.amount, 2)} for row in payload.particulars if row.name.strip()]
-    if not particulars: raise HTTPException(status_code=422, detail="Add at least one salary particular")
-    item.employee_id, item.month, item.year, item.particulars, item.request_key = employee.id, payload.month, payload.year, json.dumps(particulars), request_key
-    item.total_amount, item.status, item.sent_at = sum(max(0, row["amount"]) for row in particulars), "Saved", None
+    if payload.earnings is None and payload.particulars is None:
+        raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
+    calculation = _salary_calculation_from_payload(payload, employee, payload.month, payload.year, item)
+    item.employee_id, item.month, item.year, item.request_key = employee.id, payload.month, payload.year, request_key
+    _persist_salary_calculation(item, calculation)
+    item.status, item.sent_at = "Saved", None
     if payload.send and employee.email:
         period = datetime(payload.year, payload.month, 1).strftime("%B %Y")
         if send_email([employee.email], f"Salary slip for {period}", f"<p>Hi {employee.name},</p><p>Your updated salary slip for <b>{period}</b> is available in My Profile.</p>"):

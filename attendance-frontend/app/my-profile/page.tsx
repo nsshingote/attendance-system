@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download, Eye, Pencil, Trash2, Upload } from "lucide-react";
 import { jsPDF } from "jspdf";
+import { EMPLOYEE_DOCUMENT_LOGO_PATH, loadEmployeeDocumentLogoDataUrl } from "@/lib/employeeDocumentBranding";
 import toast from "react-hot-toast";
 import AppShell from "@/components/AppShell";
 import MonthSelector from "@/components/Calendar/MonthSelector";
@@ -40,7 +41,9 @@ type User = {
   emergency_contact_phone?: string | null;
 };
 
-type Slip = { id: number; month: number; year: number; total_amount: number; status: string; particulars: string };
+type SalaryRow = { name: string; amount: number };
+type SalaryEmployeeDetails = { name: string; designation: string; department: string; phone_number: string; email: string; joining_date: string; pan_number: string; account_number: string; location: string; payment_mode: string; days_in_month: number; days_worked: number; days_paid: number };
+type Slip = { id: number; month: number; year: number; total_amount: number; net_pay?: number; total_earnings?: number; lop_deduction?: number; total_deductions?: number; lwp_days?: number; employee_details?: SalaryEmployeeDetails; earnings?: SalaryRow[]; deductions?: SalaryRow[]; status: string; particulars: string };
 type SalaryRequestRow = { name: string; amount: string; custom?: boolean };
 type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
 type ProfileEditRequest = { id: number; section: "address" | "emergency_contact"; status: string };
@@ -69,19 +72,32 @@ const pdfAmount = (amount: number | string) => {
   if (!Number.isFinite(normalized)) return "0.00";
   return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(normalized);
 };
-const getImageDataUrl = async (imageUrl: string) => {
-  const response = await fetch(imageUrl);
-  if (!response.ok) throw new Error("Company logo could not be loaded");
-  const blob = await response.blob();
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Company logo could not be read"));
-    reader.readAsDataURL(blob);
-  });
+const numberWords = (value: number): string => {
+  const ones = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  const underThousand = (number: number): string => {
+    if (number < 20) return ones[number];
+    if (number < 100) return `${tens[Math.floor(number / 10)]}${number % 10 ? ` ${ones[number % 10]}` : ""}`;
+    return `${ones[Math.floor(number / 100)]} Hundred${number % 100 ? ` ${underThousand(number % 100)}` : ""}`;
+  };
+  if (!Number.isFinite(value) || value < 0) return "Zero Rupees Only";
+  const totalPaise = Math.round(value * 100);
+  let rupees = Math.floor(totalPaise / 100);
+  const paise = totalPaise % 100;
+  if (!rupees) return `Zero Rupees${paise ? ` and ${underThousand(paise)} Paise` : ""} Only`;
+  const parts: string[] = [];
+  const groups: [number, string][] = [[10000000, "Crore"], [100000, "Lakh"], [1000, "Thousand"], [100, "Hundred"]];
+  for (const [size, label] of groups) {
+    if (rupees >= size) {
+      const count = Math.floor(rupees / size);
+      parts.push(`${underThousand(count)} ${label}`);
+      rupees %= size;
+    }
+  }
+  if (rupees) parts.push(underThousand(rupees));
+  return `Rupees ${parts.join(" ")}${paise ? ` and ${underThousand(paise)} Paise` : ""} Only`;
 };
-// Local copy of https://propcheckup.com/wp-content/uploads/2024/01/Original-Main-Logo-01.png
-const OFFICIAL_SALARY_SLIP_LOGO_URL = "/propcheckup-logo.png";
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const personalDocLabels: Record<string, string> = {
   aadhaar: "Aadhaar Card",
   pan: "PAN Card",
@@ -89,7 +105,8 @@ const personalDocLabels: Record<string, string> = {
   highest_degree: "Highest Degree",
   other: "Other",
 };
-const salaryRequestBaseRows: SalaryRequestRow[] = ["Salary", "Incentive", "Overtime", "Extra Working Day"].map(name => ({ name, amount: "" }));
+const salaryRequestBaseRows: SalaryRequestRow[] = ["Basic Salary", "House Rent Allowance", "Incentive Pay", "Travelling Allowance", "Overtime", "Extra Working Day"].map(name => ({ name, amount: "" }));
+const salaryDeductionBaseRows = ["Provident Fund", "Professional Tax", "Health Insurance Contribution"].map(name => ({ name, amount: 0 }));
 
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
 
@@ -149,7 +166,8 @@ export default function MyProfilePage() {
     try {
       await api.post("/employee-documents/salary-slips/request", {
         year: requestYear, month: requestMonth,
-        particulars: salaryRequestRows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
+        earnings: salaryRequestRows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
+        deductions: salaryDeductionBaseRows,
       });
       const { data } = await api.get<Slip[]>("/employee-documents/salary-slips/mine");
       setSlips(data);
@@ -287,139 +305,98 @@ export default function MyProfilePage() {
   };
 
   const downloadSalarySlip = async (slip: Slip) => {
-    if (!profile) return;
-    
-    const pdf = new jsPDF();
+    const pdf = new jsPDF({ unit: "mm", format: "a4" });
     const period = new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 15;
     const contentWidth = pageWidth - margin * 2;
+    const details = slip.employee_details || {
+      name: profile?.name || "", designation: profile?.designation || "", department: profile?.department || "",
+      phone_number: profile?.mobile || profile?.phone || "", email: profile?.email || "",
+      joining_date: profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "",
+      pan_number: "", account_number: "", location: "", payment_mode: "", days_in_month: new Date(slip.year, slip.month, 0).getDate(), days_worked: 0, days_paid: 0,
+    };
+    const earnings = slip.earnings || (() => { try { return JSON.parse(slip.particulars) as SalaryRow[]; } catch { return []; } })();
+    const deductions = slip.deductions || [];
+    const totalEarnings = Number(slip.total_earnings ?? slip.total_amount ?? 0);
+    const totalDeductions = Number(slip.total_deductions ?? 0);
+    const lopDeduction = Number(slip.lop_deduction ?? 0);
+    const netPay = Number(slip.net_pay ?? slip.total_amount ?? 0);
     let y = 17;
 
-    // Use the full wordmark once, fitted proportionally in the left header area.
     try {
-      const logo = await getImageDataUrl(OFFICIAL_SALARY_SLIP_LOGO_URL);
+      const logo = await loadEmployeeDocumentLogoDataUrl();
       const logoProperties = pdf.getImageProperties(logo);
-      const logoBoxWidth = 65;
-      const logoBoxHeight = 22;
-      const logoScale = Math.min(logoBoxWidth / logoProperties.width, logoBoxHeight / logoProperties.height);
-      const logoWidth = logoProperties.width * logoScale;
-      const logoHeight = logoProperties.height * logoScale;
-      pdf.addImage(logo, "PNG", margin, y - 5 + (logoBoxHeight - logoHeight) / 2, logoWidth, logoHeight);
+      const logoScale = Math.min(65 / logoProperties.width, 22 / logoProperties.height);
+      pdf.addImage(logo, "PNG", margin, y - 5 + (22 - logoProperties.height * logoScale) / 2, logoProperties.width * logoScale, logoProperties.height * logoScale);
     } catch {
-      // Keep the salary slip usable if the optional branding image is unavailable.
+      // Preserve the salary-slip download if the optional branding asset is unavailable.
     }
-    pdf.setFontSize(8);
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(107, 114, 128);
+    pdf.setFontSize(8); pdf.setFont("helvetica", "normal"); pdf.setTextColor(107, 114, 128);
     pdf.text("SALARY SLIP", pageWidth - margin, y - 1, { align: "right" });
-    pdf.setFontSize(9);
-    pdf.text(`For the month of ${period}`, pageWidth - margin, y + 5, { align: "right" });
-    y += 27;
-    pdf.setDrawColor(37, 99, 235);
-    pdf.setLineWidth(0.7);
-    pdf.line(margin, y, pageWidth - margin, y);
-    y += 11;
+    pdf.setFontSize(9); pdf.text(`For the month of ${period}`, pageWidth - margin, y + 5, { align: "right" });
+    y += 27; pdf.setDrawColor(37, 99, 235); pdf.setLineWidth(0.7); pdf.line(margin, y, pageWidth - margin, y); y += 9;
 
-    // Employee details
-    pdf.setTextColor(31, 41, 55);
-    pdf.setFontSize(9);
-    pdf.setFont("helvetica", "bold");
-    pdf.text("EMPLOYEE DETAILS", margin, y);
-    y += 6;
-
-    pdf.setFontSize(8);
-    pdf.setFont("helvetica", "normal");
-    pdf.setDrawColor(209, 213, 219);
-    pdf.setFillColor(249, 250, 251);
-    pdf.rect(margin, y - 4, contentWidth, 34, "FD");
-
-    const detailsData = [
-      ["Name", profile.name],
-      ["Designation", profile.designation],
-      ["Department", profile.department],
-      ["Phone Number", profile.mobile || profile.phone || "—"],
-      ["Email", profile.email || "—"],
-      ["Joining Date", profile.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "—"],
+    const ensureSpace = (height: number) => {
+      if (y + height <= pageHeight - 40) return;
+      pdf.addPage(); y = 20;
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(31, 41, 55);
+      pdf.text(`SALARY SLIP - ${period} (continued)`, margin, y); y += 9;
+    };
+    const sectionTitle = (title: string) => {
+      ensureSpace(12); pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(31, 41, 55);
+      pdf.text(title, margin, y); y += 6;
+    };
+    sectionTitle("EMPLOYEE DETAILS");
+    pdf.setFontSize(7.5); pdf.setDrawColor(209, 213, 219); pdf.setFillColor(249, 250, 251);
+    const employeeRows: [string, string, string, string][] = [
+      ["Name", details.name, "Designation", details.designation],
+      ["Department", details.department, "Phone Number", details.phone_number],
+      ["Email", details.email, "Joining Date", details.joining_date],
+      ["PAN No.", details.pan_number, "Account No.", details.account_number],
+      ["Location", details.location, "Payment Mode", details.payment_mode],
+      ["Days in Month", String(details.days_in_month), "Days Worked", String(details.days_worked)],
+      ["Days Paid", String(details.days_paid), "LWP Days", String(slip.lwp_days || 0)],
     ];
-
-    let detailY = y;
-    const col1X = 18;
-    const col2X = 105;
-
-    detailsData.forEach((item, idx) => {
-      if (idx % 2 === 0) {
-        pdf.setFont("helvetica", "bold");
-        pdf.text(item[0] + ":", col1X, detailY);
-        pdf.setFont("helvetica", "normal");
-        pdf.text(String(item[1]), col1X + 31, detailY, { maxWidth: 53 });
-      } else {
-        pdf.setFont("helvetica", "bold");
-        pdf.text(item[0] + ":", col2X, detailY);
-        pdf.setFont("helvetica", "normal");
-        pdf.text(String(item[1]), col2X + 28, detailY, { maxWidth: 55 });
-        detailY += 7;
-      }
+    const detailBoxHeight = employeeRows.length * 7 + 2;
+    pdf.rect(margin, y - 4, contentWidth, detailBoxHeight, "FD");
+    employeeRows.forEach((row, index) => {
+      const rowY = y + index * 7;
+      pdf.setFont("helvetica", "bold"); pdf.text(`${row[0]}:`, margin + 3, rowY, { maxWidth: 28 });
+      pdf.setFont("helvetica", "normal"); pdf.text(row[1] || "-", margin + 32, rowY, { maxWidth: 48 });
+      pdf.setFont("helvetica", "bold"); pdf.text(`${row[2]}:`, margin + 88, rowY, { maxWidth: 28 });
+      pdf.setFont("helvetica", "normal"); pdf.text(row[3] || "-", margin + 117, rowY, { maxWidth: 48 });
     });
+    y += detailBoxHeight + 8;
 
-    y = y + 40;
+    const drawRows = (title: string, rows: SalaryRow[], totalLabel: string, total: number) => {
+      sectionTitle(title);
+      pdf.setFillColor(239, 246, 255); pdf.setDrawColor(209, 213, 219); pdf.rect(margin, y - 4, contentWidth, 7, "FD");
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.text("Description", margin + 3, y); pdf.text("Amount (INR)", pageWidth - margin - 3, y, { align: "right" }); y += 7;
+      rows.forEach((row, index) => {
+        ensureSpace(7);
+        if (index % 2 === 0) { pdf.setFillColor(249, 250, 251); pdf.rect(margin, y - 3, contentWidth, 5, "F"); }
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(31, 41, 55);
+        pdf.text(row.name, margin + 3, y, { maxWidth: 130 }); pdf.text(pdfAmount(row.amount), pageWidth - margin - 3, y, { align: "right" }); y += 5;
+      });
+      ensureSpace(10); pdf.setDrawColor(37, 99, 235); pdf.line(margin, y, pageWidth - margin, y); y += 5;
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(8.5); pdf.text(totalLabel, margin + 3, y); pdf.text(pdfAmount(total), pageWidth - margin - 3, y, { align: "right" }); y += 9;
+    };
+    drawRows("EARNINGS", earnings, "TOTAL EARNINGS", totalEarnings);
+    drawRows("DEDUCTIONS", [{ name: "LOP Deduction", amount: lopDeduction }, ...deductions], "TOTAL DEDUCTIONS", totalDeductions);
+    ensureSpace(24); pdf.setFillColor(239, 246, 255); pdf.rect(margin, y - 4, contentWidth, 10, "F");
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(31, 41, 55);
+    pdf.text("NET PAY", margin + 3, y + 2); pdf.text(`? ${pdfAmount(netPay)}`, pageWidth - margin - 3, y + 2, { align: "right" }); y += 15;
+    pdf.setFontSize(8); pdf.setFont("helvetica", "bold"); pdf.text("Amount in Words:", margin, y);
+    pdf.setFont("helvetica", "normal"); pdf.text(numberWords(netPay), margin + 29, y, { maxWidth: contentWidth - 30 });
 
-    pdf.setFontSize(9);
-    pdf.setFont("helvetica", "bold");
-    pdf.text("SALARY BREAKDOWN", margin, y);
-    y += 6;
-
-    pdf.setDrawColor(37, 99, 235);
-    pdf.setFillColor(239, 246, 255);
-    pdf.rect(margin, y - 4, contentWidth, 7, "FD");
-    
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8);
-    pdf.text("Description", 18, y);
-    pdf.text("Amount", pageWidth - 18, y, { align: "right" });
-    y += 7;
-
-    // Salary rows
-    pdf.setFont("helvetica", "normal");
-    const particulars = JSON.parse(slip.particulars) as Array<{ name: string; amount: number }>;
-    
-    particulars.forEach((row) => {
-      const desc = String(row.name);
-      const amt = pdfAmount(row.amount);
-      
-      if (particulars.indexOf(row) % 2 === 0) {
-        pdf.setFillColor(249, 250, 251);
-        pdf.rect(margin, y - 3, contentWidth, 5, "F");
-      }
-      
-      pdf.text(desc, 18, y);
-      pdf.text(String(amt), pageWidth - 18, y, { align: "right" });
-      y += 5;
-    });
-
-    // Total line
-    pdf.setDrawColor(37, 99, 235);
-    pdf.line(margin, y, pageWidth - margin, y);
-    y += 4;
-
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(9);
-    const totalStr = pdfAmount(slip.total_amount);
-    pdf.text("NET AMOUNT", 18, y);
-    pdf.text(String(totalStr), pageWidth - 18, y, { align: "right" });
-    y += 10;
-
-    // Company address footer
-    pdf.setFontSize(8);
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(75, 85, 99);
-    const footerTop = pageHeight - 37;
-    pdf.setDrawColor(209, 213, 219);
-    pdf.line(margin, footerTop, pageWidth - margin, footerTop);
-    const address = companyBranding?.company_address || "—";
-    const addressLines = pdf.splitTextToSize(address, contentWidth - 10);
-    pdf.text(addressLines, pageWidth / 2, footerTop + 7, { align: "center" });
+    const footerTop = pageHeight - 27;
+    pdf.setDrawColor(209, 213, 219); pdf.line(margin, footerTop, pageWidth - margin, footerTop);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(75, 85, 99);
+    const address = companyBranding?.company_address || "";
+    if (address) pdf.text(pdf.splitTextToSize(address, contentWidth - 10), pageWidth / 2, footerTop + 5, { align: "center" });
+    pdf.text("This is a system-generated salary slip. No signature is required.", pageWidth / 2, pageHeight - 7, { align: "center" });
     pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
 
@@ -920,13 +897,13 @@ export default function MyProfilePage() {
                 {selectedPeriodSlip ? <p className="mt-4 rounded-lg bg-ink-50 p-3 text-sm text-ink-600">A request for this month already exists: <strong>{selectedPeriodSlip.status}</strong>.</p> : <>
                   <div className="mt-4 overflow-x-auto rounded-lg border border-ink-200">
                     <table className="w-full table-fixed text-sm">
-                      <thead className="bg-ink-50 text-left text-ink-600"><tr><th className="w-3/5 px-3 py-3">Particulars</th><th className="w-2/5 px-3 py-3">Amount</th></tr></thead>
+                      <thead className="bg-ink-50 text-left text-ink-600"><tr><th className="w-3/5 px-3 py-3">Earning</th><th className="w-2/5 px-3 py-3">Amount</th></tr></thead>
                       <tbody>{salaryRequestRows.map((row, index) => <tr key={index} className="border-t border-ink-100">
                         <td className="p-2">{row.custom ? <div className="flex min-w-0 items-center gap-1"><input aria-label="Particular / Name" placeholder="Particular / Name" value={row.name} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="min-w-0 w-full rounded-lg border-ink-200 px-2" /><button aria-label="Remove custom particular" onClick={() => setSalaryRequestRows(current => current.filter((_, rowIndex) => rowIndex !== index))} className="shrink-0 rounded-lg border border-ink-300 p-2 text-red-600"><Trash2 size={16} /></button></div> : <span className="px-1 font-medium">{row.name}</span>}</td>
                         <td className="p-2"><input aria-label={`${row.name || "Custom particular"} amount`} type="number" min="0" inputMode="decimal" value={row.amount} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="min-w-0 w-full rounded-lg border-ink-200 px-2" /></td>
                       </tr>)}</tbody>
                       <tfoot className="border-t border-ink-200 bg-ink-50">
-                        <tr><td className="px-3 py-3 font-semibold">Total Amount</td><td className="px-3 py-3 font-semibold text-emerald-700">{money(salaryRequestTotal)}</td></tr>
+                        <tr><td className="px-3 py-3 font-semibold">Total Earnings</td><td className="px-3 py-3 font-semibold text-emerald-700">{money(salaryRequestTotal)}</td></tr>
                       </tfoot>
                     </table>
                   </div>
@@ -1037,62 +1014,22 @@ export default function MyProfilePage() {
                 <button onClick={() => setSelectedSlip(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium shadow-sm">Close</button>
               </div>
               <article className="mx-auto min-h-680px max-w-794px bg-white p-6 text-sm text-ink-800 shadow-sm sm:p-10">
-                <header className="border-b-2 border-brand-600 pb-5">
-                  <div className="flex items-center justify-between gap-5">
-                    <div className="flex min-w-0 items-center gap-4">
-                      {companyBranding?.logo_url && <img src={companyBranding.logo_url} alt="Company logo" className="h-14 w-14 shrink-0 rounded object-contain" />}
-                      <div className="min-w-0">
-                        <h2 className="truncate text-xl font-bold text-ink-900">{companyBranding?.company_name || "PropCheckup"}</h2>
-                        <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">Salary Slip</p>
-                      </div>
-                    </div>
-                    <p className="shrink-0 text-right text-xs text-ink-600">For the month of<br /><span className="font-semibold text-ink-900">{new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span></p>
-                  </div>
-                </header>
-
-                <section className="mt-7">
-                  <h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Employee Details</h3>
-                  <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                    {[
-                      ["Employee Name", profile?.name || "—"],
-                      ["Designation", profile?.designation || "—"],
-                      ["Department", profile?.department || "—"],
-                      ["Phone Number", profile?.mobile || profile?.phone || "—"],
-                      ["Email Address", profile?.email || "—"],
-                      ["Joining Date", profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "—"],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
-                        <dd className="mt-1 font-medium text-ink-900">{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-
-                <section className="mt-8">
-                  <h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Salary Breakdown</h3>
-                  <div className="mt-4 overflow-hidden rounded-lg border border-ink-200">
-                    <table className="w-full text-sm">
-                      <thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800">
-                        <tr><th className="px-4 py-3">Description</th><th className="px-4 py-3 text-right">Amount</th></tr>
-                      </thead>
-                      <tbody>
-                        {JSON.parse(selectedSlip.particulars).map((row: { name: string; amount: number }, index: number) => (
-                          <tr key={row.name} className={index % 2 === 0 ? "bg-ink-50/60" : "bg-white"}>
-                            <td className="px-4 py-3">{row.name}</td><td className="px-4 py-3 text-right font-medium">{money(row.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="border-t-2 border-brand-600 bg-brand-50">
-                        <tr><th className="px-4 py-3 text-left text-sm">Net Amount</th><th className="px-4 py-3 text-right text-sm">{money(selectedSlip.total_amount)}</th></tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </section>
-
-                <footer className="mt-12 border-t border-ink-200 pt-4 text-center text-xs leading-relaxed text-ink-500">
-                  <p>{companyBranding?.company_address || "—"}</p>
-                </footer>
+                <header className="border-b-2 border-brand-600 pb-5"><div className="flex items-center justify-between gap-5"><div className="flex min-w-0 items-center gap-4"><img src={EMPLOYEE_DOCUMENT_LOGO_PATH} alt="PropCheckup logo" className="h-14 w-14 shrink-0 rounded object-contain" /><div><h2 className="truncate text-xl font-bold text-ink-900">PropCheckup</h2><p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">Salary Slip</p></div></div><p className="shrink-0 text-right text-xs text-ink-600">For the month of<br /><span className="font-semibold text-ink-900">{new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span></p></div></header>
+                {(() => {
+                  const details = selectedSlip.employee_details || { name: profile?.name || "", designation: profile?.designation || "", department: profile?.department || "", phone_number: profile?.mobile || profile?.phone || "", email: profile?.email || "", joining_date: "", pan_number: "", account_number: "", location: "", payment_mode: "", days_in_month: new Date(selectedSlip.year, selectedSlip.month, 0).getDate(), days_worked: 0, days_paid: 0 };
+                  const earnings = selectedSlip.earnings || (JSON.parse(selectedSlip.particulars || "[]") as SalaryRow[]);
+                  const deductions = selectedSlip.deductions || [];
+                  const totalEarnings = selectedSlip.total_earnings ?? selectedSlip.total_amount;
+                  const totalDeductions = selectedSlip.total_deductions ?? 0;
+                  const netPay = selectedSlip.net_pay ?? selectedSlip.total_amount;
+                  return <>
+                    <section className="mt-6"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Employee Details</h3><dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">{([["Name", details.name], ["Designation", details.designation], ["Department", details.department], ["Phone Number", details.phone_number], ["Email", details.email], ["Joining Date", details.joining_date], ["PAN No.", details.pan_number], ["Account No.", details.account_number], ["Location", details.location], ["Payment Mode", details.payment_mode], ["Days in Month", details.days_in_month], ["Days Worked", details.days_worked], ["Days Paid", details.days_paid], ["LWP Days", selectedSlip.lwp_days || 0]] as [string, string | number][]).map(([label, value]) => <div key={label}><dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt><dd className="mt-1 font-medium text-ink-900">{value || "?"}</dd></div>)}</dl></section>
+                    <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Earnings</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody>{earnings.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-ink-50/60" : "bg-white"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Earnings</th><th className="px-4 py-2 text-right">{money(totalEarnings)}</th></tr></tfoot></table></div></section>
+                    <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Deductions</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody><tr className="bg-ink-50/60"><td className="px-4 py-2">LOP Deduction</td><td className="px-4 py-2 text-right font-medium">{money(selectedSlip.lop_deduction || 0)}</td></tr>{deductions.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-ink-50/60"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Deductions</th><th className="px-4 py-2 text-right">{money(totalDeductions)}</th></tr></tfoot></table></div></section>
+                    <section className="mt-5 rounded-lg bg-brand-50 p-4"><div className="flex justify-between text-base font-bold"><span>Net Pay</span><span>{money(netPay)}</span></div><p className="mt-2 text-xs"><strong>Amount in Words:</strong> {numberWords(netPay)}</p></section>
+                  </>;
+                })()}
+                <footer className="mt-8 border-t border-ink-200 pt-4 text-center text-xs leading-relaxed text-ink-500"><p>{companyBranding?.company_address || "?"}</p><p className="mt-2">This is a system-generated salary slip. No signature is required.</p></footer>
               </article>
               <button onClick={() => void downloadSalarySlip(selectedSlip)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download PDF</button>
             </div>
