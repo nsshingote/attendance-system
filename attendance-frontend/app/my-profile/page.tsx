@@ -620,10 +620,10 @@ export default function MyProfilePage() {
                           {editingBasic && ["Phone number", "Email", "Location", "PAN No.", "Account No."].includes(String(label)) ? (
                             <input
                               type={label === "Email" ? "email" : label === "Phone number" ? "tel" : "text"}
-                              value={label === "Email" ? profileForm.email : label === "Phone number" ? profileForm.mobile : label === "Location" ? profileForm.location : label === "PAN No." ? profileForm.pan_number : label === "Account No." ? profileForm.account_number}
+                              value={label === "Email" ? profileForm.email : label === "Phone number" ? profileForm.mobile : label === "Location" ? profileForm.location : label === "PAN No." ? profileForm.pan_number : label === "Account No." ? profileForm.account_number : ""}
                               onChange={(event) => setProfileForm({
                                 ...profileForm,
-                                [label === "Email" ? "email" : label === "Phone number" ? "mobile" : label === "Location" ? "location" : label === "PAN No." ? "pan_number" : label === "Account No." ? "account_number"]: event.target.value,
+                                [label === "Email" ? "email" : label === "Phone number" ? "mobile" : label === "Location" ? "location" : label === "PAN No." ? "pan_number" : label === "Account No." ? "account_number" : "account_number"]: event.target.value,
                               })}
                               className="w-full rounded-lg border border-ink-200 px-3 py-2"
                             />
