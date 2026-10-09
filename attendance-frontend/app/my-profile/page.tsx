@@ -1008,6 +1008,7 @@ export default function MyProfilePage() {
             </section>
             <section className="rounded-xl border border-ink-200 bg-white shadow-card">
               <div className="border-b border-ink-200 px-5 py-4"><h2 className="font-semibold">Final Salary Slips</h2></div>
+              <p className="border-b border-ink-100 bg-brand-50/60 px-5 py-3 text-sm leading-relaxed text-ink-600"><span className="font-semibold text-ink-800">Note:</span> Your per-day salary is calculated by dividing your monthly salary by the total number of days in that month. Salary deductions for half-days and absences are calculated based on the applicable attendance rules.</p>
             <div className="table-wrapper">
               <table className="w-full text-sm">
                 <thead className="bg-ink-50 text-left text-ink-600">
