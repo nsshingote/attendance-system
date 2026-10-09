@@ -316,6 +316,7 @@ class SalarySlipCreate(BaseModel):
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
     lwp_days: Optional[float] = None
+    half_day_days: Optional[float] = None
     particulars: Optional[List[SalarySlipParticular]] = None
     send: bool = False
 
@@ -327,6 +328,7 @@ class SalarySlipRequestCreate(BaseModel):
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
     lwp_days: Optional[float] = None
+    half_day_days: Optional[float] = None
     particulars: Optional[List[SalarySlipParticular]] = None
 
 
@@ -335,6 +337,7 @@ class SalarySlipReviewUpdate(BaseModel):
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
     lwp_days: Optional[float] = None
+    half_day_days: Optional[float] = None
     particulars: Optional[List[SalarySlipParticular]] = None
 
 
@@ -350,8 +353,11 @@ class SalarySlipOut(ORMBase):
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
     lwp_days: Optional[float] = None
+    half_day_days: Optional[float] = None
     total_earnings: Optional[float] = None
     lop_deduction: Optional[float] = None
+    half_day_deduction: Optional[float] = None
+    salary_breakdown_total: Optional[float] = None
     total_deductions: Optional[float] = None
     net_pay: Optional[float] = None
     status: str
@@ -708,6 +714,7 @@ class CompanySettingsUpdate(BaseModel):
     weekly_off_day: Optional[str] = None
     sandwich_method_enabled: Optional[bool] = None
     salary_slip_notifications_enabled: Optional[bool] = None
+    salary_payment_mode: Optional[str] = Field(default=None, max_length=50)
     company_name: Optional[str] = None
     company_address: Optional[str] = None
     attendance_location_enabled: Optional[bool] = None
@@ -725,6 +732,7 @@ class CompanySettingsOut(ORMBase):
     weekly_off_day: str
     sandwich_method_enabled: bool = False
     salary_slip_notifications_enabled: bool = True
+    salary_payment_mode: str = ""
     company_name: str
     company_address: str
     attendance_location_enabled: bool = False

@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -24,6 +25,7 @@ from utils.email_service import send_email
 from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
 from routers.changed_logs import record_changed_log
 from services.recycle_bin import archive_object
+from services.salary_attendance import derive_salary_attendance_counts
 
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "personal_documents"
@@ -183,28 +185,48 @@ def _document_dict(item: EmployeeDocument):
 
 def _salary_slip_dict(item: SalarySlip):
     employee = item.employee
-    if item.earnings and item.deductions and item.employee_details:
-        earnings = json.loads(item.earnings)
-        deductions = json.loads(item.deductions)
-        employee_details = json.loads(item.employee_details)
+    net_pay = float(item.net_pay if item.net_pay is not None else item.total_amount)
+    earnings = _parse_salary_rows(item.earnings, EARNING_FIELDS)
+    deductions = _parse_salary_rows(item.deductions, DEDUCTION_FIELDS)
+    try:
+        employee_details = json.loads(item.employee_details) if item.employee_details else None
+    except (TypeError, json.JSONDecodeError):
+        employee_details = None
+
+    has_structured_breakdown = (
+        earnings is not None
+        and deductions is not None
+        and isinstance(employee_details, dict)
+        and _historical_totals_reconcile(item, earnings, deductions, net_pay)
+    )
+    if has_structured_breakdown:
         lwp_days = float(item.lwp_days or 0)
-        total_earnings = float(item.total_earnings or 0)
-        lop_deduction = float(item.lop_deduction or 0)
-        total_deductions = float(item.total_deductions or 0)
-        net_pay = float(item.net_pay if item.net_pay is not None else item.total_amount)
+        half_day_days = float(item.half_day_days) if item.half_day_days is not None else None
+        total_earnings = float(item.total_earnings)
+        lop_deduction = float(item.lop_deduction)
+        half_day_deduction = float(item.half_day_deduction or 0)
+        total_deductions = float(item.total_deductions)
     else:
-        earnings, deductions = _legacy_salary_rows(item.particulars)
-        employee_details = _default_salary_employee_details(employee, item.month, item.year)
-        lwp_days = 0.0
-        total_earnings = round(sum(row["amount"] for row in earnings), 2)
-        lop_deduction = total_deductions = 0.0
-        # Keep the historical final amount as-is for old slips.
-        net_pay = float(item.total_amount)
+        # Preserve raw historical rows where possible for legacy editing, but
+        # mark the breakdown unavailable and never derive a displayed total.
+        earnings = earnings if earnings is not None else _legacy_salary_rows(item.particulars)[0]
+        deductions = deductions if deductions is not None else _legacy_salary_rows(item.particulars)[1]
+        employee_details = employee_details if isinstance(employee_details, dict) else _default_salary_employee_details(employee, item.month, item.year)
+        lwp_days = float(item.lwp_days) if item.lwp_days is not None else None
+        half_day_days = float(item.half_day_days) if item.half_day_days is not None else None
+        total_earnings = None
+        lop_deduction = None
+        half_day_deduction = None
+        total_deductions = None
     return {
         "id": item.id, "employee_id": item.employee_id, "employee_name": employee.name if employee else None,
         "month": item.month, "year": item.year, "particulars": item.particulars,
         "employee_details": employee_details, "earnings": earnings, "deductions": deductions,
-        "lwp_days": lwp_days, "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+        "lwp_days": lwp_days, "half_day_days": half_day_days,
+        "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+        "half_day_deduction": half_day_deduction,
+        "salary_breakdown_total": round(total_earnings - lop_deduction - half_day_deduction, 2) if has_structured_breakdown else None,
+        "historical_breakdown_incomplete": not has_structured_breakdown,
         "total_deductions": total_deductions, "net_pay": net_pay, "total_amount": net_pay,
         "status": item.status, "created_at": item.created_at, "sent_at": item.sent_at,
     }
@@ -217,6 +239,101 @@ LEGACY_EARNING_NAMES = {
     "salary": "Basic Salary", "incentive": "Incentive Pay", "overtime": "Overtime",
     "extra working day": "Extra Working Day",
 }
+
+
+def _parse_salary_rows(serialized, required_fields: tuple[str, ...]) -> list[dict] | None:
+    try:
+        rows = json.loads(serialized) if isinstance(serialized, str) else serialized
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(rows, list):
+        return None
+    required = {name.casefold() for name in required_fields}
+    seen: set[str] = set()
+    parsed: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        name = row.get("name")
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+            return None
+        key = name.strip().casefold()
+        if key in seen:
+            return None
+        seen.add(key)
+        try:
+            amount = Decimal(str(row.get("amount"))).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+        if not amount.is_finite() or amount < 0:
+            return None
+        parsed.append({"name": name.strip(), "amount": float(amount)})
+    return parsed if required.issubset(seen) else None
+
+
+def _historical_totals_reconcile(item: SalarySlip, earnings: list[dict], deductions: list[dict], net_pay: float) -> bool:
+    try:
+        total_earnings = Decimal(str(item.total_earnings)).quantize(MONEY_QUANTUM)
+        lop = Decimal(str(item.lop_deduction)).quantize(MONEY_QUANTUM)
+        half_day = Decimal(str(item.half_day_deduction or 0)).quantize(MONEY_QUANTUM)
+        total_deductions = Decimal(str(item.total_deductions)).quantize(MONEY_QUANTUM)
+        stored_net = Decimal(str(net_pay)).quantize(MONEY_QUANTUM)
+        earning_rows = sum((Decimal(str(row["amount"])) for row in earnings), Decimal("0.00"))
+        deduction_rows = sum((Decimal(str(row["amount"])) for row in deductions), Decimal("0.00"))
+    except (InvalidOperation, ValueError, TypeError):
+        return False
+    if any(not amount.is_finite() or amount < 0 for amount in (total_earnings, lop, half_day, total_deductions, stored_net)):
+        return False
+    return (
+        earning_rows == total_earnings
+        and deduction_rows + lop + half_day == total_deductions
+        and total_earnings - total_deductions == stored_net
+    )
+
+
+def _trusted_saved_deductions(serialized) -> list[dict]:
+    """Salvage valid saved deduction amounts and fill missing standard rows with zero."""
+    try:
+        rows = json.loads(serialized) if isinstance(serialized, str) else serialized
+    except (TypeError, json.JSONDecodeError):
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+
+    standard_names = {name.casefold(): name for name in DEDUCTION_FIELDS}
+    amounts: dict[str, Decimal] = {}
+    display_names: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_name = row.get("name")
+        if not isinstance(raw_name, str):
+            continue
+        name = raw_name.strip()
+        if not name or len(name) > 100:
+            continue
+        try:
+            amount = Decimal(str(row.get("amount"))).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError, TypeError):
+            continue
+        if not amount.is_finite() or amount < 0:
+            continue
+        canonical = standard_names.get(name.casefold(), name)
+        key = canonical.casefold()
+        try:
+            amounts[key] = (amounts.get(key, Decimal("0.00")) + amount).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        except InvalidOperation:
+            continue
+        display_names[key] = canonical
+
+    result = [{"name": name, "amount": float(amounts.get(name.casefold(), Decimal("0.00")))} for name in DEDUCTION_FIELDS]
+    standard_keys = {name.casefold() for name in DEDUCTION_FIELDS}
+    result.extend(
+        {"name": display_names[key], "amount": float(amount)}
+        for key, amount in amounts.items()
+        if key not in standard_keys
+    )
+    return result
 
 
 def _round_money(value) -> Decimal:
@@ -261,6 +378,8 @@ def _legacy_salary_rows(particulars) -> tuple[list[dict], list[dict]]:
     try:
         rows = json.loads(particulars or "[]") if isinstance(particulars, str) else particulars or []
     except (TypeError, json.JSONDecodeError):
+        rows = []
+    if not isinstance(rows, list):
         rows = []
     amounts = {name.casefold(): Decimal("0.00") for name in EARNING_FIELDS}
     custom: list[dict] = []
@@ -323,7 +442,7 @@ def _validated_employee_details(details, employee: User | None, month: int, year
     return result
 
 
-def _calculate_salary_slip(employee: User | None, month: int, year: int, *, employee_details=None, earnings=None, deductions=None, lwp_days=0, particulars=None, default_details=None) -> dict:
+def _calculate_salary_slip(employee: User | None, month: int, year: int, *, employee_details=None, earnings=None, deductions=None, lwp_days=0, half_day_days=0, particulars=None, default_details=None) -> dict:
     if earnings is None:
         earnings, legacy_deductions = _legacy_salary_rows(particulars)
         if deductions is None:
@@ -334,18 +453,22 @@ def _calculate_salary_slip(employee: User | None, month: int, year: int, *, empl
     deductions = _normalize_rows(deductions, DEDUCTION_FIELDS, "Deductions")
     details = _validated_employee_details(employee_details or default_details, employee, month, year)
     lwp = _round_money(lwp_days or 0)
+    half_days = _round_money(half_day_days or 0)
     days_in_month = Decimal(str(details["days_in_month"]))
-    if lwp > days_in_month:
-        raise HTTPException(status_code=422, detail="LWP Days cannot exceed Days in Month")
+    if lwp + half_days > days_in_month:
+        raise HTTPException(status_code=422, detail="Combined LWP and Half-Day counts cannot exceed Days in Month")
     total_earnings = sum((_round_money(row["amount"]) for row in earnings), Decimal("0.00")).quantize(MONEY_QUANTUM)
     lop_deduction = (total_earnings / days_in_month * lwp).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    half_day_deduction = (total_earnings / days_in_month * Decimal("0.5") * half_days).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
     other_deductions = sum((_round_money(row["amount"]) for row in deductions), Decimal("0.00")).quantize(MONEY_QUANTUM)
-    total_deductions = (lop_deduction + other_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
-    net_pay = (total_earnings - total_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    salary_breakdown_total = (total_earnings - lop_deduction - half_day_deduction).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    total_deductions = (lop_deduction + half_day_deduction + other_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    net_pay = (salary_breakdown_total - other_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
     if net_pay < 0:
         raise HTTPException(status_code=422, detail="Total deductions cannot exceed total earnings")
     return {"employee_details": details, "earnings": earnings, "deductions": deductions, "lwp_days": float(lwp),
-            "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+            "half_day_days": float(half_days), "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+            "half_day_deduction": half_day_deduction, "salary_breakdown_total": salary_breakdown_total,
             "total_deductions": total_deductions, "net_pay": net_pay}
 
 
@@ -354,8 +477,10 @@ def _persist_salary_calculation(item: SalarySlip, calculation: dict) -> None:
     item.earnings = json.dumps(calculation["earnings"])
     item.deductions = json.dumps(calculation["deductions"])
     item.lwp_days = calculation["lwp_days"]
+    item.half_day_days = calculation["half_day_days"]
     item.total_earnings = calculation["total_earnings"]
     item.lop_deduction = calculation["lop_deduction"]
+    item.half_day_deduction = calculation["half_day_deduction"]
     item.total_deductions = calculation["total_deductions"]
     item.net_pay = calculation["net_pay"]
     item.total_amount = calculation["net_pay"]
@@ -363,7 +488,15 @@ def _persist_salary_calculation(item: SalarySlip, calculation: dict) -> None:
     item.particulars = json.dumps(calculation["earnings"])
 
 
-def _salary_calculation_from_payload(payload, employee: User, month: int, year: int, item: SalarySlip | None = None) -> dict:
+def _apply_company_salary_payment_mode(db: Session, calculation: dict) -> dict:
+    company_settings = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
+    company_payment_mode = (company_settings.salary_payment_mode or "").strip() if company_settings else ""
+    if company_payment_mode:
+        calculation["employee_details"]["payment_mode"] = company_payment_mode
+    return calculation
+
+
+def _salary_calculation_from_payload(payload, employee: User, month: int, year: int, db: Session, item: SalarySlip | None = None) -> dict:
     legacy_particulars = payload.particulars
     earnings = payload.earnings
     deductions = payload.deductions
@@ -384,18 +517,26 @@ def _salary_calculation_from_payload(payload, employee: User, month: int, year: 
             earnings = existing_earnings
         if deductions is None:
             deductions = existing_deductions
+        suggestions = derive_salary_attendance_counts(db, employee, year, month)
         if payload.lwp_days is None:
-            lwp_days = item.lwp_days or 0
+            lwp_days = suggestions["lwp_days"]
         else:
             lwp_days = payload.lwp_days
+        if payload.half_day_days is None:
+            half_day_days = suggestions["half_day_days"]
+        else:
+            half_day_days = payload.half_day_days
         employee_details = existing_details
     else:
         employee_details = payload.employee_details
-        lwp_days = payload.lwp_days or 0
-    return _calculate_salary_slip(
+        suggestions = derive_salary_attendance_counts(db, employee, year, month)
+        lwp_days = payload.lwp_days if payload.lwp_days is not None else suggestions["lwp_days"]
+        half_day_days = payload.half_day_days if payload.half_day_days is not None else suggestions["half_day_days"]
+    calculation = _calculate_salary_slip(
         employee, month, year, employee_details=employee_details, earnings=earnings,
-        deductions=deductions, lwp_days=lwp_days, particulars=legacy_particulars,
+        deductions=deductions, lwp_days=lwp_days, half_day_days=half_day_days, particulars=legacy_particulars,
     )
+    return _apply_company_salary_payment_mode(db, calculation)
 
 
 def _salary_slip_request_key(employee_id: int, year: int, month: int) -> str:
@@ -460,6 +601,17 @@ def list_my_salary_slips(db: Session = Depends(get_db), current_user: User = Dep
     ).order_by(SalarySlip.created_at.desc()).all()]
 
 
+@router.get("/salary-slips/attendance-counts/{employee_id}")
+def salary_slip_attendance_counts(employee_id: int, year: int, month: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not 1 <= month <= 12 or not 1900 <= year <= 9999:
+        raise HTTPException(status_code=422, detail="Invalid month or year")
+    _require_employee_document_scope(db, current_user, employee_id)
+    employee = db.query(User).filter(User.id == employee_id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return derive_salary_attendance_counts(db, employee, year, month)
+
+
 @router.post("/salary-slips/request", status_code=201)
 def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not 1 <= payload.month <= 12 or not 1900 <= payload.year <= 9999:
@@ -469,11 +621,22 @@ def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
     if payload.earnings is None and payload.particulars is None:
         raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
+    attendance_counts = derive_salary_attendance_counts(db, current_user, payload.year, payload.month)
+    # Request deduction values are client-controlled. Seed the pending request
+    # from the latest admin-reviewed slip, then let an authorized reviewer edit
+    # or replace those values in the normal review workflow.
+    latest_sent = db.query(SalarySlip).filter(
+        SalarySlip.employee_id == current_user.id,
+        SalarySlip.status == "Sent",
+    ).order_by(func.coalesce(SalarySlip.sent_at, SalarySlip.created_at).desc(), SalarySlip.id.desc()).first()
+    trusted_deductions = _trusted_saved_deductions(latest_sent.deductions if latest_sent else None)
     calculation = _calculate_salary_slip(
         current_user, payload.month, payload.year, employee_details=payload.employee_details,
-        earnings=payload.earnings, deductions=payload.deductions, lwp_days=payload.lwp_days or 0,
+        earnings=payload.earnings, deductions=trusted_deductions,
+        lwp_days=attendance_counts["lwp_days"], half_day_days=attendance_counts["half_day_days"],
         particulars=payload.particulars,
     )
+    _apply_company_salary_payment_mode(db, calculation)
     item = SalarySlip(employee_id=current_user.id, month=payload.month, year=payload.year,
         particulars="[]", total_amount=calculation["net_pay"],
         status="Pending Review", created_by=current_user.id, request_key=request_key)
@@ -506,7 +669,7 @@ def review_salary_slip(slip_id: int, payload: SalarySlipReviewUpdate, db: Sessio
     if not item:
         raise HTTPException(status_code=404, detail="Pending salary slip request not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
-    calculation = _salary_calculation_from_payload(payload, item.employee, item.month, item.year, item)
+    calculation = _salary_calculation_from_payload(payload, item.employee, item.month, item.year, db, item)
     _persist_salary_calculation(item, calculation)
     db.commit()
     db.refresh(item)
@@ -520,7 +683,7 @@ def approve_salary_slip(slip_id: int, payload: SalarySlipReviewUpdate, db: Sessi
     if not item:
         raise HTTPException(status_code=404, detail="Pending salary slip request not found")
     _require_employee_document_scope(db, current_user, item.employee_id)
-    calculation = _salary_calculation_from_payload(payload, item.employee, item.month, item.year, item)
+    calculation = _salary_calculation_from_payload(payload, item.employee, item.month, item.year, db, item)
     _persist_salary_calculation(item, calculation)
     employee = item.employee
     return _send_final_salary_slip(db, item, employee, current_user)
@@ -543,7 +706,7 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
     if payload.earnings is None and payload.particulars is None:
         raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
-    calculation = _salary_calculation_from_payload(payload, employee, payload.month, payload.year)
+    calculation = _salary_calculation_from_payload(payload, employee, payload.month, payload.year, db)
     item = SalarySlip(employee_id=employee.id, month=payload.month, year=payload.year, particulars="[]",
                       total_amount=calculation["net_pay"], status="Saved", created_by=current_user.id, request_key=request_key)
     _persist_salary_calculation(item, calculation)
@@ -602,7 +765,7 @@ def update_salary_slip(slip_id: int, payload: SalarySlipCreate, db: Session = De
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
     if payload.earnings is None and payload.particulars is None:
         raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
-    calculation = _salary_calculation_from_payload(payload, employee, payload.month, payload.year, item)
+    calculation = _salary_calculation_from_payload(payload, employee, payload.month, payload.year, db, item)
     item.employee_id, item.month, item.year, item.request_key = employee.id, payload.month, payload.year, request_key
     _persist_salary_calculation(item, calculation)
     item.status, item.sent_at = "Saved", None

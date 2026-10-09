@@ -21,6 +21,7 @@ interface Settings {
   weekly_off_day: string;
   sandwich_method_enabled: boolean;
   salary_slip_notifications_enabled: boolean;
+  salary_payment_mode: string;
   company_name: string;
   company_address: string;
   attendance_location_enabled: boolean;
@@ -215,6 +216,19 @@ export default function CompanySettings() {
           <p className="mt-1 text-xs text-ink-500">
             Notify Admin/Super Admin when employees submit requests, and employees when their slips are approved and sent. Other notification types are unaffected.
           </p>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink-700">Salary Slip Payment Mode</label>
+          <input
+            type="text"
+            maxLength={50}
+            value={form.salary_payment_mode}
+            onChange={(e) => setForm({ ...form, salary_payment_mode: e.target.value })}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            placeholder="NEFT"
+          />
+          <p className="mt-1 text-xs text-ink-500">Used as the default payment mode on every employee salary slip.</p>
         </div>
 
         <div>

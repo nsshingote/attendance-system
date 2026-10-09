@@ -30,6 +30,7 @@ def _settings_default_payload():
         "weekly_off_day": "Sunday",
         "sandwich_method_enabled": False,
         "salary_slip_notifications_enabled": True,
+        "salary_payment_mode": "",
         "company_name": DEFAULT_COMPANY_NAME,
         "company_address": DEFAULT_COMPANY_ADDRESS,
         "attendance_location_enabled": False,
@@ -68,6 +69,8 @@ def _read_company_settings_row(db: Session):
         select_columns.append("sandwich_method_enabled")
     if "salary_slip_notifications_enabled" in columns:
         select_columns.append("salary_slip_notifications_enabled")
+    if "salary_payment_mode" in columns:
+        select_columns.append("salary_payment_mode")
     if "company_name" in columns:
         select_columns.append("company_name")
     if "company_address" in columns:
@@ -95,6 +98,7 @@ def _read_company_settings_row(db: Session):
         "weekly_off_day": raw_row.get("weekly_off_day") or "Sunday",
         "sandwich_method_enabled": bool(raw_row.get("sandwich_method_enabled", False)),
         "salary_slip_notifications_enabled": bool(raw_row.get("salary_slip_notifications_enabled", True)),
+        "salary_payment_mode": raw_row.get("salary_payment_mode") or "",
         "company_name": raw_row.get("company_name") or DEFAULT_COMPANY_NAME,
         "company_address": raw_row.get("company_address") or DEFAULT_COMPANY_ADDRESS,
         "attendance_location_enabled": bool(raw_row.get("attendance_location_enabled", False)),
@@ -127,6 +131,13 @@ def _upsert_company_settings_row(db: Session, payload: dict):
         raise HTTPException(
             status_code=503,
             detail="Company settings database migration is required before changing salary slip notifications.",
+        )
+    if "salary_payment_mode" in columns:
+        normalized["salary_payment_mode"] = str(payload.get("salary_payment_mode") or "").strip()
+    elif "salary_payment_mode" in payload:
+        raise HTTPException(
+            status_code=503,
+            detail="Company settings database migration is required before changing the salary payment mode.",
         )
     if "company_name" in columns:
         normalized["company_name"] = payload.get("company_name") or DEFAULT_COMPANY_NAME
@@ -162,6 +173,7 @@ def get_company_branding(db: Session = Depends(get_db), current_user: User = Dep
     return {
         "company_name": settings["company_name"],
         "company_address": settings["company_address"],
+        "salary_payment_mode": settings["salary_payment_mode"],
         "logo_url": "/logo.jpg",
     }
 

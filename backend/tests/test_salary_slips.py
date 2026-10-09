@@ -1,7 +1,7 @@
 import os
 import json
 import uuid
-from datetime import time
+from datetime import date, datetime, time
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session
 
 import routers.employee_documents as salary_router
 from database import Base, SessionLocal, engine
-from models import CompanySettings, Notification, SalarySlip, User
+from models import Attendance, CompanySettings, Holiday, LeaveRequest, LeaveRequestAllocation, Notification, SalarySlip, User, WFHRequest
 from schemas import SalarySlipEmployeeDetails, SalarySlipRequestCreate, SalarySlipReviewUpdate, SalarySlipParticular, SalarySlipRow
+from services.salary_attendance import derive_salary_attendance_counts
+import services.salary_attendance as salary_attendance
 
 
 @pytest.fixture
@@ -24,6 +26,12 @@ def db_session():
     finally:
         db.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def default_no_attendance_suggestions(monkeypatch):
+    """Keep legacy workflow assertions independent of the real current date."""
+    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 0.0, "half_day_days": 0.0})
 
 
 def make_user(db: Session, role: str = "user") -> User:
@@ -77,6 +85,22 @@ def structured_details(days_in_month=30):
         location="Office", payment_mode="Bank Transfer", days_in_month=days_in_month,
         days_worked=min(28, days_in_month), days_paid=min(28, days_in_month),
     )
+
+
+def structured_salary_slip(employee: User, **overrides) -> SalarySlip:
+    values = {
+        "employee_id": employee.id, "month": 5, "year": 2026,
+        "particulars": json.dumps([row.model_dump() for row in structured_rows()]),
+        "total_amount": 12325, "status": "Sent", "created_by": employee.id,
+        "employee_details": json.dumps(structured_details().model_dump()),
+        "earnings": json.dumps([row.model_dump() for row in structured_rows()]),
+        "deductions": json.dumps([row.model_dump() for row in structured_deductions()]),
+        "lwp_days": 0, "half_day_days": 0, "total_earnings": 12500,
+        "lop_deduction": 0, "half_day_deduction": 0, "total_deductions": 175,
+        "net_pay": 12325,
+    }
+    values.update(overrides)
+    return SalarySlip(**values)
 
 
 def test_employee_submits_own_request_and_duplicate_is_rejected(db_session: Session, monkeypatch):
@@ -253,7 +277,7 @@ def test_zero_lwp_produces_no_lop_deduction(db_session: Session, monkeypatch):
         db_session, employee,
     )
     reviewed = salary_router.review_salary_slip(
-        created["id"], SalarySlipReviewUpdate(employee_details=structured_details(), lwp_days=0), db_session, admin,
+        created["id"], SalarySlipReviewUpdate(employee_details=structured_details(), deductions=structured_deductions(), lwp_days=0), db_session, admin,
     )
     assert reviewed["lop_deduction"] == 0
     assert reviewed["total_deductions"] == 175
@@ -287,3 +311,280 @@ def test_approval_uses_reviewed_structured_values(db_session: Session, monkeypat
     assert result["lop_deduction"] == 100
     assert result["total_deductions"] == 100
     assert result["net_pay"] == 1900
+
+
+def test_half_day_and_lwp_are_recalculated_on_approval(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(salary_router, "send_email", lambda *_args, **_kwargs: False)
+    created = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions()),
+        db_session,
+        employee,
+    )
+    result = salary_router.approve_salary_slip(
+        created["id"],
+        SalarySlipReviewUpdate(
+            employee_details=structured_details(30),
+            earnings=structured_rows() + [SalarySlipRow(name="Joining Bonus", amount=500)],
+            deductions=structured_deductions(),
+            lwp_days=2,
+            half_day_days=2,
+        ),
+        db_session,
+        admin,
+    )
+    assert result["total_earnings"] == 13000
+    assert result["lop_deduction"] == 866.67
+    assert result["half_day_deduction"] == 433.33
+    assert result["salary_breakdown_total"] == 11700
+    assert result["total_deductions"] == 1475
+    assert result["net_pay"] == 11525
+    assert result["half_day_days"] == 2
+
+
+def test_employee_request_uses_backend_attendance_counts_not_submitted_counts(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 1.0, "half_day_days": 2.0})
+    payload = SalarySlipRequestCreate(
+        month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions(),
+        lwp_days=20, half_day_days=20,
+    )
+    result = salary_router.request_salary_slip(payload, db_session, employee)
+    assert result["lwp_days"] == 1
+    assert result["half_day_days"] == 2
+    assert result["lop_deduction"] == 403.23
+    assert result["half_day_deduction"] == 403.23
+
+
+def test_employee_cannot_set_request_deduction_amounts_but_admin_can(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    request = SalarySlipRequestCreate(
+        month=5, year=2026, earnings=structured_rows(),
+        deductions=[SalarySlipRow(name="Provident Fund", amount=9000),
+                    SalarySlipRow(name="Professional Tax", amount=9000),
+                    SalarySlipRow(name="Health Insurance Contribution", amount=9000),
+                    SalarySlipRow(name="Custom Recovery", amount=9000)],
+    )
+    pending = salary_router.request_salary_slip(request, db_session, employee)
+    assert pending["deductions"] == [
+        {"name": name, "amount": 0.0}
+        for name in ("Provident Fund", "Professional Tax", "Health Insurance Contribution")
+    ]
+
+    authorized_rows = structured_deductions() + [SalarySlipRow(name="Custom Recovery", amount=125)]
+    reviewed = salary_router.review_salary_slip(
+        pending["id"], SalarySlipReviewUpdate(deductions=authorized_rows), db_session, admin,
+    )
+    assert reviewed["deductions"][-1] == {"name": "Custom Recovery", "amount": 125.0}
+
+
+def test_employee_request_inherits_latest_sent_deductions_and_ignores_client_rows(db_session: Session):
+    employee = make_user(db_session)
+    older = structured_salary_slip(
+        employee, month=4, sent_at=datetime(2026, 5, 31),
+        created_at=datetime(2026, 5, 1),
+        deductions=json.dumps([{"name": name, "amount": 1} for name in (
+            "Provident Fund", "Professional Tax", "Health Insurance Contribution",
+        )]),
+    )
+    latest_null_sent_at = structured_salary_slip(
+        employee, month=5, sent_at=None, created_at=datetime(2026, 6, 5),
+        deductions=json.dumps([
+            {"name": "Provident Fund", "amount": 75},
+            {"name": "Custom Recovery", "amount": 30},
+            {"name": "Professional Tax", "amount": "bad"},
+            None,
+        ]),
+    )
+    db_session.add_all([older, latest_null_sent_at])
+    db_session.commit()
+
+    request = SalarySlipRequestCreate(
+        month=6, year=2026, earnings=structured_rows(),
+        deductions=[SalarySlipRow(name=name, amount=9999) for name in (
+            "Provident Fund", "Professional Tax", "Health Insurance Contribution", "Employee Override",
+        )],
+    )
+    result = salary_router.request_salary_slip(request, db_session, employee)
+
+    assert result["deductions"] == [
+        {"name": "Provident Fund", "amount": 75.0},
+        {"name": "Professional Tax", "amount": 0.0},
+        {"name": "Health Insurance Contribution", "amount": 0.0},
+        {"name": "Custom Recovery", "amount": 30.0},
+    ]
+
+
+def test_admin_reviewed_deductions_survive_approval_when_approval_omits_rows(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "superadmin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(salary_router, "send_email", lambda *_args, **_kwargs: False)
+    pending = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows()), db_session, employee,
+    )
+    reviewed = salary_router.review_salary_slip(
+        pending["id"],
+        SalarySlipReviewUpdate(deductions=structured_deductions() + [SalarySlipRow(name="Custom Recovery", amount=125)]),
+        db_session, admin,
+    )
+    assert reviewed["deductions"][-1] == {"name": "Custom Recovery", "amount": 125.0}
+
+    approved = salary_router.approve_salary_slip(pending["id"], SalarySlipReviewUpdate(), db_session, admin)
+
+    assert approved["deductions"][-1] == {"name": "Custom Recovery", "amount": 125.0}
+    assert approved["total_deductions"] == 300
+    assert approved["net_pay"] == 12200
+
+
+def test_review_without_counts_refreshes_pending_attendance_suggestions(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 0.0, "half_day_days": 0.0})
+    pending = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows()), db_session, employee,
+    )
+    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 3.0, "half_day_days": 2.0})
+    refreshed = salary_router.review_salary_slip(
+        pending["id"], SalarySlipReviewUpdate(), db_session, admin,
+    )
+    assert refreshed["lwp_days"] == 3
+    assert refreshed["half_day_days"] == 2
+
+
+def test_attendance_count_suggestions_respect_leave_dates_and_calendar_rules(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    employee.date_of_joining = date(2026, 5, 1)
+    admin = make_user(db_session, "admin")
+    db_session.add(CompanySettings(
+        office_start_time=time(10, 0), office_end_time=time(18, 30),
+        late_grace_minutes=30, weekly_off_day="Sunday",
+    ))
+    db_session.add_all([
+        Attendance(user_id=employee.id, attendance_date=date(2026, 5, 1), status="Present", manual_override=True),
+        Attendance(user_id=employee.id, attendance_date=date(2026, 5, 2), status="Present", manual_override=True),
+        Attendance(user_id=employee.id, attendance_date=date(2026, 5, 5), status="Half Day", manual_override=True),
+        Attendance(user_id=employee.id, attendance_date=date(2026, 5, 6), status="Half Day", manual_override=True),
+        Attendance(user_id=employee.id, attendance_date=date(2026, 5, 7), status="On Leave"),
+        Attendance(user_id=employee.id, attendance_date=date(2026, 5, 8), status="On Leave"),
+        LeaveRequest(user_id=employee.id, from_date=date(2026, 5, 4), to_date=date(2026, 5, 4), total_days=1, status="Pending", leave_category="Unpaid"),
+        LeaveRequest(user_id=employee.id, from_date=date(2026, 5, 5), to_date=date(2026, 5, 5), total_days=1, status="Pending", leave_category="Paid"),
+        LeaveRequest(user_id=employee.id, from_date=date(2026, 5, 7), to_date=date(2026, 5, 7), total_days=1, status="Approved", leave_category="Unpaid"),
+        LeaveRequest(user_id=employee.id, from_date=date(2026, 5, 8), to_date=date(2026, 5, 8), total_days=1, status="Approved", leave_category="Paid"),
+        WFHRequest(user_id=employee.id, attendance_date=date(2026, 5, 9), status="Approved"),
+        Holiday(holiday_date=date(2026, 5, 11), holiday_name="Holiday", applies_to="all_users", created_by=admin.id),
+    ])
+    db_session.flush()
+    db_session.add_all([
+        LeaveRequestAllocation(leave_request_id=request.id, allocation_date=leave_date, leave_category=category)
+        for request, leave_date, category in (
+            (db_session.query(LeaveRequest).filter_by(user_id=employee.id, from_date=date(2026, 5, 7)).one(), date(2026, 5, 7), "Unpaid"),
+            (db_session.query(LeaveRequest).filter_by(user_id=employee.id, from_date=date(2026, 5, 8)).one(), date(2026, 5, 8), "Paid"),
+        )
+    ])
+    db_session.commit()
+    monkeypatch.setattr(salary_attendance, "india_today", lambda: date(2026, 5, 11))
+
+    counts = derive_salary_attendance_counts(db_session, employee, 2026, 5)
+
+    assert counts["lwp_days"] == 1.0
+    assert counts["half_day_days"] == 1.0
+    assert {item["date"] for item in counts["review_details"]} == {"2026-05-06", "2026-05-07"}
+    assert any(item["status"] == "Half Day" and item["suggestion"] == "Half-Day" for item in counts["review_details"])
+    assert db_session.query(Attendance).filter_by(user_id=employee.id).count() == 6
+
+
+def test_today_without_final_attendance_is_not_suggested_as_lwp(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    employee.date_of_joining = date(2026, 5, 12)
+    db_session.commit()
+    monkeypatch.setattr(salary_attendance, "india_today", lambda: date(2026, 5, 12))
+
+    counts = derive_salary_attendance_counts(db_session, employee, 2026, 5)
+
+    assert counts["lwp_days"] == 0
+    assert counts["half_day_days"] == 0
+    assert counts["review_details"] == []
+
+
+def test_legacy_salary_slip_keeps_stored_amount_and_has_no_half_day(db_session: Session):
+    employee = make_user(db_session)
+    legacy = SalarySlip(
+        employee_id=employee.id, month=5, year=2026, particulars='[{"name":"Salary","amount":1000}]',
+        total_amount=987.65, status="Sent", created_by=employee.id,
+    )
+    db_session.add(legacy)
+    db_session.commit()
+    db_session.refresh(legacy)
+
+    result = salary_router._salary_slip_dict(legacy)
+
+    assert result["total_amount"] == 987.65
+    assert result["net_pay"] == 987.65
+    assert result["half_day_days"] is None
+    assert result["half_day_deduction"] is None
+    assert result["salary_breakdown_total"] is None
+    assert result["historical_breakdown_incomplete"] is True
+    salary_router._salary_slip_dict(legacy)
+    db_session.refresh(legacy)
+    assert float(legacy.total_amount) == 987.65
+
+
+@pytest.mark.parametrize("overrides", [
+    {"earnings": "[]", "deductions": "[]"},
+    {"earnings": "{malformed", "deductions": "[malformed"},
+    {"earnings": "[null]", "deductions": "[42]"},
+    {"employee_details": "[]"},
+    {"earnings": json.dumps([{"name": "Basic Salary", "amount": 12500}])},
+    {"deductions": json.dumps([{"name": "Provident Fund", "amount": 175}])},
+])
+def test_invalid_or_incomplete_historical_breakdown_is_unavailable(db_session: Session, overrides):
+    employee = make_user(db_session)
+    slip = structured_salary_slip(employee, **overrides)
+    db_session.add(slip)
+    db_session.commit()
+
+    result = salary_router._salary_slip_dict(slip)
+
+    assert result["historical_breakdown_incomplete"] is True
+    assert result["salary_breakdown_total"] is None
+    assert result["total_earnings"] is None
+    assert result["total_deductions"] is None
+    assert result["net_pay"] == 12325
+    assert result["total_amount"] == 12325
+
+
+@pytest.mark.parametrize("particulars", ['{"not":"rows"}', "{malformed"])
+def test_non_list_or_malformed_legacy_json_does_not_break_slip_response(db_session: Session, particulars: str):
+    employee = make_user(db_session)
+    slip = SalarySlip(
+        employee_id=employee.id, month=5, year=2026, particulars=particulars,
+        total_amount=987.65, status="Sent", created_by=employee.id,
+    )
+    db_session.add(slip)
+    db_session.commit()
+
+    result = salary_router._salary_slip_dict(slip)
+
+    assert result["historical_breakdown_incomplete"] is True
+    assert result["salary_breakdown_total"] is None
+    assert result["net_pay"] == 987.65
+
+
+def test_historical_rows_that_do_not_reconcile_with_stored_net_are_unavailable(db_session: Session):
+    employee = make_user(db_session)
+    slip = structured_salary_slip(employee, total_amount=12000, net_pay=12000)
+    db_session.add(slip)
+    db_session.commit()
+
+    result = salary_router._salary_slip_dict(slip)
+
+    assert result["historical_breakdown_incomplete"] is True
+    assert result["salary_breakdown_total"] is None
+    assert result["net_pay"] == 12000
+    assert result["total_amount"] == 12000

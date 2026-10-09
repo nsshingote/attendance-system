@@ -15,10 +15,13 @@ import { hasPermission, usePermissions } from "@/lib/permissions";
 
 type Employee = { id: number; name: string; role: string };
 type SlipRow = { name: string; amount: number };
+type AttendanceReviewDetail = { date: string; status: string; suggestion: string };
+type AttendanceCounts = { lwp_days: number; half_day_days: number; review_details?: AttendanceReviewDetail[] };
 type EditableSlipRow = { name: string; amount: string; custom?: boolean };
 type SalaryEmployeeDetails = { name: string; designation: string; department: string; phone_number: string; email: string; joining_date: string; pan_number: string; account_number: string; location: string; payment_mode: string; days_in_month: number; days_worked: number };
-type Slip = { id: number; employee_id: number; employee_name: string; month: number; year: number; total_amount: number; net_pay?: number; status: string; particulars: string; employee_details?: SalaryEmployeeDetails; earnings?: SlipRow[]; deductions?: SlipRow[]; lwp_days?: number; total_earnings?: number; lop_deduction?: number; total_deductions?: number; created_at?: string; sent_at?: string | null };
+type Slip = { id: number; employee_id: number; employee_name: string; month: number; year: number; total_amount: number; net_pay?: number; status: string; particulars: string; employee_details?: SalaryEmployeeDetails; earnings?: SlipRow[]; deductions?: SlipRow[]; lwp_days?: number; half_day_days?: number | null; total_earnings?: number; lop_deduction?: number; half_day_deduction?: number; salary_breakdown_total?: number; total_deductions?: number; created_at?: string; sent_at?: string | null };
 type EmployeeOption = Employee & { designation?: string; department?: string; email?: string | null; mobile?: string | null; place_of_posting?: string | null; date_of_joining?: string | null; location?: string | null; pan_number?: string | null; account_number?: string | null; payment_mode?: string | null };
+type SalaryBranding = { salary_payment_mode?: string };
 const earningLabels = ["Basic Salary", "House Rent Allowance", "Incentive Pay", "Travelling Allowance", "Overtime", "Extra Working Day"];
 const deductionLabels = ["Provident Fund", "Professional Tax", "Health Insurance Contribution"];
 const blankRows = (labels: string[]): EditableSlipRow[] => labels.map(name => ({ name, amount: "0" }));
@@ -54,6 +57,7 @@ export default function EmployeeDocumentsPage() {
   const { permissions, loading: permissionsLoading } = usePermissions();
   const [tab, setTab] = useState("Salary Slips");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [companyPaymentMode, setCompanyPaymentMode] = useState("");
   const [slips, setSlips] = useState<Slip[]>([]);
   const [salaryHistoryLoading, setSalaryHistoryLoading] = useState(true);
   const [salaryHistoryLoaded, setSalaryHistoryLoaded] = useState(false);
@@ -63,6 +67,9 @@ export default function EmployeeDocumentsPage() {
   const [earnings, setEarnings] = useState<EditableSlipRow[]>(() => blankRows(earningLabels));
   const [deductions, setDeductions] = useState<EditableSlipRow[]>(() => blankRows(deductionLabels));
   const [lwpDays, setLwpDays] = useState("0");
+  const [halfDayDays, setHalfDayDays] = useState("0");
+  const [attendanceCountLoading, setAttendanceCountLoading] = useState(false);
+  const [attendanceReviewDetails, setAttendanceReviewDetails] = useState<AttendanceReviewDetail[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingSlipId, setEditingSlipId] = useState<number | null>(null);
   const [reviewSlipId, setReviewSlipId] = useState<number | null>(null);
@@ -89,28 +96,36 @@ export default function EmployeeDocumentsPage() {
     if (!canSalarySlips) return;
     setSalaryHistoryLoading(true);
     try {
-      const [users, history] = await Promise.all([api.get<EmployeeOption[]>("/users/employee-selector"), api.get("/employee-documents/salary-slips")]);
-      setEmployees(users.data); setSlips(history.data);
+      const [users, history, branding] = await Promise.all([api.get<EmployeeOption[]>("/users/employee-selector"), api.get<Slip[]>("/employee-documents/salary-slips"), api.get<SalaryBranding>("/settings/branding")]);
+      setEmployees(users.data); setSlips(history.data); setCompanyPaymentMode(branding.data.salary_payment_mode || "");
       setSalaryHistoryLoaded(true);
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSalaryHistoryLoading(false); }
   };
   useEffect(() => {
     if (!canSalarySlips) return;
-    api.get<EmployeeOption[]>("/users/employee-selector")
-      .then(({ data }) => setEmployees(data))
-      .catch(error => toast.error(getErrorMessage(error)));
-    setSalaryHistoryLoading(true);
-    api.get<Slip[]>("/employee-documents/salary-slips")
-      .then(({ data }) => { setSlips(data); setSalaryHistoryLoaded(true); })
+    Promise.all([api.get<EmployeeOption[]>("/users/employee-selector"), api.get<Slip[]>("/employee-documents/salary-slips"), api.get<SalaryBranding>("/settings/branding")])
+      .then(([users, history, branding]) => { setEmployees(users.data); setSlips(history.data); setCompanyPaymentMode(branding.data.salary_payment_mode || ""); setSalaryHistoryLoaded(true); })
       .catch(error => toast.error(getErrorMessage(error)))
       .finally(() => setSalaryHistoryLoading(false));
   }, [canSalarySlips]);
+  useEffect(() => {
+    if (!employeeId || !salaryHistoryLoaded || reviewSlipId || editingSlipId) return;
+    const [year, month] = period.split("-").map(Number);
+    let active = true;
+    api.get<AttendanceCounts>(`/employee-documents/salary-slips/attendance-counts/${employeeId}?year=${year}&month=${month}`)
+      .then(({ data }) => { if (active) { setLwpDays(String(data.lwp_days)); setHalfDayDays(String(data.half_day_days)); setAttendanceReviewDetails(data.review_details || []); } })
+      .catch(error => { if (active) toast.error(getErrorMessage(error)); })
+      .finally(() => { if (active) setAttendanceCountLoading(false); });
+    return () => { active = false; };
+  }, [employeeId, period, salaryHistoryLoaded, reviewSlipId, editingSlipId]);
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
   const totalEarnings = useMemo(() => roundMoney(earnings.reduce((sum, row) => sum + (row.name.trim() ? Math.max(0, Number(row.amount) || 0) : 0), 0)), [earnings]);
   const lopDeduction = useMemo(() => employeeDetails.days_in_month > 0 ? roundMoney(totalEarnings / employeeDetails.days_in_month * Math.max(0, Number(lwpDays) || 0)) : 0, [employeeDetails.days_in_month, lwpDays, totalEarnings]);
-  const totalDeductions = useMemo(() => roundMoney(lopDeduction + deductions.reduce((sum, row) => sum + (row.name.trim() ? Math.max(0, Number(row.amount) || 0) : 0), 0)), [deductions, lopDeduction]);
-  const netPay = roundMoney(totalEarnings - totalDeductions);
+  const halfDayDeduction = useMemo(() => employeeDetails.days_in_month > 0 ? roundMoney(totalEarnings / employeeDetails.days_in_month * 0.5 * Math.max(0, Number(halfDayDays) || 0)) : 0, [employeeDetails.days_in_month, halfDayDays, totalEarnings]);
+  const otherDeductions = useMemo(() => roundMoney(deductions.reduce((sum, row) => sum + (row.name.trim() ? Math.max(0, Number(row.amount) || 0) : 0), 0)), [deductions]);
+  const salaryBreakdownTotal = roundMoney(totalEarnings - lopDeduction - halfDayDeduction);
+  const netPay = roundMoney(salaryBreakdownTotal - otherDeductions);
   const filteredSlips = useMemo(() => {
     return slips.filter((slip) => {
       const matchesEmployee = selectedEmployeeIds.length === 0 && teamEmployeeIds.length === 0 || selectedEmployeeIds.includes(slip.employee_id) || teamEmployeeIds.includes(slip.employee_id);
@@ -118,21 +133,21 @@ export default function EmployeeDocumentsPage() {
       return matchesEmployee && matchesMonth;
     });
   }, [slips, selectedEmployeeIds, teamEmployeeIds, selectedYear, selectedMonth]);
-  const changePeriod = (value: string) => { setPeriod(value); const days = new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)), 0).getDate(); setEmployeeDetails(current => ({ ...current, days_in_month: days })); };
-  const resetForm = () => { setEmployeeId(""); setEditingSlipId(null); setReviewSlipId(null); setEmployeeDetails(blankDetails(period)); setEarnings(blankRows(earningLabels)); setDeductions(blankRows(deductionLabels)); setLwpDays("0"); };
+  const changePeriod = (value: string) => { setPeriod(value); if (employeeId && !reviewSlipId && !editingSlipId) setAttendanceCountLoading(true); const days = new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)), 0).getDate(); setEmployeeDetails(current => ({ ...current, days_in_month: days })); };
+  const resetForm = () => { setEmployeeId(""); setEditingSlipId(null); setReviewSlipId(null); setEmployeeDetails(blankDetails(period)); setEarnings(blankRows(earningLabels)); setDeductions(blankRows(deductionLabels)); setLwpDays("0"); setHalfDayDays("0"); setAttendanceReviewDetails([]); };
   const applyEmployeeDefaults = (selectedId: string) => {
     if (!salaryHistoryLoaded) return;
     const employee = employees.find(item => String(item.id) === selectedId);
     const details = blankDetails(period);
-    if (employee) Object.assign(details, { name: employee.name || "", designation: employee.designation || "", department: employee.department || "", phone_number: employee.mobile || "", email: employee.email || "", joining_date: employee.date_of_joining ? new Date(`${employee.date_of_joining}T00:00:00`).toLocaleDateString("en-GB") : "", location: employee.location || employee.place_of_posting || "", pan_number: employee.pan_number || "", account_number: employee.account_number || "", payment_mode: employee.payment_mode || "" });
+    if (employee) Object.assign(details, { name: employee.name || "", designation: employee.designation || "", department: employee.department || "", phone_number: employee.mobile || "", email: employee.email || "", joining_date: employee.date_of_joining ? new Date(`${employee.date_of_joining}T00:00:00`).toLocaleDateString("en-GB") : "", location: employee.location || employee.place_of_posting || "", pan_number: employee.pan_number || "", account_number: employee.account_number || "", payment_mode: companyPaymentMode || employee.payment_mode || "" });
     const latestSlip = latestSlipFor(slips, selectedId);
     if (latestSlip?.employee_details) {
       const previous = latestSlip.employee_details;
       for (const key of ["name", "designation", "department", "phone_number", "email", "joining_date", "pan_number", "account_number", "location", "payment_mode"] as const) {
-        if (!details[key] && previous[key]) details[key] = previous[key];
+        if (key !== "payment_mode" && !details[key] && previous[key]) details[key] = previous[key];
       }
     }
-    setEmployeeDetails(details); setEarnings(rowsFromSlip(latestSlip, "earnings")); setDeductions(rowsFromSlip(latestSlip, "deductions")); setLwpDays("0");
+    setEmployeeDetails(details); setEarnings(rowsFromSlip(latestSlip, "earnings")); setDeductions(rowsFromSlip(latestSlip, "deductions")); setLwpDays("0"); setHalfDayDays("0");
   };
   const payloadRows = (rows: EditableSlipRow[]) => rows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 }));
   const save = async (send: boolean) => {
@@ -143,7 +158,7 @@ export default function EmployeeDocumentsPage() {
     try {
       const [year, month] = period.split("-").map(Number);
       await api[editingSlipId ? "put" : "post"](editingSlipId ? `/employee-documents/salary-slips/${editingSlipId}` : "/employee-documents/salary-slips", { employee_id: Number(employeeId), month, year, send,
-        employee_details: employeeDetails, earnings: payloadRows(earnings), deductions: payloadRows(deductions), lwp_days: Number(lwpDays) || 0 });
+        employee_details: employeeDetails, earnings: payloadRows(earnings), deductions: payloadRows(deductions), lwp_days: Number(lwpDays) || 0, half_day_days: Number(halfDayDays) || 0 });
       toast.success(send ? "Salary slip saved and sent" : "Salary slip saved"); resetForm(); await load();
     } catch (error) { toast.error(getErrorMessage(error)); } finally { setSaving(false); }
   };
@@ -151,20 +166,30 @@ export default function EmployeeDocumentsPage() {
     if (!reviewSlipId || !canEditSalarySlips || !canSendSalarySlips) return;
     setSaving(true);
     try {
-      const { data } = await api.post(`/employee-documents/salary-slips/${reviewSlipId}/approve`, { employee_details: employeeDetails, earnings: payloadRows(earnings), deductions: payloadRows(deductions), lwp_days: Number(lwpDays) || 0 });
+      const { data } = await api.post(`/employee-documents/salary-slips/${reviewSlipId}/approve`, { employee_details: employeeDetails, earnings: payloadRows(earnings), deductions: payloadRows(deductions), lwp_days: Number(lwpDays) || 0, half_day_days: Number(halfDayDays) || 0 });
       resetForm();
       await load();
       toast.success(data.email_sent ? "Salary slip approved and sent" : "Salary slip approved and available; email could not be sent");
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSaving(false); }
   };
-  const startReview = (slip: Slip) => {
+  const startReview = (slip: Slip, refreshAttendance = true) => {
     const nextPeriod = `${slip.year}-${String(slip.month).padStart(2, "0")}`;
     setReviewSlipId(slip.id); setEditingSlipId(null); setEmployeeId(String(slip.employee_id)); setPeriod(nextPeriod);
-    setEmployeeDetails(slip.employee_details || blankDetails(nextPeriod)); setEarnings(rowsFromSlip(slip, "earnings")); setDeductions(rowsFromSlip(slip, "deductions")); setLwpDays(String(slip.lwp_days || 0));
+    const details = { ...(slip.employee_details || blankDetails(nextPeriod)) };
+    details.payment_mode = companyPaymentMode || details.payment_mode;
+    setEmployeeDetails(details); setEarnings(rowsFromSlip(slip, "earnings")); setDeductions(rowsFromSlip(slip, "deductions")); setLwpDays(String(slip.lwp_days || 0)); setHalfDayDays(String(slip.half_day_days || 0));
+    setAttendanceReviewDetails([]);
+    if (slip.status === "Pending Review" && refreshAttendance) {
+      setAttendanceCountLoading(true);
+      api.get<AttendanceCounts>(`/employee-documents/salary-slips/attendance-counts/${slip.employee_id}?year=${slip.year}&month=${slip.month}`)
+        .then(({ data }) => { setLwpDays(String(data.lwp_days)); setHalfDayDays(String(data.half_day_days)); setAttendanceReviewDetails(data.review_details || []); })
+        .catch(error => toast.error(getErrorMessage(error)))
+        .finally(() => setAttendanceCountLoading(false));
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  const startEdit = (slip: Slip) => { startReview(slip); setReviewSlipId(null); setEditingSlipId(slip.id); };
+  const startEdit = (slip: Slip) => { startReview(slip, false); setReviewSlipId(null); setEditingSlipId(slip.id); };
   if (!permissionsLoading && isSalarySlipsRoute && !canSalarySlips) {
     return <AppShell requiredPermission="employee_documents.letters.view" alternativePermissions={["employee_documents.salary_slips.view", "employee_documents.letter_templates.view"]}><div className="mx-auto max-w-6xl space-y-6">
       <div><h1 className="text-xl font-semibold text-ink-900">Salary Slips</h1><p className="text-sm text-ink-500">Access is restricted. You do not have permission to view this section.</p></div>
@@ -190,26 +215,28 @@ export default function EmployeeDocumentsPage() {
       {canManageSalarySlipForm && <>
       <section className="rounded-xl border border-ink-200 bg-white p-4 shadow-card sm:p-6">
         <h2 className="text-lg font-semibold">{reviewSlipId ? "Review Salary Slip Request" : editingSlipId ? "Edit Salary Slip" : "Generate Salary Slip"}</h2>
-        <p className="mb-5 text-sm text-ink-500">{reviewSlipId ? "Review and correct employee details, earnings, LWP, and deductions before approval." : "Prepare the employee details and salary components for this month."}</p>
+        <p className="mb-5 text-sm text-ink-500">{reviewSlipId ? "Review attendance-derived LWP and Half-Day counts, then correct them if needed before approval." : "Prepare employee details and salary components. Attendance counts are suggested automatically and can be corrected."}</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm font-medium">Select Employee<select disabled={Boolean(reviewSlipId) || salaryHistoryLoading || !salaryHistoryLoaded} value={employeeId} onChange={event => { const id = event.target.value; setEmployeeId(id); setEditingSlipId(null); applyEmployeeDefaults(id); }} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50"><option value="">{salaryHistoryLoading ? "Loading salary history..." : "Select employee"}</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
+          <label className="text-sm font-medium">Select Employee<select disabled={Boolean(reviewSlipId) || salaryHistoryLoading || !salaryHistoryLoaded} value={employeeId} onChange={event => { const id = event.target.value; setAttendanceCountLoading(Boolean(id)); setEmployeeId(id); setEditingSlipId(null); applyEmployeeDefaults(id); }} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50"><option value="">{salaryHistoryLoading ? "Loading salary history..." : "Select employee"}</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
           <label className="text-sm font-medium">Month &amp; Year<input disabled={Boolean(reviewSlipId)} type="month" value={period} onChange={event => changePeriod(event.target.value)} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50" /></label>
         </div>
         <h3 className="mt-6 font-semibold">Employee Details</h3>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {([["name", "Name"], ["designation", "Designation"], ["department", "Department"], ["phone_number", "Phone Number"], ["email", "Email"], ["joining_date", "Joining Date"], ["pan_number", "PAN No."], ["account_number", "Account No."], ["location", "Location"], ["payment_mode", "Payment Mode"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input value={employeeDetails[key]} onChange={event => setEmployeeDetails(current => ({ ...current, [key]: event.target.value }))} className="mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>)}
+          {([["name", "Name"], ["designation", "Designation"], ["department", "Department"], ["phone_number", "Phone Number"], ["email", "Email"], ["joining_date", "Joining Date"], ["pan_number", "PAN No."], ["account_number", "Account No."], ["location", "Location"], ["payment_mode", "Payment Mode"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input readOnly={key === "payment_mode" && Boolean(companyPaymentMode)} value={employeeDetails[key]} onChange={event => setEmployeeDetails(current => ({ ...current, [key]: event.target.value }))} className="mt-1 block w-full rounded-md border-ink-200 text-sm read-only:bg-ink-50" /></label>)}
           {([["days_in_month", "Days in Month"], ["days_worked", "Days Worked"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input type="number" min="0" step="0.01" value={employeeDetails[key]} onChange={event => setEmployeeDetails(current => ({ ...current, [key]: Number(event.target.value) || 0 }))} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>)}
-          <label className="text-xs font-medium text-ink-600">LWP Days<input type="number" min="0" step="0.01" value={lwpDays} onChange={event => setLwpDays(event.target.value)} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>
+          <label className="text-xs font-medium text-ink-600">Leave Without Pay (days){attendanceCountLoading && <span className="ml-1 text-ink-400">Loading suggestion…</span>}<input type="number" min="0" step="0.01" value={lwpDays} onChange={event => setLwpDays(event.target.value)} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>
+          <label className="text-xs font-medium text-ink-600">Half-Day (days)<input type="number" min="0" step="0.01" value={halfDayDays} onChange={event => setHalfDayDays(event.target.value)} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>
         </div>
-        <h3 className="mt-7 font-semibold">Earnings</h3>
-        <div className="mt-3 overflow-x-auto rounded-lg border border-ink-200"><table className="min-w-[34rem] w-full text-sm"><thead className="bg-ink-50 text-left text-ink-600"><tr><th className="px-4 py-3">Earning</th><th className="w-44 px-4 py-3">Amount (INR)</th><th className="w-12" /></tr></thead><tbody>{earnings.map((row, index) => <tr key={`earning-${index}`} className="border-t border-ink-100"><td className="p-2"><input aria-label="Earning name" value={row.name} readOnly={!row.custom} onChange={event => setEarnings(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="w-full rounded-md border-ink-200 read-only:bg-ink-50" /></td><td className="p-2"><input aria-label="Earning amount" type="number" min="0" step="0.01" value={row.amount} onChange={event => setEarnings(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="number-input-no-spinner w-full rounded-md border-ink-200" /></td><td>{row.custom && <button type="button" aria-label="Remove earning row" onClick={() => setEarnings(current => current.filter((_, rowIndex) => rowIndex !== index))} className="p-2 text-red-500"><Trash2 size={16} /></button>}</td></tr>)}</tbody><tfoot className="border-t bg-ink-50"><tr><td className="px-4 py-3 font-semibold">TOTAL EARNINGS</td><td className="px-4 py-3 font-semibold text-emerald-700">{formatMoney(totalEarnings)}</td><td /></tr></tfoot></table></div>
+        {reviewSlipId !== null && attendanceReviewDetails.length > 0 && <div className="mt-3 rounded-lg border border-ink-200 bg-ink-50 p-3 text-xs"><p className="font-semibold text-ink-700">Attendance dates behind the suggested counts</p><ul className="mt-2 grid gap-1 sm:grid-cols-2">{attendanceReviewDetails.map(detail => <li key={`${detail.date}-${detail.suggestion}`}>{detail.date}: {detail.status} — {detail.suggestion}</li>)}</ul></div>}
+        <h3 className="mt-7 font-semibold">Salary Breakdown</h3>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-ink-200"><table className="min-w-[34rem] w-full text-sm"><thead className="bg-ink-50 text-left text-ink-600"><tr><th className="px-4 py-3">Description</th><th className="w-44 px-4 py-3">Amount (INR)</th><th className="w-12" /></tr></thead><tbody>{earnings.map((row, index) => <tr key={`earning-${index}`} className="border-t border-ink-100"><td className="p-2"><input aria-label="Earning name" value={row.name} readOnly={!row.custom} onChange={event => setEarnings(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="w-full rounded-md border-ink-200 read-only:bg-ink-50" /></td><td className="p-2"><input aria-label="Earning amount" type="number" min="0" step="0.01" value={row.amount} onChange={event => setEarnings(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="number-input-no-spinner w-full rounded-md border-ink-200" /></td><td>{row.custom && <button type="button" aria-label="Remove earning row" onClick={() => setEarnings(current => current.filter((_, rowIndex) => rowIndex !== index))} className="p-2 text-red-500"><Trash2 size={16} /></button>}</td></tr>)}<tr className="border-t border-ink-100 bg-red-50/50"><td className="p-3">Leave Without Pay</td><td className="p-3 text-right text-red-700">−{formatMoney(lopDeduction)}</td><td /></tr><tr className="border-t border-ink-100 bg-red-50/50"><td className="p-3">Half-Day</td><td className="p-3 text-right text-red-700">−{formatMoney(halfDayDeduction)}</td><td /></tr></tbody><tfoot className="border-t bg-ink-50"><tr><td className="px-4 py-3 font-semibold">SALARY BREAKDOWN TOTAL</td><td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatMoney(salaryBreakdownTotal)}</td><td /></tr></tfoot></table></div>
         <button type="button" onClick={() => setEarnings(current => [...current, { name: "", amount: "0", custom: true }])} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-700"><Plus size={16} /> Add Earnings Row</button>
         <h3 className="mt-7 font-semibold">Deductions</h3>
-        <div className="mt-3 overflow-x-auto rounded-lg border border-ink-200"><table className="min-w-[34rem] w-full text-sm"><thead className="bg-ink-50 text-left text-ink-600"><tr><th className="px-4 py-3">Deduction</th><th className="w-44 px-4 py-3">Amount (INR)</th><th className="w-12" /></tr></thead><tbody><tr className="border-t border-ink-100 bg-ink-50"><td className="p-3">LWP Deduction</td><td className="p-3 text-right">{formatMoney(lopDeduction)}</td><td /></tr>{deductions.map((row, index) => <tr key={`deduction-${index}`} className="border-t border-ink-100"><td className="p-2"><input aria-label="Deduction name" value={row.name} readOnly={!row.custom} onChange={event => setDeductions(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="w-full rounded-md border-ink-200 read-only:bg-ink-50" /></td><td className="p-2"><input aria-label="Deduction amount" type="number" min="0" step="0.01" value={row.amount} onChange={event => setDeductions(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="number-input-no-spinner w-full rounded-md border-ink-200" /></td><td>{row.custom && <button type="button" aria-label="Remove deduction row" onClick={() => setDeductions(current => current.filter((_, rowIndex) => rowIndex !== index))} className="p-2 text-red-500"><Trash2 size={16} /></button>}</td></tr>)}</tbody><tfoot className="border-t bg-ink-50"><tr><td className="px-4 py-3 font-semibold">TOTAL DEDUCTIONS</td><td className="px-4 py-3 text-right font-semibold text-red-700">{formatMoney(totalDeductions)}</td><td /></tr></tfoot></table></div>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-ink-200"><table className="min-w-[34rem] w-full text-sm"><thead className="bg-ink-50 text-left text-ink-600"><tr><th className="px-4 py-3">Deduction</th><th className="w-44 px-4 py-3">Amount (INR)</th><th className="w-12" /></tr></thead><tbody>{deductions.map((row, index) => <tr key={`deduction-${index}`} className="border-t border-ink-100"><td className="p-2"><input aria-label="Deduction name" value={row.name} readOnly={!row.custom} onChange={event => setDeductions(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="w-full rounded-md border-ink-200 read-only:bg-ink-50" /></td><td className="p-2"><input aria-label="Deduction amount" type="number" min="0" step="0.01" value={row.amount} onChange={event => setDeductions(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="number-input-no-spinner w-full rounded-md border-ink-200" /></td><td>{row.custom && <button type="button" aria-label="Remove deduction row" onClick={() => setDeductions(current => current.filter((_, rowIndex) => rowIndex !== index))} className="p-2 text-red-500"><Trash2 size={16} /></button>}</td></tr>)}</tbody><tfoot className="border-t bg-ink-50"><tr><td className="px-4 py-3 font-semibold">TOTAL DEDUCTIONS</td><td className="px-4 py-3 text-right font-semibold text-red-700">{formatMoney(otherDeductions)}</td><td /></tr></tfoot></table></div>
         <button type="button" onClick={() => setDeductions(current => [...current, { name: "", amount: "0", custom: true }])} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-700"><Plus size={16} /> Add Deduction Row</button>
-        <div className="mt-5 flex flex-wrap justify-end gap-x-8 gap-y-2 border-t border-ink-200 pt-4 text-sm"><span>Total Earnings: <strong>{formatMoney(totalEarnings)}</strong></span><span>Total Deductions: <strong>{formatMoney(totalDeductions)}</strong></span><span className="text-base">Net Pay: <strong className="text-emerald-700">{formatMoney(Math.max(0, netPay))}</strong></span></div>
+        <div className="mt-5 flex flex-wrap justify-end gap-x-8 gap-y-2 border-t border-ink-200 pt-4 text-sm"><span>Salary Breakdown: <strong>{formatMoney(salaryBreakdownTotal)}</strong></span><span>Other Deductions: <strong>{formatMoney(otherDeductions)}</strong></span><span className="text-base">Net Salary: <strong className="text-emerald-700">{formatMoney(Math.max(0, netPay))}</strong></span></div>
         {netPay < 0 && <p className="mt-2 text-right text-sm text-red-600">Deductions cannot exceed total earnings.</p>}
-        <div className="mt-6 flex flex-wrap justify-end gap-3">{(editingSlipId || reviewSlipId) && <button onClick={resetForm} className="rounded-lg border border-ink-300 px-5 py-2.5 text-sm font-medium">Cancel</button>}{reviewSlipId ? <button disabled={saving || !canSendSalarySlips || !canEditSalarySlips || netPay < 0} onClick={() => void approveRequest()} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"><Send size={16} /> Approve &amp; Send</button> : <>{(editingSlipId ? canEditSalarySlips : canCreateSalarySlips) && <button disabled={saving || netPay < 0} onClick={() => save(false)} className="rounded-lg border border-ink-300 px-5 py-2.5 text-sm font-medium">{editingSlipId ? "Update" : "Save"}</button>}{canSendSalarySlips && (editingSlipId ? canEditSalarySlips : canCreateSalarySlips) && <button disabled={saving || netPay < 0} onClick={() => save(true)} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"><Send size={16} /> {editingSlipId ? "Update & Send" : "Save & Send"}</button>}</>}</div>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">{(editingSlipId || reviewSlipId) && <button onClick={resetForm} className="rounded-lg border border-ink-300 px-5 py-2.5 text-sm font-medium">Cancel</button>}{reviewSlipId ? <button disabled={saving || attendanceCountLoading || !canSendSalarySlips || !canEditSalarySlips || netPay < 0} onClick={() => void approveRequest()} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"><Send size={16} /> Approve &amp; Send</button> : <>{(editingSlipId ? canEditSalarySlips : canCreateSalarySlips) && <button disabled={saving || attendanceCountLoading || netPay < 0} onClick={() => save(false)} className="rounded-lg border border-ink-300 px-5 py-2.5 text-sm font-medium">{editingSlipId ? "Update" : "Save"}</button>}{canSendSalarySlips && (editingSlipId ? canEditSalarySlips : canCreateSalarySlips) && <button disabled={saving || attendanceCountLoading || netPay < 0} onClick={() => save(true)} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"><Send size={16} /> {editingSlipId ? "Update & Send" : "Save & Send"}</button>}</>}</div>
       </section>
       </>}
       <section className="rounded-xl border border-ink-200 bg-white shadow-card"><div className="border-b border-ink-200 px-5 py-4"><h2 className="font-semibold">Salary Slip History</h2><p className="mt-1 text-sm text-ink-500">Pending requests are available to review below.</p></div><div className="border-b border-ink-200 px-5 py-4"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div className="w-full xl:max-w-md">      <EmployeeMultiSelect employees={employees.map((employee) => ({ id: employee.id, name: employee.name }))} value={selectedEmployeeIds} onChange={setSelectedEmployeeIds} allLabel="All Employees" className="w-full" /><TeamMultiSelect value={selectedTeamIds} onChange={(ids, members) => { setSelectedTeamIds(ids); setTeamEmployeeIds(members); }} className="w-full" /></div><div className="w-full xl:max-w-xs"><MonthSelector year={selectedYear} month={selectedMonth} onChange={(year, month) => { setSelectedYear(year); setSelectedMonth(month); }} /></div></div></div><div className="overflow-x-auto"><table className="min-w-[42rem] w-full text-sm"><thead className="bg-ink-50 text-left text-ink-600"><tr><th className="px-5 py-3">Employee</th><th className="px-5 py-3">Month</th><th className="px-5 py-3">Salary</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Action</th></tr></thead><tbody>{filteredSlips.length ? filteredSlips.map(slip => <tr key={slip.id} className={`border-t border-ink-100 ${slip.status === "Pending Review" ? "bg-amber-50/60" : ""}`}><td className="px-5 py-3 font-medium">{slip.employee_name}</td><td className="px-5 py-3">{new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</td><td className="px-5 py-3">{formatMoney(slip.total_amount)}</td><td className="px-5 py-3"><span className={`rounded-full px-2 py-1 text-xs ${slip.status === "Pending Review" ? "bg-amber-100 text-amber-800" : slip.status === "Sent" ? "bg-emerald-50 text-emerald-700" : "bg-ink-100 text-ink-600"}`}>{slip.status}</span></td><td className="px-5 py-3"><div className="flex gap-2">{slip.status === "Pending Review" && canEditSalarySlips && canSendSalarySlips ? <button onClick={() => startReview(slip)} className="inline-flex items-center gap-1 font-medium text-brand-700"><Pencil size={14} /> Review</button> : canEditSalarySlips && <button onClick={() => { startEdit(slip); }} className="inline-flex items-center gap-1 text-brand-700"><Pencil size={14} /> Edit</button>}{canDeleteSalarySlips && <button onClick={async () => { if (!window.confirm("Delete this salary slip?")) return; try { await api.delete(`/employee-documents/salary-slips/${slip.id}`); await load(); toast.success("Salary slip deleted"); } catch (error) { toast.error(getErrorMessage(error)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Delete</button>}</div></td></tr>) : <tr><td colSpan={5} className="px-5 py-8 text-center text-ink-500">No salary slips match the current employee and month filters.</td></tr>}</tbody></table></div></section>

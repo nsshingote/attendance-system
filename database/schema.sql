@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
     weekly_off_day VARCHAR(20) DEFAULT 'Sunday',
     sandwich_method_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     salary_slip_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    salary_payment_mode VARCHAR(50) NOT NULL DEFAULT '',
     company_name VARCHAR(255) DEFAULT 'Your Company Name',
     company_address TEXT DEFAULT '',
     attendance_location_enabled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -685,7 +686,9 @@ CREATE TABLE IF NOT EXISTS salary_slips (
     status ENUM('Pending Review', 'Saved', 'Sent') NOT NULL DEFAULT 'Saved', created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at DATETIME NULL, request_key VARCHAR(64) NULL UNIQUE,
     employee_details TEXT NULL, earnings TEXT NULL, deductions TEXT NULL, lwp_days DECIMAL(8,2) NULL,
+    half_day_days DECIMAL(8,2) NULL,
     total_earnings DECIMAL(12,2) NULL, lop_deduction DECIMAL(12,2) NULL,
+    half_day_deduction DECIMAL(12,2) NULL,
     total_deductions DECIMAL(12,2) NULL, net_pay DECIMAL(12,2) NULL,
     FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT

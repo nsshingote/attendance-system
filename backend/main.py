@@ -55,6 +55,10 @@ with engine.begin() as _connection:
     ):
         if _column not in _user_columns:
             _connection.exec_driver_sql(f"ALTER TABLE users ADD COLUMN {_column} {_definition}")
+_company_settings_columns = {column["name"] for column in inspect(engine).get_columns("company_settings")}
+if "salary_payment_mode" not in _company_settings_columns:
+    with engine.begin() as _connection:
+        _connection.exec_driver_sql("ALTER TABLE company_settings ADD COLUMN salary_payment_mode VARCHAR(50) NOT NULL DEFAULT ''")
 try:
     _startup_db = SessionLocal()
     purge_expired(_startup_db)

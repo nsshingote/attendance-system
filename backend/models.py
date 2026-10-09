@@ -200,8 +200,10 @@ class SalarySlip(Base):
     earnings = Column(Text, nullable=True)
     deductions = Column(Text, nullable=True)
     lwp_days = Column(DECIMAL(8, 2), nullable=True)
+    half_day_days = Column(DECIMAL(8, 2), nullable=True)
     total_earnings = Column(DECIMAL(12, 2), nullable=True)
     lop_deduction = Column(DECIMAL(12, 2), nullable=True)
+    half_day_deduction = Column(DECIMAL(12, 2), nullable=True)
     total_deductions = Column(DECIMAL(12, 2), nullable=True)
     net_pay = Column(DECIMAL(12, 2), nullable=True)
 
@@ -406,6 +408,7 @@ class CompanySettings(Base):
     weekly_off_day = Column(String(20), default="Sunday")
     sandwich_method_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
     salary_slip_notifications_enabled = Column(Boolean, nullable=False, default=True, server_default="1")
+    salary_payment_mode = Column(String(50), nullable=False, default="", server_default="")
     company_name = Column(String(255), default="Your Company Name")
     company_address = Column(Text, default="")
     attendance_location_enabled = Column(Boolean, nullable=False, default=False, server_default="0")

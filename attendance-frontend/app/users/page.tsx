@@ -31,7 +31,6 @@ interface UserFormValues {
   location: string;
   pan_number: string;
   account_number: string;
-  payment_mode: string;
   role: string;
   role_id?: number;
   attendance_mode: "office" | "onsite";
@@ -93,7 +92,7 @@ export default function UsersPage() {
 
   const openCreateModal = () => {
     setEditingUser(null);
-    reset({ name: "", mobile: "", email: "", department: "", designation: "", place_of_posting: "", date_of_joining: "", location: "", pan_number: "", account_number: "", payment_mode: "", role: "user", attendance_mode: "office", password: "" });
+    reset({ name: "", mobile: "", email: "", department: "", designation: "", place_of_posting: "", date_of_joining: "", location: "", pan_number: "", account_number: "", role: "user", attendance_mode: "office", password: "" });
     setModalOpen(true);
   };
 
@@ -121,7 +120,6 @@ export default function UsersPage() {
       location: user.location ?? "",
       pan_number: user.pan_number ?? "",
       account_number: user.account_number ?? "",
-      payment_mode: user.payment_mode ?? "",
       role: user.role,
       role_id: user.role_id,
       attendance_mode: user.attendance_mode || "office",
@@ -163,7 +161,6 @@ export default function UsersPage() {
           location: values.location || undefined,
           pan_number: values.pan_number || undefined,
           account_number: values.account_number || undefined,
-          payment_mode: values.payment_mode || undefined,
           role: values.role,
           role_id: roles.find((role) => role.key === values.role)?.id,
           attendance_mode: values.attendance_mode,
@@ -181,7 +178,6 @@ export default function UsersPage() {
           location: values.location || undefined,
           pan_number: values.pan_number || undefined,
           account_number: values.account_number || undefined,
-          payment_mode: values.payment_mode || undefined,
           role: values.role,
           role_id: roles.find((role) => role.key === values.role)?.id,
           attendance_mode: values.attendance_mode,
@@ -316,7 +312,6 @@ export default function UsersPage() {
             <div><label className="mb-1 block text-sm font-medium text-ink-700">PAN No.</label><input {...register("pan_number")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /></div>
             <div><label className="mb-1 block text-sm font-medium text-ink-700">Account No.</label><input {...register("account_number")} className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /></div>
           </div>
-          <div><label className="mb-1 block text-sm font-medium text-ink-700">Payment Mode</label><input {...register("payment_mode")} placeholder="NEFT" className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-sm font-medium text-ink-700">Department</label>
