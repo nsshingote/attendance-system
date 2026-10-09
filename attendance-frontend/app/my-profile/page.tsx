@@ -613,18 +613,17 @@ export default function MyProfilePage() {
                       ["Location", profile.location || profile.place_of_posting || "—"],
                       ["PAN No.", profile.pan_number || "—"],
                       ["Account No.", profile.account_number || "—"],
-                      ["Payment Mode", profile.payment_mode || "?"],
                     ].map(([label, value]) => (
                       <div key={String(label)}>
                         <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
                         <dd className="mt-1 text-sm font-medium text-ink-900">
-                          {editingBasic && ["Phone number", "Email", "Location", "PAN No.", "Account No.", "Payment Mode"].includes(String(label)) ? (
+                          {editingBasic && ["Phone number", "Email", "Location", "PAN No.", "Account No."].includes(String(label)) ? (
                             <input
                               type={label === "Email" ? "email" : label === "Phone number" ? "tel" : "text"}
-                              value={label === "Email" ? profileForm.email : label === "Phone number" ? profileForm.mobile : label === "Location" ? profileForm.location : label === "PAN No." ? profileForm.pan_number : label === "Account No." ? profileForm.account_number : profileForm.payment_mode}
+                              value={label === "Email" ? profileForm.email : label === "Phone number" ? profileForm.mobile : label === "Location" ? profileForm.location : label === "PAN No." ? profileForm.pan_number : label === "Account No." ? profileForm.account_number}
                               onChange={(event) => setProfileForm({
                                 ...profileForm,
-                                [label === "Email" ? "email" : label === "Phone number" ? "mobile" : label === "Location" ? "location" : label === "PAN No." ? "pan_number" : label === "Account No." ? "account_number" : "payment_mode"]: event.target.value,
+                                [label === "Email" ? "email" : label === "Phone number" ? "mobile" : label === "Location" ? "location" : label === "PAN No." ? "pan_number" : label === "Account No." ? "account_number"]: event.target.value,
                               })}
                               className="w-full rounded-lg border border-ink-200 px-3 py-2"
                             />
