@@ -470,8 +470,9 @@ def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(
     if payload.earnings is None and payload.particulars is None:
         raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
     calculation = _calculate_salary_slip(
-        current_user, payload.month, payload.year, earnings=payload.earnings,
-        deductions=payload.deductions, particulars=payload.particulars,
+        current_user, payload.month, payload.year, employee_details=payload.employee_details,
+        earnings=payload.earnings, deductions=payload.deductions, lwp_days=payload.lwp_days or 0,
+        particulars=payload.particulars,
     )
     item = SalarySlip(employee_id=current_user.id, month=payload.month, year=payload.year,
         particulars="[]", total_amount=calculation["net_pay"],

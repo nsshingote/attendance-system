@@ -315,8 +315,10 @@ class SalarySlipCreate(BaseModel):
 class SalarySlipRequestCreate(BaseModel):
     month: int
     year: int
+    employee_details: Optional[SalarySlipEmployeeDetails] = None
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
+    lwp_days: Optional[float] = None
     particulars: Optional[List[SalarySlipParticular]] = None
 
 

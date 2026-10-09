@@ -123,6 +123,14 @@ const personalDocLabels: Record<string, string> = {
   other: "Other",
 };
 const salaryRequestBaseRows: SalaryRequestRow[] = ["Basic Salary", "House Rent Allowance", "Incentive Pay", "Travelling Allowance", "Overtime", "Extra Working Day"].map(name => ({ name, amount: "" }));
+const salaryRequestEmployeeDetails = (profile: User | null, period: string): SalaryEmployeeDetails => ({
+  name: profile?.name || "", designation: profile?.designation || "", department: profile?.department || "",
+  phone_number: profile?.mobile || profile?.phone || "", email: profile?.email || "",
+  joining_date: profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "",
+  pan_number: profile?.pan_number || "", account_number: profile?.account_number || "",
+  location: profile?.location || profile?.place_of_posting || "", payment_mode: "",
+  days_in_month: new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate(), days_worked: 0,
+});
 const salaryDeductionBaseRows = ["Provident Fund", "Professional Tax", "Health Insurance Contribution"].map(name => ({ name, amount: 0 }));
 
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
@@ -174,6 +182,8 @@ export default function MyProfilePage() {
   const [showSalaryRequest, setShowSalaryRequest] = useState(false);
   const [salaryRequestPeriod, setSalaryRequestPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [salaryRequestRows, setSalaryRequestRows] = useState<SalaryRequestRow[]>(salaryRequestBaseRows.map(row => ({ ...row })));
+  const [salaryRequestDetails, setSalaryRequestDetails] = useState<SalaryEmployeeDetails>(() => salaryRequestEmployeeDetails(null, new Date().toISOString().slice(0, 7)));
+  const [salaryRequestLwpDays, setSalaryRequestLwpDays] = useState("0");
   const [sendingSalaryRequest, setSendingSalaryRequest] = useState(false);
 
   const loadPersonalDocuments = async () => {
@@ -187,6 +197,7 @@ export default function MyProfilePage() {
     try {
       await api.post("/employee-documents/salary-slips/request", {
         year: requestYear, month: requestMonth,
+        employee_details: salaryRequestDetails, lwp_days: Number(salaryRequestLwpDays) || 0,
         earnings: salaryRequestRows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
         deductions: salaryDeductionBaseRows,
       });
@@ -194,6 +205,7 @@ export default function MyProfilePage() {
       setSlips(data);
       setShowSalaryRequest(false);
       setSalaryRequestRows(salaryRequestBaseRows.map(row => ({ ...row })));
+      setSalaryRequestLwpDays("0");
       toast.success("Salary slip request sent for review");
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSendingSalaryRequest(false); }
@@ -926,12 +938,18 @@ export default function MyProfilePage() {
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="font-semibold">Salary Slip Requests</h2><p className="mt-1 text-sm text-ink-500">Choose a month and submit your salary details for review.</p></div>
-                {!showSalaryRequest && <button onClick={() => setShowSalaryRequest(true)} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
+                {!showSalaryRequest && <button onClick={() => { setSalaryRequestDetails(salaryRequestEmployeeDetails(profile, salaryRequestPeriod)); setSalaryRequestLwpDays("0"); setShowSalaryRequest(true); }} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
               </div>
               {pendingSalaryRequests.length > 0 && <div className="mt-4 space-y-2">{pendingSalaryRequests.map(slip => <div key={slip.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm"><span>{new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span><div className="flex items-center gap-3"><span className="font-medium text-amber-800">Pending Review</span><button onClick={async () => { if (!window.confirm("Cancel this pending salary slip request?")) return; try { await api.delete(`/employee-documents/salary-slips/mine/${slip.id}`); setSlips(current => current.filter(item => item.id !== slip.id)); toast.success("Salary slip request cancelled"); } catch (error) { toast.error(getErrorMessage(error)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Cancel Request</button></div></div>)}</div>}
               {showSalaryRequest && <div className="mt-5 border-t border-ink-100 pt-5">
-                <label className="block max-w-xs text-sm font-medium">Month &amp; Year<input type="month" value={salaryRequestPeriod} onChange={event => setSalaryRequestPeriod(event.target.value)} className="mt-1 block w-full rounded-lg border-ink-200" /></label>
+                <label className="block max-w-xs text-sm font-medium">Month &amp; Year<input type="month" value={salaryRequestPeriod} onChange={event => { setSalaryRequestPeriod(event.target.value); setSalaryRequestDetails(current => ({ ...current, days_in_month: new Date(Number(event.target.value.slice(0, 4)), Number(event.target.value.slice(5, 7)), 0).getDate() })); }} className="mt-1 block w-full rounded-lg border-ink-200" /></label>
                 {selectedPeriodSlip ? <p className="mt-4 rounded-lg bg-ink-50 p-3 text-sm text-ink-600">A request for this month already exists: <strong>{selectedPeriodSlip.status}</strong>.</p> : <>
+                  <h3 className="mt-5 font-semibold">Employee Details</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {([["name", "Name"], ["designation", "Designation"], ["department", "Department"], ["phone_number", "Phone Number"], ["email", "Email"], ["joining_date", "Joining Date"], ["pan_number", "PAN No."], ["account_number", "Account No."], ["location", "Location"], ["payment_mode", "Payment Mode"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input value={salaryRequestDetails[key]} onChange={event => setSalaryRequestDetails(current => ({ ...current, [key]: event.target.value }))} className="mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>)}
+                    {([["days_in_month", "Days in Month"], ["days_worked", "Days Worked"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input type="number" min="0" step="0.01" value={salaryRequestDetails[key]} onChange={event => setSalaryRequestDetails(current => ({ ...current, [key]: Number(event.target.value) || 0 }))} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>)}
+                    <label className="text-xs font-medium text-ink-600">LWP Days<input type="number" min="0" step="0.01" value={salaryRequestLwpDays} onChange={event => setSalaryRequestLwpDays(event.target.value)} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>
+                  </div>
                   <div className="mt-4 overflow-x-auto rounded-lg border border-ink-200">
                     <table className="w-full table-fixed text-sm">
                       <thead className="bg-ink-50 text-left text-ink-600"><tr><th className="w-3/5 px-3 py-3">Earning</th><th className="w-2/5 px-3 py-3">Amount</th></tr></thead>
