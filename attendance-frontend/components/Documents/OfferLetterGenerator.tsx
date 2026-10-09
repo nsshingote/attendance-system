@@ -26,7 +26,7 @@ export function OfferLetterPreview({ values }: { values: OfferLetterValues }) {
     <article className="mx-auto min-h-760px max-w-760px bg-white p-6 font-serif text-[13px] leading-relaxed text-slate-900 shadow-sm sm:p-10">
       <header className="border-b-4 border-orange-500 pb-4">
         <div className="flex items-start justify-between gap-4">
-          <img src={EMPLOYEE_DOCUMENT_LOGO_PATH} alt="PropCheckup logo" className="h-12 w-auto max-w-[220px] object-contain" />
+          <img src={EMPLOYEE_DOCUMENT_LOGO_PATH} alt="PropCheckup logo" className="h-16 w-auto max-w-[440px] object-contain" />
           <div className="text-right font-sans text-xs text-blue-900">
             <p>www.propcheckup.com</p>
             <p>info@propcheckup.com</p>

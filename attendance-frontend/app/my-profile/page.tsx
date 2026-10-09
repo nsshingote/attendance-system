@@ -29,6 +29,11 @@ type User = {
   designation: string;
   created_at: string;
   date_of_joining?: string | null;
+  place_of_posting?: string | null;
+  location?: string | null;
+  pan_number?: string | null;
+  account_number?: string | null;
+  payment_mode?: string | null;
   phone?: string | null;
   address_line_1?: string | null;
   address_line_2?: string | null;
@@ -42,7 +47,7 @@ type User = {
 };
 
 type SalaryRow = { name: string; amount: number };
-type SalaryEmployeeDetails = { name: string; designation: string; department: string; phone_number: string; email: string; joining_date: string; pan_number: string; account_number: string; location: string; payment_mode: string; days_in_month: number; days_worked: number; days_paid: number };
+type SalaryEmployeeDetails = { name: string; designation: string; department: string; phone_number: string; email: string; joining_date: string; pan_number: string; account_number: string; location: string; payment_mode: string; days_in_month: number; days_worked: number };
 type Slip = { id: number; month: number; year: number; total_amount: number; net_pay?: number; total_earnings?: number; lop_deduction?: number; total_deductions?: number; lwp_days?: number; employee_details?: SalaryEmployeeDetails; earnings?: SalaryRow[]; deductions?: SalaryRow[]; status: string; particulars: string };
 type SalaryRequestRow = { name: string; amount: string; custom?: boolean };
 type CompanyBranding = { company_name: string; company_address: string; logo_url?: string };
@@ -98,6 +103,18 @@ const numberWords = (value: number): string => {
   return `Rupees ${parts.join(" ")}${paise ? ` and ${underThousand(paise)} Paise` : ""} Only`;
 };
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const slipEmployeeDetails = (slip: Slip, profile: User | null): SalaryEmployeeDetails => {
+  const saved = slip.employee_details;
+  return {
+    name: saved?.name || profile?.name || "", designation: saved?.designation || profile?.designation || "",
+    department: saved?.department || profile?.department || "", phone_number: saved?.phone_number || profile?.mobile || profile?.phone || "",
+    email: saved?.email || profile?.email || "",
+    joining_date: saved?.joining_date || (profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : ""),
+    pan_number: saved?.pan_number || profile?.pan_number || "", account_number: saved?.account_number || profile?.account_number || "",
+    location: saved?.location || profile?.location || profile?.place_of_posting || "", payment_mode: saved?.payment_mode || profile?.payment_mode || "",
+    days_in_month: saved?.days_in_month ?? new Date(slip.year, slip.month, 0).getDate(), days_worked: saved?.days_worked ?? 0,
+  };
+};
 const personalDocLabels: Record<string, string> = {
   aadhaar: "Aadhaar Card",
   pan: "PAN Card",
@@ -139,6 +156,10 @@ export default function MyProfilePage() {
   const [profileForm, setProfileForm] = useState({
     email: "",
     mobile: "",
+    location: "",
+    pan_number: "",
+    account_number: "",
+    payment_mode: "",
     address_line_1: "",
     address_line_2: "",
     city: "",
@@ -202,6 +223,10 @@ export default function MyProfilePage() {
         setProfileForm({
           email: userData.email || "",
           mobile: userData.mobile || "",
+          location: userData.location || userData.place_of_posting || "",
+          pan_number: userData.pan_number || "",
+          account_number: userData.account_number || "",
+          payment_mode: userData.payment_mode || "",
           address_line_1: userData.address_line_1 || "",
           address_line_2: userData.address_line_2 || "",
           city: userData.city || "",
@@ -254,6 +279,10 @@ export default function MyProfilePage() {
       const { data } = await api.put<User>("/users/me/profile", {
         email: profileForm.email,
         mobile: profileForm.mobile,
+        location: profileForm.location,
+        pan_number: profileForm.pan_number,
+        account_number: profileForm.account_number,
+        payment_mode: profileForm.payment_mode,
       });
       setProfile(data);
       setEditingBasic(false);
@@ -311,12 +340,7 @@ export default function MyProfilePage() {
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 15;
     const contentWidth = pageWidth - margin * 2;
-    const details = slip.employee_details || {
-      name: profile?.name || "", designation: profile?.designation || "", department: profile?.department || "",
-      phone_number: profile?.mobile || profile?.phone || "", email: profile?.email || "",
-      joining_date: profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "",
-      pan_number: "", account_number: "", location: "", payment_mode: "", days_in_month: new Date(slip.year, slip.month, 0).getDate(), days_worked: 0, days_paid: 0,
-    };
+    const details = slipEmployeeDetails(slip, profile);
     const earnings = slip.earnings || (() => { try { return JSON.parse(slip.particulars) as SalaryRow[]; } catch { return []; } })();
     const deductions = slip.deductions || [];
     const totalEarnings = Number(slip.total_earnings ?? slip.total_amount ?? 0);
@@ -336,7 +360,7 @@ export default function MyProfilePage() {
     pdf.setFontSize(8); pdf.setFont("helvetica", "normal"); pdf.setTextColor(107, 114, 128);
     pdf.text("SALARY SLIP", pageWidth - margin, y - 1, { align: "right" });
     pdf.setFontSize(9); pdf.text(`For the month of ${period}`, pageWidth - margin, y + 5, { align: "right" });
-    y += 27; pdf.setDrawColor(37, 99, 235); pdf.setLineWidth(0.7); pdf.line(margin, y, pageWidth - margin, y); y += 9;
+    y += 18; pdf.setDrawColor(37, 99, 235); pdf.setLineWidth(0.7); pdf.line(margin, y, pageWidth - margin, y); y += 5;
 
     const ensureSpace = (height: number) => {
       if (y + height <= pageHeight - 40) return;
@@ -357,7 +381,7 @@ export default function MyProfilePage() {
       ["PAN No.", details.pan_number, "Account No.", details.account_number],
       ["Location", details.location, "Payment Mode", details.payment_mode],
       ["Days in Month", String(details.days_in_month), "Days Worked", String(details.days_worked)],
-      ["Days Paid", String(details.days_paid), "LWP Days", String(slip.lwp_days || 0)],
+      ["LWP Days", String(slip.lwp_days || 0), "", ""],
     ];
     const detailBoxHeight = employeeRows.length * 7 + 2;
     pdf.rect(margin, y - 4, contentWidth, detailBoxHeight, "FD");
@@ -365,8 +389,10 @@ export default function MyProfilePage() {
       const rowY = y + index * 7;
       pdf.setFont("helvetica", "bold"); pdf.text(`${row[0]}:`, margin + 3, rowY, { maxWidth: 28 });
       pdf.setFont("helvetica", "normal"); pdf.text(row[1] || "-", margin + 32, rowY, { maxWidth: 48 });
-      pdf.setFont("helvetica", "bold"); pdf.text(`${row[2]}:`, margin + 88, rowY, { maxWidth: 28 });
-      pdf.setFont("helvetica", "normal"); pdf.text(row[3] || "-", margin + 117, rowY, { maxWidth: 48 });
+      if (row[2]) {
+        pdf.setFont("helvetica", "bold"); pdf.text(`${row[2]}:`, margin + 88, rowY, { maxWidth: 28 });
+        pdf.setFont("helvetica", "normal"); pdf.text(row[3] || "-", margin + 117, rowY, { maxWidth: 48 });
+      }
     });
     y += detailBoxHeight + 8;
 
@@ -384,19 +410,23 @@ export default function MyProfilePage() {
       pdf.setFont("helvetica", "bold"); pdf.setFontSize(8.5); pdf.text(totalLabel, margin + 3, y); pdf.text(pdfAmount(total), pageWidth - margin - 3, y, { align: "right" }); y += 9;
     };
     drawRows("EARNINGS", earnings, "TOTAL EARNINGS", totalEarnings);
-    drawRows("DEDUCTIONS", [{ name: "LOP Deduction", amount: lopDeduction }, ...deductions], "TOTAL DEDUCTIONS", totalDeductions);
-    ensureSpace(24); pdf.setFillColor(239, 246, 255); pdf.rect(margin, y - 4, contentWidth, 10, "F");
+    drawRows("DEDUCTIONS", [{ name: "LWP Deduction", amount: lopDeduction }, ...deductions], "TOTAL DEDUCTIONS", totalDeductions);
+    ensureSpace(36); pdf.setFillColor(239, 246, 255); pdf.rect(margin, y - 4, contentWidth, 10, "F");
     pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(31, 41, 55);
-    pdf.text("NET PAY", margin + 3, y + 2); pdf.text(`? ${pdfAmount(netPay)}`, pageWidth - margin - 3, y + 2, { align: "right" }); y += 15;
+    pdf.text("NET PAY", margin + 3, y + 2); pdf.text(`INR ${pdfAmount(netPay)}`, pageWidth - margin - 3, y + 2, { align: "right" }); y += 15;
     pdf.setFontSize(8); pdf.setFont("helvetica", "bold"); pdf.text("Amount in Words:", margin, y);
-    pdf.setFont("helvetica", "normal"); pdf.text(numberWords(netPay), margin + 29, y, { maxWidth: contentWidth - 30 });
+    pdf.setFont("helvetica", "normal");
+    const amountWordsLines = pdf.splitTextToSize(numberWords(netPay), contentWidth - 30);
+    pdf.text(amountWordsLines, margin + 29, y, { maxWidth: contentWidth - 30 });
+    y += amountWordsLines.length * 4 + 2;
+    pdf.setFontSize(7); pdf.setTextColor(75, 85, 99);
+    pdf.text("This is a system-generated salary slip. No signature is required.", pageWidth / 2, y, { align: "center" });
 
     const footerTop = pageHeight - 27;
     pdf.setDrawColor(209, 213, 219); pdf.line(margin, footerTop, pageWidth - margin, footerTop);
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(75, 85, 99);
     const address = companyBranding?.company_address || "";
     if (address) pdf.text(pdf.splitTextToSize(address, contentWidth - 10), pageWidth / 2, footerTop + 5, { align: "center" });
-    pdf.text("This is a system-generated salary slip. No signature is required.", pageWidth / 2, pageHeight - 7, { align: "center" });
     pdf.save(`salary-slip-${period.replace(" ", "-")}.pdf`);
   };
 
@@ -580,17 +610,21 @@ export default function MyProfilePage() {
                             })
                           : "—",
                       ],
+                      ["Location", profile.location || profile.place_of_posting || "—"],
+                      ["PAN No.", profile.pan_number || "—"],
+                      ["Account No.", profile.account_number || "—"],
+                      ["Payment Mode", profile.payment_mode || "?"],
                     ].map(([label, value]) => (
                       <div key={String(label)}>
                         <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
                         <dd className="mt-1 text-sm font-medium text-ink-900">
-                          {editingBasic && (label === "Phone number" || label === "Email") ? (
+                          {editingBasic && ["Phone number", "Email", "Location", "PAN No.", "Account No.", "Payment Mode"].includes(String(label)) ? (
                             <input
-                              type={label === "Email" ? "email" : "tel"}
-                              value={label === "Email" ? profileForm.email : profileForm.mobile}
+                              type={label === "Email" ? "email" : label === "Phone number" ? "tel" : "text"}
+                              value={label === "Email" ? profileForm.email : label === "Phone number" ? profileForm.mobile : label === "Location" ? profileForm.location : label === "PAN No." ? profileForm.pan_number : label === "Account No." ? profileForm.account_number : profileForm.payment_mode}
                               onChange={(event) => setProfileForm({
                                 ...profileForm,
-                                [label === "Email" ? "email" : "mobile"]: event.target.value,
+                                [label === "Email" ? "email" : label === "Phone number" ? "mobile" : label === "Location" ? "location" : label === "PAN No." ? "pan_number" : label === "Account No." ? "account_number" : "payment_mode"]: event.target.value,
                               })}
                               className="w-full rounded-lg border border-ink-200 px-3 py-2"
                             />
@@ -610,12 +644,16 @@ export default function MyProfilePage() {
                               ...previous,
                               email: profile.email || "",
                               mobile: profile.mobile || "",
+                              location: profile.location || profile.place_of_posting || "",
+                              pan_number: profile.pan_number || "",
+                              account_number: profile.account_number || "",
+                              payment_mode: profile.payment_mode || "",
                             }));
                             setEditingBasic(true);
                           }}
                           className="inline-flex items-center gap-1 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium"
                         >
-                          <Pencil size={14} /> Edit email/phone
+                          <Pencil size={14} /> Edit details
                         </button>
                       ) : (
                         <>
@@ -1014,22 +1052,22 @@ export default function MyProfilePage() {
                 <button onClick={() => setSelectedSlip(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium shadow-sm">Close</button>
               </div>
               <article className="mx-auto min-h-680px max-w-794px bg-white p-6 text-sm text-ink-800 shadow-sm sm:p-10">
-                <header className="border-b-2 border-brand-600 pb-5"><div className="flex items-center justify-between gap-5"><div className="flex min-w-0 items-center gap-4"><img src={EMPLOYEE_DOCUMENT_LOGO_PATH} alt="PropCheckup logo" className="h-14 w-14 shrink-0 rounded object-contain" /><div><h2 className="truncate text-xl font-bold text-ink-900">PropCheckup</h2><p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">Salary Slip</p></div></div><p className="shrink-0 text-right text-xs text-ink-600">For the month of<br /><span className="font-semibold text-ink-900">{new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span></p></div></header>
+                <header className="border-b-2 border-brand-600 pb-3"><div className="flex items-center justify-between gap-5"><div className="flex min-w-0 items-center gap-4"><img src={EMPLOYEE_DOCUMENT_LOGO_PATH} alt="PropCheckup logo" className="h-14 w-14 shrink-0 rounded object-contain" /><div><h2 className="truncate text-xl font-bold text-ink-900">PropCheckup</h2><p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">Salary Slip</p></div></div><p className="shrink-0 text-right text-xs text-ink-600">For the month of<br /><span className="font-semibold text-ink-900">{new Date(selectedSlip.year, selectedSlip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span></p></div></header>
                 {(() => {
-                  const details = selectedSlip.employee_details || { name: profile?.name || "", designation: profile?.designation || "", department: profile?.department || "", phone_number: profile?.mobile || profile?.phone || "", email: profile?.email || "", joining_date: "", pan_number: "", account_number: "", location: "", payment_mode: "", days_in_month: new Date(selectedSlip.year, selectedSlip.month, 0).getDate(), days_worked: 0, days_paid: 0 };
+                  const details = slipEmployeeDetails(selectedSlip, profile);
                   const earnings = selectedSlip.earnings || (JSON.parse(selectedSlip.particulars || "[]") as SalaryRow[]);
                   const deductions = selectedSlip.deductions || [];
                   const totalEarnings = selectedSlip.total_earnings ?? selectedSlip.total_amount;
                   const totalDeductions = selectedSlip.total_deductions ?? 0;
                   const netPay = selectedSlip.net_pay ?? selectedSlip.total_amount;
                   return <>
-                    <section className="mt-6"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Employee Details</h3><dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">{([["Name", details.name], ["Designation", details.designation], ["Department", details.department], ["Phone Number", details.phone_number], ["Email", details.email], ["Joining Date", details.joining_date], ["PAN No.", details.pan_number], ["Account No.", details.account_number], ["Location", details.location], ["Payment Mode", details.payment_mode], ["Days in Month", details.days_in_month], ["Days Worked", details.days_worked], ["Days Paid", details.days_paid], ["LWP Days", selectedSlip.lwp_days || 0]] as [string, string | number][]).map(([label, value]) => <div key={label}><dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt><dd className="mt-1 font-medium text-ink-900">{value || "?"}</dd></div>)}</dl></section>
+                    <section className="mt-3"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Employee Details</h3><dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">{([["Name", details.name], ["Designation", details.designation], ["Department", details.department], ["Phone Number", details.phone_number], ["Email", details.email], ["Joining Date", details.joining_date], ["PAN No.", details.pan_number], ["Account No.", details.account_number], ["Location", details.location], ["Payment Mode", details.payment_mode], ["Days in Month", details.days_in_month], ["Days Worked", details.days_worked], ["LWP Days", selectedSlip.lwp_days || 0]] as [string, string | number][]).map(([label, value]) => <div key={label}><dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt><dd className="mt-1 font-medium text-ink-900">{value ?? "?"}</dd></div>)}</dl></section>
                     <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Earnings</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody>{earnings.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-ink-50/60" : "bg-white"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Earnings</th><th className="px-4 py-2 text-right">{money(totalEarnings)}</th></tr></tfoot></table></div></section>
-                    <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Deductions</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody><tr className="bg-ink-50/60"><td className="px-4 py-2">LOP Deduction</td><td className="px-4 py-2 text-right font-medium">{money(selectedSlip.lop_deduction || 0)}</td></tr>{deductions.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-ink-50/60"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Deductions</th><th className="px-4 py-2 text-right">{money(totalDeductions)}</th></tr></tfoot></table></div></section>
-                    <section className="mt-5 rounded-lg bg-brand-50 p-4"><div className="flex justify-between text-base font-bold"><span>Net Pay</span><span>{money(netPay)}</span></div><p className="mt-2 text-xs"><strong>Amount in Words:</strong> {numberWords(netPay)}</p></section>
+                    <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Deductions</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody><tr className="bg-ink-50/60"><td className="px-4 py-2">LWP Deduction</td><td className="px-4 py-2 text-right font-medium">{money(selectedSlip.lop_deduction || 0)}</td></tr>{deductions.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-ink-50/60"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Deductions</th><th className="px-4 py-2 text-right">{money(totalDeductions)}</th></tr></tfoot></table></div></section>
+                    <section className="mt-5 rounded-lg bg-brand-50 p-4"><div className="flex justify-between text-base font-bold"><span>Net Pay</span><span>{money(netPay)}</span></div><p className="mt-2 text-xs"><strong>Amount in Words:</strong> {numberWords(netPay)}</p><p className="mt-2 text-center text-xs text-ink-500">This is a system-generated salary slip. No signature is required.</p></section>
                   </>;
                 })()}
-                <footer className="mt-8 border-t border-ink-200 pt-4 text-center text-xs leading-relaxed text-ink-500"><p>{companyBranding?.company_address || "?"}</p><p className="mt-2">This is a system-generated salary slip. No signature is required.</p></footer>
+                <footer className="mt-8 border-t border-ink-200 pt-4 text-center text-xs leading-relaxed text-ink-500"><p>{companyBranding?.company_address || "?"}</p></footer>
               </article>
               <button onClick={() => void downloadSalarySlip(selectedSlip)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"><Download size={14} /> Download PDF</button>
             </div>

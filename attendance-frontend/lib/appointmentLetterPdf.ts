@@ -15,13 +15,13 @@ export async function downloadAppointmentLetterPdf(values: AppointmentLetterValu
   const paragraph = (text: string, bold = false) => { pdf.setFont("times", bold ? "bold" : "normal"); const lines = pdf.splitTextToSize(text, width - 34); pdf.text(lines, 17, y); y += lines.length * 6 + 4; };
   const logo = await loadEmployeeDocumentLogoDataUrl();
   const logoProperties = pdf.getImageProperties(logo);
-  const logoBoxWidth = 45;
-  const logoBoxHeight = 12;
+  const logoBoxWidth = 80;
+  const logoBoxHeight = 16;
   const logoScale = Math.min(logoBoxWidth / logoProperties.width, logoBoxHeight / logoProperties.height);
   const logoWidth = logoProperties.width * logoScale;
   const logoHeight = logoProperties.height * logoScale;
   pdf.addImage(logo, "PNG", 17, y + (logoBoxHeight - logoHeight) / 2, logoWidth, logoHeight);
-  y += 12;
+  y += 18;
   pdf.setDrawColor(249, 115, 22); pdf.setLineWidth(1); pdf.line(17, y, width - 17, y); y += 10;
   pdf.setTextColor(0, 0, 0); pdf.setFont("times", "bold"); pdf.setFontSize(16); pdf.text("APPOINTMENT LETTER", width / 2, y, { align: "center" }); y += 12; pdf.setFontSize(11);
   paragraph(`Date: ${values.letter_date}`); paragraph(`Company Address - ${values.company_address}`); y += 2;

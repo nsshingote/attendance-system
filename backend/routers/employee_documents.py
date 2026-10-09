@@ -297,8 +297,8 @@ def _default_salary_employee_details(employee: User | None, month: int, year: in
         "department": employee.department if employee else "", "phone_number": employee.mobile if employee else "",
         "email": employee.email or "" if employee else "",
         "joining_date": employee.date_of_joining.strftime("%d/%m/%Y") if employee and employee.date_of_joining else "",
-        "pan_number": "", "account_number": "", "location": employee.place_of_posting or "" if employee else "",
-        "payment_mode": "", "days_in_month": float(month_days), "days_worked": 0.0, "days_paid": 0.0,
+        "pan_number": employee.pan_number or "" if employee else "", "account_number": employee.account_number or "" if employee else "", "location": (employee.location or employee.place_of_posting or "") if employee else "",
+        "payment_mode": employee.payment_mode or "" if employee else "", "days_in_month": float(month_days), "days_worked": 0.0, "days_paid": 0.0,
     }
 
 

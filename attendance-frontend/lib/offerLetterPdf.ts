@@ -28,13 +28,13 @@ export async function downloadOfferLetterPdf(values: OfferLetterValues, onIOSFil
   // Keep the logo within the existing header area.
   const logo = await loadEmployeeDocumentLogoDataUrl();
   const logoProperties = pdf.getImageProperties(logo);
-  const logoBoxWidth = 45;
-  const logoBoxHeight = 12;
+  const logoBoxWidth = 80;
+  const logoBoxHeight = 16;
   const logoScale = Math.min(logoBoxWidth / logoProperties.width, logoBoxHeight / logoProperties.height);
   const logoWidth = logoProperties.width * logoScale;
   const logoHeight = logoProperties.height * logoScale;
   pdf.addImage(logo, "PNG", 17, y + (logoBoxHeight - logoHeight) / 2, logoWidth, logoHeight);
-  y += 12;
+  y += 18;
 
   // Divider line
   pdf.setDrawColor(249, 115, 22);

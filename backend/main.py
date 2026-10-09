@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from sqlalchemy import inspect
 
 from config import settings
 from database import Base, engine, SessionLocal
@@ -43,6 +44,17 @@ from services.recycle_bin import purge_expired
 
 # Create tables if they don't exist yet (safe no-op if schema.sql already applied)
 Base.metadata.create_all(bind=engine)
+# Add profile fields to databases created before salary-slip personal details were supported.
+_user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+with engine.begin() as _connection:
+    for _column, _definition in (
+        ("location", "VARCHAR(150) NULL"),
+        ("pan_number", "VARCHAR(20) NULL"),
+        ("account_number", "VARCHAR(50) NULL"),
+        ("payment_mode", "VARCHAR(50) NULL"),
+    ):
+        if _column not in _user_columns:
+            _connection.exec_driver_sql(f"ALTER TABLE users ADD COLUMN {_column} {_definition}")
 try:
     _startup_db = SessionLocal()
     purge_expired(_startup_db)

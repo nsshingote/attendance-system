@@ -103,7 +103,15 @@ def list_document_employee_selector(
         query = db.query(User).filter(User.id.in_(employee_ids))
     else:
         query = db.query(User)
-    return query.filter(User.status == "active").order_by(User.name).all()
+    employees = query.filter(User.status == "active").order_by(User.name).all()
+    if has_permission(current_user, "employee_documents.salary_slips.view", db):
+        return employees
+    return [
+        EmployeeSelectorOut.model_validate(employee).model_copy(update={
+            "pan_number": None, "account_number": None, "payment_mode": None,
+        })
+        for employee in employees
+    ]
 
 
 @router.get("/me", response_model=UserOut)

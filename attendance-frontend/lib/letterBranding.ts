@@ -1,8 +1,6 @@
 import { EMPLOYEE_DOCUMENT_LOGO_PATH } from "@/lib/employeeDocumentBranding";
 
 export const LETTER_BRANDING = {
-  companyName: "PropCheckup",
-  tagline: "India's First Home Inspection Startup",
   website: "www.propcheckup.com",
   email: "info@propcheckup.com",
   phone: "+91- 8689868659",

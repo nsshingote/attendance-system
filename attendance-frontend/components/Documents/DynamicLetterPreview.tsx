@@ -149,19 +149,7 @@ const DynamicLetterPreview = forwardRef<HTMLDivElement, DynamicLetterPreviewProp
           {pageIndex === 0 && (
             <header className="border-b-2 border-brand-600 pb-4">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-12 w-12 object-contain" />
-                  <div className="min-w-0">
-                    <p className="font-sans text-lg font-bold text-slate-900">{LETTER_BRANDING.companyName}</p>
-                    <p className="wrap-break-words font-sans text-[10px] font-semibold text-brand-700">
-                      {LETTER_BRANDING.tagline.split(" ").map((word, wordIndex, words) => (
-                        <span key={`${word}-${wordIndex}`} className={wordIndex < words.length - 1 ? "mr-1 inline-block" : "inline-block"}>
-                          {word}
-                        </span>
-                      ))}
-                    </p>
-                  </div>
-                </div>
+                <img src={LETTER_BRANDING.logoUrl} alt="PropCheckup logo" className="h-16 w-auto max-w-[440px] object-contain" />
                 <div className="shrink-0">
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.website}</p>
                   <p className="text-right font-sans text-[10px] text-blue-900">{LETTER_BRANDING.email}</p>

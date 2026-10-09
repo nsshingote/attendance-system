@@ -111,6 +111,7 @@ textarea {
 
 .number-input-no-spinner {
   appearance: textfield;
+  -moz-appearance: textfield;
 }
 
 .number-input-no-spinner::-webkit-inner-spin-button,
