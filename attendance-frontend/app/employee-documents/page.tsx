@@ -126,6 +126,12 @@ export default function EmployeeDocumentsPage() {
     const details = blankDetails(period);
     if (employee) Object.assign(details, { name: employee.name || "", designation: employee.designation || "", department: employee.department || "", phone_number: employee.mobile || "", email: employee.email || "", joining_date: employee.date_of_joining ? new Date(`${employee.date_of_joining}T00:00:00`).toLocaleDateString("en-GB") : "", location: employee.location || employee.place_of_posting || "", pan_number: employee.pan_number || "", account_number: employee.account_number || "", payment_mode: employee.payment_mode || "" });
     const latestSlip = latestSlipFor(slips, selectedId);
+    if (latestSlip?.employee_details) {
+      const previous = latestSlip.employee_details;
+      for (const key of ["name", "designation", "department", "phone_number", "email", "joining_date", "pan_number", "account_number", "location", "payment_mode"] as const) {
+        if (!details[key] && previous[key]) details[key] = previous[key];
+      }
+    }
     setEmployeeDetails(details); setEarnings(rowsFromSlip(latestSlip, "earnings")); setDeductions(rowsFromSlip(latestSlip, "deductions")); setLwpDays("0");
   };
   const payloadRows = (rows: EditableSlipRow[]) => rows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 }));

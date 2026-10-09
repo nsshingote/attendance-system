@@ -392,6 +392,10 @@ def create_user(
         designation=payload.designation,
         place_of_posting=payload.place_of_posting,
         date_of_joining=payload.date_of_joining,
+        location=payload.location,
+        pan_number=payload.pan_number,
+        account_number=payload.account_number,
+        payment_mode=payload.payment_mode,
         status=payload.status,
         annual_leave=payload.annual_leave,
     )

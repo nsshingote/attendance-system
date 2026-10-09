@@ -123,15 +123,15 @@ const personalDocLabels: Record<string, string> = {
   other: "Other",
 };
 const salaryRequestBaseRows: SalaryRequestRow[] = ["Basic Salary", "House Rent Allowance", "Incentive Pay", "Travelling Allowance", "Overtime", "Extra Working Day"].map(name => ({ name, amount: "" }));
-const salaryRequestEmployeeDetails = (profile: User | null, period: string): SalaryEmployeeDetails => ({
-  name: profile?.name || "", designation: profile?.designation || "", department: profile?.department || "",
-  phone_number: profile?.mobile || profile?.phone || "", email: profile?.email || "",
-  joining_date: profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : "",
-  pan_number: profile?.pan_number || "", account_number: profile?.account_number || "",
-  location: profile?.location || profile?.place_of_posting || "", payment_mode: "",
+const salaryRequestDeductionBaseRows: SalaryRequestRow[] = ["Provident Fund", "Professional Tax", "Health Insurance Contribution"].map(name => ({ name, amount: "" }));
+const salaryRequestEmployeeDetails = (profile: User | null, period: string, saved?: SalaryEmployeeDetails): SalaryEmployeeDetails => ({
+  name: profile?.name || saved?.name || "", designation: profile?.designation || saved?.designation || "", department: profile?.department || saved?.department || "",
+  phone_number: profile?.mobile || profile?.phone || saved?.phone_number || "", email: profile?.email || saved?.email || "",
+  joining_date: profile?.date_of_joining ? new Date(`${profile.date_of_joining}T00:00:00`).toLocaleDateString("en-IN") : saved?.joining_date || "",
+  pan_number: profile?.pan_number || saved?.pan_number || "", account_number: profile?.account_number || saved?.account_number || "",
+  location: profile?.location || profile?.place_of_posting || saved?.location || "", payment_mode: profile?.payment_mode || saved?.payment_mode || "",
   days_in_month: new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate(), days_worked: 0,
 });
-const salaryDeductionBaseRows = ["Provident Fund", "Professional Tax", "Health Insurance Contribution"].map(name => ({ name, amount: 0 }));
 
 const isMobileBrowser = () => isIOSBrowser() || /Android/i.test(navigator.userAgent);
 
@@ -199,7 +199,7 @@ export default function MyProfilePage() {
         year: requestYear, month: requestMonth,
         employee_details: salaryRequestDetails, lwp_days: Number(salaryRequestLwpDays) || 0,
         earnings: salaryRequestRows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
-        deductions: salaryDeductionBaseRows,
+        deductions: salaryRequestDeductions.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
       });
       const { data } = await api.get<Slip[]>("/employee-documents/salary-slips/mine");
       setSlips(data);
@@ -212,6 +212,10 @@ export default function MyProfilePage() {
   };
 
   const salaryRequestTotal = salaryRequestRows.reduce((sum, row) => sum + (row.name.trim() ? Number(row.amount) || 0 : 0), 0);
+  const latestSentSalarySlip = slips.find(slip => slip.status === "Sent");
+  const salaryRequestDeductions = latestSentSalarySlip?.deductions || salaryRequestDeductionBaseRows.map(row => ({ name: row.name, amount: 0 }));
+  const salaryRequestDeductionTotal = salaryRequestDeductions.reduce((sum, row) => sum + (row.name.trim() ? Number(row.amount) || 0 : 0), 0);
+  const salaryRequestLwpDeduction = salaryRequestDetails.days_in_month > 0 ? roundMoney(salaryRequestTotal / salaryRequestDetails.days_in_month * (Number(salaryRequestLwpDays) || 0)) : 0;
   const [requestYear, requestMonth] = salaryRequestPeriod.split("-").map(Number);
   const selectedPeriodSlip = slips.find(slip => slip.year === requestYear && slip.month === requestMonth);
   const finalSalarySlips = slips.filter(slip => slip.status === "Sent");
@@ -938,7 +942,7 @@ export default function MyProfilePage() {
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="font-semibold">Salary Slip Requests</h2><p className="mt-1 text-sm text-ink-500">Choose a month and submit your salary details for review.</p></div>
-                {!showSalaryRequest && <button onClick={() => { setSalaryRequestDetails(salaryRequestEmployeeDetails(profile, salaryRequestPeriod)); setSalaryRequestLwpDays("0"); setShowSalaryRequest(true); }} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
+                {!showSalaryRequest && <button onClick={() => { setSalaryRequestDetails(salaryRequestEmployeeDetails(profile, salaryRequestPeriod, latestSentSalarySlip?.employee_details)); setSalaryRequestLwpDays("0"); setSalaryRequestRows(salaryRequestBaseRows.map(row => ({ ...row }))); setShowSalaryRequest(true); }} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
               </div>
               {pendingSalaryRequests.length > 0 && <div className="mt-4 space-y-2">{pendingSalaryRequests.map(slip => <div key={slip.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm"><span>{new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span><div className="flex items-center gap-3"><span className="font-medium text-amber-800">Pending Review</span><button onClick={async () => { if (!window.confirm("Cancel this pending salary slip request?")) return; try { await api.delete(`/employee-documents/salary-slips/mine/${slip.id}`); setSlips(current => current.filter(item => item.id !== slip.id)); toast.success("Salary slip request cancelled"); } catch (error) { toast.error(getErrorMessage(error)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Cancel Request</button></div></div>)}</div>}
               {showSalaryRequest && <div className="mt-5 border-t border-ink-100 pt-5">
@@ -955,7 +959,7 @@ export default function MyProfilePage() {
                       <thead className="bg-ink-50 text-left text-ink-600"><tr><th className="w-3/5 px-3 py-3">Earning</th><th className="w-2/5 px-3 py-3">Amount</th></tr></thead>
                       <tbody>{salaryRequestRows.map((row, index) => <tr key={index} className="border-t border-ink-100">
                         <td className="p-2">{row.custom ? <div className="flex min-w-0 items-center gap-1"><input aria-label="Particular / Name" placeholder="Particular / Name" value={row.name} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, name: event.target.value } : item))} className="min-w-0 w-full rounded-lg border-ink-200 px-2" /><button aria-label="Remove custom particular" onClick={() => setSalaryRequestRows(current => current.filter((_, rowIndex) => rowIndex !== index))} className="shrink-0 rounded-lg border border-ink-300 p-2 text-red-600"><Trash2 size={16} /></button></div> : <span className="px-1 font-medium">{row.name}</span>}</td>
-                        <td className="p-2"><input aria-label={`${row.name || "Custom particular"} amount`} type="number" min="0" inputMode="decimal" value={row.amount} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="min-w-0 w-full rounded-lg border-ink-200 px-2" /></td>
+                        <td className="p-2"><input aria-label={`${row.name || "Custom particular"} amount`} type="number" min="0" inputMode="decimal" value={row.amount} onChange={event => setSalaryRequestRows(current => current.map((item, rowIndex) => rowIndex === index ? { ...item, amount: event.target.value } : item))} className="number-input-no-spinner min-w-0 w-full rounded-lg border-ink-200 px-2" /></td>
                       </tr>)}</tbody>
                       <tfoot className="border-t border-ink-200 bg-ink-50">
                         <tr><td className="px-3 py-3 font-semibold">Total Earnings</td><td className="px-3 py-3 font-semibold text-emerald-700">{money(salaryRequestTotal)}</td></tr>
@@ -963,6 +967,16 @@ export default function MyProfilePage() {
                     </table>
                   </div>
                   <button onClick={() => setSalaryRequestRows(current => [...current, { name: "", amount: "", custom: true }])} className="mt-3 text-sm font-medium text-brand-700">Other +</button>
+                  <h3 className="mt-6 font-semibold">Deductions</h3>
+                  <div className="mt-3 overflow-x-auto rounded-lg border border-ink-200">
+                    <table className="w-full table-fixed text-sm">
+                      <thead className="bg-ink-50 text-left text-ink-600"><tr><th className="w-3/5 px-3 py-3">Deduction</th><th className="w-2/5 px-3 py-3">Amount</th></tr></thead>
+                      <tbody>{salaryRequestDeductions.map((row, index) => <tr key={index} className="border-t border-ink-100"><td className="px-3 py-2 font-medium">{row.name}</td><td className="px-3 py-2 text-right">{money(row.amount)}</td></tr>)}</tbody>
+                      <tfoot className="border-t border-ink-200 bg-ink-50"><tr><td className="px-3 py-3 font-semibold">Total Deductions</td><td className="px-3 py-3 font-semibold text-red-700">{money(salaryRequestDeductionTotal)}</td></tr></tfoot>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-xs text-ink-500">Deductions are calculated and confirmed during admin review.</p>
+                  <div className="mt-4 flex flex-wrap justify-end gap-x-6 gap-y-2 border-t border-ink-200 pt-4 text-sm"><span>LWP Deduction: <strong>{money(salaryRequestLwpDeduction)}</strong></span><span>Total Deductions: <strong>{money(salaryRequestLwpDeduction + salaryRequestDeductionTotal)}</strong></span><span>Estimated Net Pay: <strong>{money(salaryRequestTotal - salaryRequestLwpDeduction - salaryRequestDeductionTotal)}</strong></span></div>
                   <div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowSalaryRequest(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button><button disabled={sendingSalaryRequest} onClick={() => void submitSalarySlipRequest()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{sendingSalaryRequest ? "Sending…" : "Send Request"}</button></div>
                 </>}
               </div>}

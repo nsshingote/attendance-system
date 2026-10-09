@@ -98,6 +98,10 @@ class UserBase(BaseModel):
     designation: str
     place_of_posting: Optional[str] = None
     date_of_joining: Optional[date] = None
+    location: Optional[str] = None
+    pan_number: Optional[str] = None
+    account_number: Optional[str] = None
+    payment_mode: Optional[str] = None
     address_line_1: Optional[str] = None
     address_line_2: Optional[str] = None
     city: Optional[str] = None
@@ -126,6 +130,10 @@ class UserUpdate(BaseModel):
     designation: Optional[str] = None
     place_of_posting: Optional[str] = None
     date_of_joining: Optional[date] = None
+    location: Optional[str] = None
+    pan_number: Optional[str] = None
+    account_number: Optional[str] = None
+    payment_mode: Optional[str] = None
     address_line_1: Optional[str] = None
     address_line_2: Optional[str] = None
     city: Optional[str] = None

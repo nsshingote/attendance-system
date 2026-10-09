@@ -22,6 +22,10 @@ export interface UserRow {
   designation: string;
   place_of_posting?: string | null;
   date_of_joining?: string | null;
+  location?: string | null;
+  pan_number?: string | null;
+  account_number?: string | null;
+  payment_mode?: string | null;
   status: string;
   attendance_mode: "office" | "onsite";
 }
