@@ -7,7 +7,7 @@
  * attendance breakdown chart below it.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Users, UserCheck, Clock, UserX, Plane, ClipboardEdit, Smartphone, Sunrise, CalendarDays, House, MessageSquare } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
@@ -18,6 +18,7 @@ import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
 import CheckInButton from "@/components/Attendance/CheckInButton";
 import CheckOutButton from "@/components/Attendance/CheckOutButton";
+import type { AttendanceStatus } from "@/lib/attendanceAction";
 
 interface DashboardSummary {
   total_employees: number;
@@ -50,18 +51,28 @@ export default function AdminDashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [selfSnapshot, setSelfSnapshot] = useState<SelfSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const attendanceRefreshSequence = useRef(0);
 
-  const fetchSelfSnapshot = useCallback(async () => {
-    try {
-      const { data } = await api.get("/dashboard/me");
-      setSelfSnapshot({
-        check_in: data.check_in || null,
-        check_out: data.check_out || null,
-        today_status: data.today_status || "Absent",
-      });
-    } catch {
-      // non-fatal
-    }
+  const fetchSelfSnapshot = useCallback(async (): Promise<AttendanceStatus> => {
+    const requestSequence = ++attendanceRefreshSequence.current;
+    const { data } = await api.get("/dashboard/me");
+    const nextSnapshot = {
+      check_in: data.check_in || null,
+      check_out: data.check_out || null,
+      today_status: data.today_status || "Absent",
+    };
+    if (requestSequence === attendanceRefreshSequence.current) setSelfSnapshot(nextSnapshot);
+    return nextSnapshot;
+  }, []);
+
+  const updateSelfAttendanceStatus = useCallback((status: AttendanceStatus) => {
+    attendanceRefreshSequence.current += 1;
+    setSelfSnapshot((current) => current ? {
+      ...current,
+      check_in: status.check_in,
+      check_out: status.check_out,
+      today_status: status.status || current.today_status,
+    } : current);
   }, []);
 
   useEffect(() => {
@@ -77,7 +88,7 @@ export default function AdminDashboard() {
       }
     };
     fetchSummary();
-    fetchSelfSnapshot();
+    void fetchSelfSnapshot().catch((error) => toast.error(getErrorMessage(error)));
   }, [fetchSelfSnapshot]);
 
   if (loading) return <Loading fullScreen />;
@@ -116,11 +127,13 @@ export default function AdminDashboard() {
               <div className="flex gap-3">
                 <CheckInButton 
                   disabled={checkedIn} 
-                  onSuccess={fetchSelfSnapshot} 
+                  refreshStatus={fetchSelfSnapshot}
+                  onStatusUpdate={updateSelfAttendanceStatus}
                 />
                 <CheckOutButton
                   disabled={!checkedIn || checkedOut}
-                  onSuccess={fetchSelfSnapshot}
+                  refreshStatus={fetchSelfSnapshot}
+                  onStatusUpdate={updateSelfAttendanceStatus}
                 />
               </div>
             </div>

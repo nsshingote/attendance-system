@@ -13,72 +13,191 @@ import toast from "react-hot-toast";
 import { LogIn } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
 import { getCurrentLocation } from "@/lib/location";
+import {
+  createAttendanceActionRunner,
+  isRecoverableAttendanceError,
+  type AttendanceStatus,
+} from "@/lib/attendanceAction";
 
 interface CheckInButtonProps {
   disabled?: boolean;
-  onSuccess?: () => void;
+  refreshStatus: () => Promise<AttendanceStatus>;
+  onStatusUpdate: (status: AttendanceStatus) => void;
 }
 
-export default function CheckInButton({ disabled, onSuccess }: CheckInButtonProps) {
+// TEMPORARY: remove this helper and the adjacent timing marks after the controlled test.
+function logCheckInTiming(stage: string, durationMs: number) {
+  console.info(`[check-in timing] ${stage}: ${durationMs.toFixed(1)}ms`);
+}
+
+export default function CheckInButton({ disabled, refreshStatus, onStatusUpdate }: CheckInButtonProps) {
   const [loading, setLoading] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
+  const [statusUncertain, setStatusUncertain] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reason, setReason] = useState("");
+  const [actionRunner] = useState(() => createAttendanceActionRunner());
+
+  const retryStatusRefresh = async () => {
+    setRefreshingStatus(true);
+    try {
+      await refreshStatus();
+      setStatusUncertain(false);
+      toast.success("Attendance status refreshed from the server.");
+    } catch (error) {
+      toast.error(`Attendance status could not be verified: ${getErrorMessage(error)}. Please try again.`);
+    } finally {
+      setRefreshingStatus(false);
+    }
+  };
 
   const submitCheckIn = async (reason?: string) => {
-    setLoading(true);
-    try {
-      const userRequest = api.get<{ attendance_mode?: string }>("/users/me")
-        .catch(() => ({ data: { attendance_mode: "office" } }));
-      const validationSettingsRequest = api
-        .get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings")
-        .then(
-          (response) => ({ response } as const),
-          (error: unknown) => ({ error } as const)
+    const clickStartedAt = performance.now();
+    let requestSent = false;
+    let postResponseAt: number | undefined;
+    const result = await actionRunner(
+      "check_in",
+      async () => {
+        const userStartedAt = performance.now();
+        const userRequest = api.get<{ attendance_mode?: string }>("/users/me")
+          .then(
+            (response) => {
+              const completedAt = performance.now();
+              logCheckInTiming("users_me_duration", completedAt - userStartedAt);
+              logCheckInTiming("click_to_users_me_complete", completedAt - clickStartedAt);
+              return response;
+            },
+            () => {
+              const completedAt = performance.now();
+              logCheckInTiming("users_me_duration", completedAt - userStartedAt);
+              logCheckInTiming("click_to_users_me_complete", completedAt - clickStartedAt);
+              return { data: { attendance_mode: "office" } };
+            },
+          );
+        const validationSettingsStartedAt = performance.now();
+        const validationSettingsRequest = api
+          .get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings")
+          .then(
+            (response) => {
+              const completedAt = performance.now();
+              logCheckInTiming("validation_settings_duration", completedAt - validationSettingsStartedAt);
+              logCheckInTiming("click_to_validation_settings_complete", completedAt - clickStartedAt);
+              return { response } as const;
+            },
+            (error: unknown) => {
+              const completedAt = performance.now();
+              logCheckInTiming("validation_settings_duration", completedAt - validationSettingsStartedAt);
+              logCheckInTiming("click_to_validation_settings_complete", completedAt - clickStartedAt);
+              return { error } as const;
+            },
+          );
+        const { data: user } = await userRequest;
+        const payload: { reason?: string; latitude?: number; longitude?: number; accuracy?: number } = reason ? { reason } : {};
+        const captureLocation = () => {
+          const gpsStartedAt = performance.now();
+          return getCurrentLocation("check in").then(
+            (position) => {
+              const completedAt = performance.now();
+              logCheckInTiming("gps_duration", completedAt - gpsStartedAt);
+              logCheckInTiming("click_to_gps_complete", completedAt - clickStartedAt);
+              return { position } as const;
+            },
+            (error: unknown) => {
+              const completedAt = performance.now();
+              logCheckInTiming("gps_duration", completedAt - gpsStartedAt);
+              logCheckInTiming("click_to_gps_complete", completedAt - clickStartedAt);
+              return { error } as const;
+            },
+          );
+        };
+        const locationRequest = user.attendance_mode === "onsite"
+          ? captureLocation()
+          : null;
+        const validationSettingsResult = await validationSettingsRequest;
+        if ("error" in validationSettingsResult) throw validationSettingsResult.error;
+        const { data: validationSettings } = validationSettingsResult.response;
+        const needsLocation = user.attendance_mode === "onsite" || (
+          validationSettings.location_enabled &&
+          ["location_only", "ip_or_location"].includes(validationSettings.validation_mode)
         );
-      const { data: user } = await userRequest;
-      const payload: { reason?: string; latitude?: number; longitude?: number; accuracy?: number } = reason ? { reason } : {};
-      const captureLocation = () => getCurrentLocation("check in").then(
-        (position) => ({ position } as const),
-        (error: unknown) => ({ error } as const)
-      );
-      const locationRequest = user.attendance_mode === "onsite"
-        ? captureLocation()
-        : null;
-      const validationSettingsResult = await validationSettingsRequest;
-      if ("error" in validationSettingsResult) throw validationSettingsResult.error;
-      const { data: validationSettings } = validationSettingsResult.response;
-      const needsLocation = user.attendance_mode === "onsite" || (
-        validationSettings.location_enabled &&
-        ["location_only", "ip_or_location"].includes(validationSettings.validation_mode)
-      );
-      if (needsLocation) {
-        try {
-          const result = await (locationRequest ?? captureLocation());
-          if ("error" in result) throw result.error;
-          const position = result.position;
-          payload.latitude = position.coords.latitude;
-          payload.longitude = position.coords.longitude;
-          payload.accuracy = position.coords.accuracy;
-        } catch (error) {
-          if (user.attendance_mode === "onsite" || validationSettings.validation_mode === "location_only") {
-            throw error;
+        if (needsLocation) {
+          try {
+            const result = await (locationRequest ?? captureLocation());
+            if ("error" in result) throw result.error;
+            const position = result.position;
+            payload.latitude = position.coords.latitude;
+            payload.longitude = position.coords.longitude;
+            payload.accuracy = position.coords.accuracy;
+          } catch (error) {
+            if (user.attendance_mode === "onsite" || validationSettings.validation_mode === "location_only") {
+              throw error;
+            }
           }
         }
-      }
-      const { data } = await api.post("/attendance/check-in", payload);
-      toast.success(`Checked in — marked as ${data.status}`);
-      onSuccess?.();
-    } catch (error) {
-      const message = getErrorMessage(error);
-      if (message.startsWith("REASON_REQUIRED")) {
+        requestSent = true;
+        const postStartedAt = performance.now();
+        try {
+          const { data } = await api.post<AttendanceStatus>("/attendance/check-in", payload);
+          postResponseAt = performance.now();
+          logCheckInTiming("check_in_post_duration", postResponseAt - postStartedAt);
+          logCheckInTiming("click_to_check_in_post_response", postResponseAt - clickStartedAt);
+          return data;
+        } catch (error) {
+          const failedAt = performance.now();
+          logCheckInTiming("check_in_post_duration", failedAt - postStartedAt);
+          logCheckInTiming("click_to_check_in_post_failure", failedAt - clickStartedAt);
+          throw error;
+        }
+      },
+      refreshStatus,
+      () => setLoading(true),
+      () => setLoading(false),
+      onStatusUpdate,
+      (error) => toast.error(`Check-in was confirmed, but dashboard refresh failed: ${getErrorMessage(error)}`),
+    );
+    if (result.skipped) return;
+
+    if (result.refreshFailed) {
+      setStatusUncertain(true);
+      const requestMessage = result.requestFailed ? getErrorMessage(result.requestError) : "";
+      const mayHaveSucceeded = result.requestFailed && isRecoverableAttendanceError(
+        "check_in",
+        requestMessage,
+        result.requestError,
+        requestSent,
+      );
+      const message = result.requestFailed
+        ? `${requestMessage} Attendance status could not be refreshed${mayHaveSucceeded ? "; the request may have succeeded" : ""}. Please refresh before retrying.`
+        : "The check-in request succeeded, but attendance status could not be refreshed. Please refresh before retrying.";
+      toast.error(message);
+      if (result.requestFailed && requestMessage.startsWith("REASON_REQUIRED") && !result.confirmed) {
         setShowReasonModal(true);
-        setLoading(false);
-        return;
+      }
+      return;
+    }
+    setStatusUncertain(false);
+
+    if (result.requestFailed) {
+      const message = getErrorMessage(result.requestError);
+      if (result.confirmed && isRecoverableAttendanceError("check_in", message, result.requestError, requestSent)) {
+        toast.success(message.toLowerCase().includes("already checked in")
+          ? "Already checked in — current attendance confirmed."
+          : "Check-in confirmed by the server.");
+      } else if (message.startsWith("REASON_REQUIRED") && !result.confirmed) {
+        setShowReasonModal(true);
       } else {
         toast.error(message);
       }
-    } finally {
-      setLoading(false);
+      return;
+    }
+
+    if (result.confirmed) {
+      if (postResponseAt !== undefined) {
+        logCheckInTiming("check_in_post_response_to_success_toast_call", performance.now() - postResponseAt);
+      }
+      toast.success("Check-in confirmed by the server.");
+    } else {
+      toast.error("Check-in was submitted, but the server did not confirm it. Refresh attendance before retrying.");
     }
   };
 
@@ -95,12 +214,12 @@ export default function CheckInButton({ disabled, onSuccess }: CheckInButtonProp
   return (
     <>
       <button
-        onClick={() => submitCheckIn()}
-        disabled={disabled || loading}
+        onClick={() => statusUncertain ? void retryStatusRefresh() : void submitCheckIn()}
+        disabled={loading || refreshingStatus || (disabled && !statusUncertain)}
         className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-ink-200 disabled:text-ink-400"
       >
         <LogIn size={16} />
-        {loading ? "Checking in..." : disabled ? "Checked In" : "Check In"}
+        {loading ? "Checking in..." : refreshingStatus ? "Refreshing status..." : statusUncertain ? "Retry Status Check" : disabled ? "Checked In" : "Check In"}
       </button>
 
       {showReasonModal && (

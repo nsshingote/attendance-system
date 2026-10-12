@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import ToastProvider from "@/components/ToastProvider";
+import NumberInputWheelGuard from "@/components/Common/NumberInputWheelGuard";
 import "./globals.css";
 
 const inter = Inter({
@@ -36,6 +37,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body suppressHydrationWarning>
         {children}
+        <NumberInputWheelGuard />
         <ToastProvider />
       </body>
     </html>

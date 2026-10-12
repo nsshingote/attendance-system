@@ -5,7 +5,7 @@ SQLAlchemy ORM models — one class per table, matching database/schema.sql exac
 
 from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Time, TIMESTAMP,
-    ForeignKey, Enum, SmallInteger, func, Boolean, DECIMAL, UniqueConstraint
+    ForeignKey, Enum, SmallInteger, func, Boolean, DECIMAL, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy import event
@@ -387,8 +387,15 @@ class AttendanceCorrection(Base):
     new_check_in = Column(DateTime, nullable=True)
     old_check_out = Column(DateTime, nullable=True)
     new_check_out = Column(DateTime, nullable=True)
-    status = Column(Enum("Pending", "Approved", "Rejected", name="correction_status"), default="Pending")
+    status = Column(Enum("Pending", "Approved", "Rejected", "Cancelled", name="correction_status"), default="Pending")
     created_at = Column(TIMESTAMP, server_default=func.now())
+    approval_before_state = Column(JSON, nullable=True)
+    approval_after_state = Column(JSON, nullable=True)
+    approved_by = Column(Integer, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    cancelled_by = Column(Integer, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    cancellation_reason = Column(String(255), nullable=True)
 
     attendance = relationship("Attendance", back_populates="corrections")
     requester = relationship("User", foreign_keys=[requested_by])

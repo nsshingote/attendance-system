@@ -184,8 +184,8 @@ export default function MyProfilePage() {
   const [salaryRequestPeriod, setSalaryRequestPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [salaryRequestRows, setSalaryRequestRows] = useState<SalaryRequestRow[]>(salaryRequestBaseRows.map(row => ({ ...row })));
   const [salaryRequestDetails, setSalaryRequestDetails] = useState<SalaryEmployeeDetails>(() => salaryRequestEmployeeDetails(null, new Date().toISOString().slice(0, 7)));
-  const [salaryRequestAttendanceCounts, setSalaryRequestAttendanceCounts] = useState({ lwp_days: 0, half_day_days: 0 });
-  const [salaryRequestAttendanceLoading, setSalaryRequestAttendanceLoading] = useState(false);
+  const [salaryRequestLwpDays, setSalaryRequestLwpDays] = useState("0");
+  const [salaryRequestHalfDayDays, setSalaryRequestHalfDayDays] = useState("0");
   const [sendingSalaryRequest, setSendingSalaryRequest] = useState(false);
 
   const loadPersonalDocuments = async () => {
@@ -195,6 +195,12 @@ export default function MyProfilePage() {
 
   const submitSalarySlipRequest = async () => {
     const [requestYear, requestMonth] = salaryRequestPeriod.split("-").map(Number);
+    const lwpDays = Number(salaryRequestLwpDays);
+    const halfDayDays = Number(salaryRequestHalfDayDays);
+    if (!Number.isFinite(lwpDays) || lwpDays < 0 || !Number.isFinite(halfDayDays) || halfDayDays < 0) {
+      toast.error("LWP and Half-Day values must be valid non-negative numbers");
+      return;
+    }
     setSendingSalaryRequest(true);
     try {
       await api.post("/employee-documents/salary-slips/request", {
@@ -202,12 +208,14 @@ export default function MyProfilePage() {
         employee_details: salaryRequestDetails,
         earnings: salaryRequestRows.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
         deductions: salaryRequestDeductions.filter(row => row.name.trim()).map(row => ({ name: row.name.trim(), amount: Number(row.amount) || 0 })),
+        lwp_days: lwpDays, half_day_days: halfDayDays,
       });
       const { data } = await api.get<Slip[]>("/employee-documents/salary-slips/mine");
       setSlips(data);
       setShowSalaryRequest(false);
       setSalaryRequestRows(salaryRequestBaseRows.map(row => ({ ...row })));
-      setSalaryRequestAttendanceCounts({ lwp_days: 0, half_day_days: 0 });
+      setSalaryRequestLwpDays("0");
+      setSalaryRequestHalfDayDays("0");
       toast.success("Salary slip request sent for review");
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSendingSalaryRequest(false); }
@@ -217,23 +225,12 @@ export default function MyProfilePage() {
   const latestSentSalarySlip = slips.find(slip => slip.status === "Sent");
   const salaryRequestDeductions = latestSentSalarySlip?.deductions || salaryRequestDeductionBaseRows.map(row => ({ name: row.name, amount: 0 }));
   const salaryRequestDeductionTotal = salaryRequestDeductions.reduce((sum, row) => sum + (row.name.trim() ? Number(row.amount) || 0 : 0), 0);
-  const salaryRequestLwpDeduction = salaryRequestDetails.days_in_month > 0 ? roundMoney(salaryRequestTotal / salaryRequestDetails.days_in_month * salaryRequestAttendanceCounts.lwp_days) : 0;
-  const salaryRequestHalfDayDeduction = salaryRequestDetails.days_in_month > 0 ? roundMoney(salaryRequestTotal / salaryRequestDetails.days_in_month * 0.5 * salaryRequestAttendanceCounts.half_day_days) : 0;
+  const salaryRequestLwpDeduction = salaryRequestDetails.days_in_month > 0 ? roundMoney(salaryRequestTotal / salaryRequestDetails.days_in_month * (Number(salaryRequestLwpDays) || 0)) : 0;
+  const salaryRequestHalfDayDeduction = salaryRequestDetails.days_in_month > 0 ? roundMoney(salaryRequestTotal / salaryRequestDetails.days_in_month * 0.5 * (Number(salaryRequestHalfDayDays) || 0)) : 0;
   const [requestYear, requestMonth] = salaryRequestPeriod.split("-").map(Number);
   const selectedPeriodSlip = slips.find(slip => slip.year === requestYear && slip.month === requestMonth);
   const finalSalarySlips = slips.filter(slip => slip.status === "Sent");
   const pendingSalaryRequests = slips.filter(slip => slip.status === "Pending Review");
-
-  useEffect(() => {
-    if (!showSalaryRequest || !profile?.id) return;
-    const [requestYear, requestMonth] = salaryRequestPeriod.split("-").map(Number);
-    let active = true;
-    api.get<{ lwp_days: number; half_day_days: number }>(`/employee-documents/salary-slips/attendance-counts/${profile.id}?year=${requestYear}&month=${requestMonth}`)
-      .then(({ data }) => { if (active) setSalaryRequestAttendanceCounts(data); })
-      .catch(error => { if (active) toast.error(getErrorMessage(error)); })
-      .finally(() => { if (active) setSalaryRequestAttendanceLoading(false); });
-    return () => { active = false; };
-  }, [showSalaryRequest, salaryRequestPeriod, profile?.id]);
 
   useEffect(() => {
     Promise.all([
@@ -966,18 +963,18 @@ export default function MyProfilePage() {
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="font-semibold">Salary Slip Requests</h2><p className="mt-1 text-sm text-ink-500">Choose a month and submit your salary details for review.</p></div>
-                {!showSalaryRequest && <button onClick={() => { setSalaryRequestDetails(salaryRequestEmployeeDetails(profile, salaryRequestPeriod, latestSentSalarySlip?.employee_details, companyBranding?.salary_payment_mode)); setSalaryRequestAttendanceCounts({ lwp_days: 0, half_day_days: 0 }); setSalaryRequestAttendanceLoading(true); setSalaryRequestRows(salaryRequestBaseRows.map(row => ({ ...row }))); setShowSalaryRequest(true); }} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
+                {!showSalaryRequest && <button onClick={() => { setSalaryRequestDetails(salaryRequestEmployeeDetails(profile, salaryRequestPeriod, latestSentSalarySlip?.employee_details, companyBranding?.salary_payment_mode)); setSalaryRequestLwpDays("0"); setSalaryRequestHalfDayDays("0"); setSalaryRequestRows(salaryRequestBaseRows.map(row => ({ ...row }))); setShowSalaryRequest(true); }} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Request Salary Slip</button>}
               </div>
               {pendingSalaryRequests.length > 0 && <div className="mt-4 space-y-2">{pendingSalaryRequests.map(slip => <div key={slip.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm"><span>{new Date(slip.year, slip.month - 1).toLocaleString("en-IN", { month: "long", year: "numeric" })}</span><div className="flex items-center gap-3"><span className="font-medium text-amber-800">Pending Review</span><button onClick={async () => { if (!window.confirm("Cancel this pending salary slip request?")) return; try { await api.delete(`/employee-documents/salary-slips/mine/${slip.id}`); setSlips(current => current.filter(item => item.id !== slip.id)); toast.success("Salary slip request cancelled"); } catch (error) { toast.error(getErrorMessage(error)); } }} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={14} /> Cancel Request</button></div></div>)}</div>}
               {showSalaryRequest && <div className="mt-5 border-t border-ink-100 pt-5">
-                    <label className="block max-w-xs text-sm font-medium">Month &amp; Year<input type="month" value={salaryRequestPeriod} onChange={event => { setSalaryRequestAttendanceLoading(true); setSalaryRequestPeriod(event.target.value); setSalaryRequestDetails(current => ({ ...current, days_in_month: new Date(Number(event.target.value.slice(0, 4)), Number(event.target.value.slice(5, 7)), 0).getDate() })); }} className="mt-1 block w-full rounded-lg border-ink-200" /></label>
+                    <label className="block max-w-xs text-sm font-medium">Month &amp; Year<input type="month" value={salaryRequestPeriod} onChange={event => { setSalaryRequestPeriod(event.target.value); setSalaryRequestDetails(current => ({ ...current, days_in_month: new Date(Number(event.target.value.slice(0, 4)), Number(event.target.value.slice(5, 7)), 0).getDate() })); }} className="mt-1 block w-full rounded-lg border-ink-200" /></label>
                 {selectedPeriodSlip ? <p className="mt-4 rounded-lg bg-ink-50 p-3 text-sm text-ink-600">A request for this month already exists: <strong>{selectedPeriodSlip.status}</strong>.</p> : <>
                   <h3 className="mt-5 font-semibold">Employee Details</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {([["name", "Name"], ["designation", "Designation"], ["department", "Department"], ["phone_number", "Phone Number"], ["email", "Email"], ["joining_date", "Joining Date"], ["pan_number", "PAN No."], ["account_number", "Account No."], ["location", "Location"], ["payment_mode", "Payment Mode"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input readOnly={key === "payment_mode" && Boolean(companyBranding?.salary_payment_mode)} value={salaryRequestDetails[key]} onChange={event => setSalaryRequestDetails(current => ({ ...current, [key]: event.target.value }))} className="mt-1 block w-full rounded-md border-ink-200 text-sm read-only:bg-ink-50" /></label>)}
                     {([["days_in_month", "Days in Month"], ["days_worked", "Days Worked"]] as const).map(([key, label]) => <label key={key} className="text-xs font-medium text-ink-600">{label}<input type="number" min="0" step="0.01" value={salaryRequestDetails[key]} onChange={event => setSalaryRequestDetails(current => ({ ...current, [key]: Number(event.target.value) || 0 }))} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>)}
-                    <label className="text-xs font-medium text-ink-600">Leave Without Pay (days){salaryRequestAttendanceLoading && <span className="ml-1 text-ink-400">Calculating…</span>}<input type="number" readOnly value={salaryRequestAttendanceCounts.lwp_days} className="mt-1 block w-full rounded-md border-ink-200 bg-ink-50 text-sm" /></label>
-                    <label className="text-xs font-medium text-ink-600">Half-Day (days)<input type="number" readOnly value={salaryRequestAttendanceCounts.half_day_days} className="mt-1 block w-full rounded-md border-ink-200 bg-ink-50 text-sm" /></label>
+                    <label className="text-xs font-medium text-ink-600">Leave Without Pay (days)<input type="number" min="0" step="0.01" value={salaryRequestLwpDays} onChange={event => setSalaryRequestLwpDays(event.target.value)} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>
+                    <label className="text-xs font-medium text-ink-600">Half-Day (days)<input type="number" min="0" step="0.01" value={salaryRequestHalfDayDays} onChange={event => setSalaryRequestHalfDayDays(event.target.value)} className="number-input-no-spinner mt-1 block w-full rounded-md border-ink-200 text-sm" /></label>
                   </div>
                   <div className="mt-4 overflow-x-auto rounded-lg border border-ink-200">
                     <table className="w-full table-fixed text-sm">
@@ -1002,7 +999,7 @@ export default function MyProfilePage() {
                   </div>
                   <p className="mt-2 text-xs text-ink-500">Deductions are calculated and confirmed during admin review.</p>
                   <div className="mt-4 flex flex-wrap justify-end gap-x-6 gap-y-2 border-t border-ink-200 pt-4 text-sm"><span>Leave Without Pay: <strong>−{money(salaryRequestLwpDeduction)}</strong></span><span>Half-Day: <strong>−{money(salaryRequestHalfDayDeduction)}</strong></span><span>Other Deductions: <strong>{money(salaryRequestDeductionTotal)}</strong></span><span>Estimated Net Salary: <strong>{money(salaryRequestTotal - salaryRequestLwpDeduction - salaryRequestHalfDayDeduction - salaryRequestDeductionTotal)}</strong></span></div>
-                  <div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowSalaryRequest(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button><button disabled={sendingSalaryRequest || salaryRequestAttendanceLoading} onClick={() => void submitSalarySlipRequest()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{sendingSalaryRequest ? "Sending…" : "Send Request"}</button></div>
+                  <div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowSalaryRequest(false)} className="rounded-lg border border-ink-300 px-4 py-2 text-sm font-medium">Cancel</button><button disabled={sendingSalaryRequest} onClick={() => void submitSalarySlipRequest()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{sendingSalaryRequest ? "Sending…" : "Send Request"}</button></div>
                 </>}
               </div>}
             </section>

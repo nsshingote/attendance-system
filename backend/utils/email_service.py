@@ -11,6 +11,7 @@ from email.utils import formatdate, make_msgid
 from typing import List
 
 from config import settings
+from email_validator import EmailNotValidError, validate_email
 from utils.logger import logger
 
 
@@ -116,6 +117,28 @@ def send_wfh_decision_notification(to_email: str, employee_name: str, status: st
     <p>Hi {employee_name},</p>
     <p>Your WFH request for <b>{attendance_date}</b> has been <b>{status}</b>.</p>
     <p><b>Reason:</b> {reason or 'No reason provided'}</p>
+    """
+    return send_email([to_email], subject, body)
+
+
+def send_half_day_decision_notification(
+    to_email: str,
+    employee_name: str,
+    status: str,
+    attendance_date,
+    slot_label: str,
+) -> bool:
+    try:
+        validate_email(to_email, check_deliverability=False)
+    except EmailNotValidError:
+        logger.warning("Skipping half-day decision email for invalid address: %r", to_email)
+        return False
+
+    subject = f"Your half-day request for {attendance_date} has been {status}"
+    body = f"""
+    <p>Hi {employee_name},</p>
+    <p>Your half-day request for <b>{attendance_date}</b> (<b>{slot_label}</b>) has been
+    <b>{status}</b>.</p>
     """
     return send_email([to_email], subject, body)
 

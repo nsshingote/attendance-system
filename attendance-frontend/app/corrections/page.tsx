@@ -60,7 +60,7 @@ export function CorrectionsContent() {
       const reviewRequest = canViewAll
         ? api.get<CorrectionRow[]>("/corrections/")
         : canReviewOnly
-          ? api.get<CorrectionRow[]>("/corrections/pending")
+          ? api.get<CorrectionRow[]>("/corrections/reviewable")
           : null;
       if (reviewRequest) requests.push(reviewRequest);
       if (teamView) {
@@ -94,6 +94,17 @@ export function CorrectionsContent() {
       // FIXED: Added /decide to the URL
       await api.put(`/corrections/${id}/decide`, { status });
       toast.success(`Correction ${status.toLowerCase()}`);
+      fetchData();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const handleCancel = async (id: number) => {
+    if (!window.confirm("Cancel this approved correction and restore the attendance values it changed?")) return;
+    try {
+      await api.post(`/corrections/${id}/cancel`, {});
+      toast.success("Approved correction cancelled");
       fetchData();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -166,6 +177,7 @@ export function CorrectionsContent() {
           canDecide={canDecide && tab === "all"}
           excludeRequesterId={session?.role === "team_leader" ? session.userId : undefined}
           onDecide={handleDecide}
+          onCancel={handleCancel}
         />
       )}
 

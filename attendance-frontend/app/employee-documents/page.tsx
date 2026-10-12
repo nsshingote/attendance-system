@@ -173,23 +173,16 @@ export default function EmployeeDocumentsPage() {
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSaving(false); }
   };
-  const startReview = (slip: Slip, refreshAttendance = true) => {
+  const startReview = (slip: Slip) => {
     const nextPeriod = `${slip.year}-${String(slip.month).padStart(2, "0")}`;
     setReviewSlipId(slip.id); setEditingSlipId(null); setEmployeeId(String(slip.employee_id)); setPeriod(nextPeriod);
     const details = { ...(slip.employee_details || blankDetails(nextPeriod)) };
     details.payment_mode = companyPaymentMode || details.payment_mode;
     setEmployeeDetails(details); setEarnings(rowsFromSlip(slip, "earnings")); setDeductions(rowsFromSlip(slip, "deductions")); setLwpDays(String(slip.lwp_days || 0)); setHalfDayDays(String(slip.half_day_days || 0));
-    setAttendanceReviewDetails([]);
-    if (slip.status === "Pending Review" && refreshAttendance) {
-      setAttendanceCountLoading(true);
-      api.get<AttendanceCounts>(`/employee-documents/salary-slips/attendance-counts/${slip.employee_id}?year=${slip.year}&month=${slip.month}`)
-        .then(({ data }) => { setLwpDays(String(data.lwp_days)); setHalfDayDays(String(data.half_day_days)); setAttendanceReviewDetails(data.review_details || []); })
-        .catch(error => toast.error(getErrorMessage(error)))
-        .finally(() => setAttendanceCountLoading(false));
-    }
+    setAttendanceReviewDetails([]); setAttendanceCountLoading(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  const startEdit = (slip: Slip) => { startReview(slip, false); setReviewSlipId(null); setEditingSlipId(slip.id); };
+  const startEdit = (slip: Slip) => { startReview(slip); setReviewSlipId(null); setEditingSlipId(slip.id); };
   if (!permissionsLoading && isSalarySlipsRoute && !canSalarySlips) {
     return <AppShell requiredPermission="employee_documents.letters.view" alternativePermissions={["employee_documents.salary_slips.view", "employee_documents.letter_templates.view"]}><div className="mx-auto max-w-6xl space-y-6">
       <div><h1 className="text-xl font-semibold text-ink-900">Salary Slips</h1><p className="text-sm text-ink-500">Access is restricted. You do not have permission to view this section.</p></div>
@@ -215,7 +208,7 @@ export default function EmployeeDocumentsPage() {
       {canManageSalarySlipForm && <>
       <section className="rounded-xl border border-ink-200 bg-white p-4 shadow-card sm:p-6">
         <h2 className="text-lg font-semibold">{reviewSlipId ? "Review Salary Slip Request" : editingSlipId ? "Edit Salary Slip" : "Generate Salary Slip"}</h2>
-        <p className="mb-5 text-sm text-ink-500">{reviewSlipId ? "Review attendance-derived LWP and Half-Day counts, then correct them if needed before approval." : "Prepare employee details and salary components. Attendance counts are suggested automatically and can be corrected."}</p>
+        <p className="mb-5 text-sm text-ink-500">{reviewSlipId ? "Review the employee-provided LWP and Half-Day counts, then correct them if needed before approval." : "Prepare employee details and salary components. Attendance counts are suggested automatically and can be corrected."}</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium">Select Employee<select disabled={Boolean(reviewSlipId) || salaryHistoryLoading || !salaryHistoryLoaded} value={employeeId} onChange={event => { const id = event.target.value; setAttendanceCountLoading(Boolean(id)); setEmployeeId(id); setEditingSlipId(null); applyEmployeeDefaults(id); }} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50"><option value="">{salaryHistoryLoading ? "Loading salary history..." : "Select employee"}</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
           <label className="text-sm font-medium">Month &amp; Year<input disabled={Boolean(reviewSlipId)} type="month" value={period} onChange={event => changePeriod(event.target.value)} className="mt-1 block w-full rounded-lg border-ink-200 disabled:bg-ink-50" /></label>

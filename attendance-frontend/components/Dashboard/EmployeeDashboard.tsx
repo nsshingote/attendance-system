@@ -100,7 +100,7 @@
  * Employee landing dashboard: today's status, quick check-in/out, leave balance.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import { Plane, ClipboardEdit } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
@@ -112,6 +112,7 @@ import StatCard from "./StatCard";
 import TodayAttendanceTable from "./TodayAttendanceTable";
 import { getSession } from "@/lib/auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
+import type { AttendanceStatus } from "@/lib/attendanceAction";
 
 interface EmployeeSnapshot {
   check_in: string | null;
@@ -127,27 +128,38 @@ export default function EmployeeDashboard() {
   const { permissions } = usePermissions();
   const [snapshot, setSnapshot] = useState<EmployeeSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const attendanceRefreshSequence = useRef(0);
 
-  const fetchSnapshot = useCallback(async () => {
+  const fetchSnapshot = useCallback(async (): Promise<AttendanceStatus> => {
+    const requestSequence = ++attendanceRefreshSequence.current;
     try {
-      setLoading(true);
       const { data } = await api.get("/dashboard/me");
-      setSnapshot({
+      const nextSnapshot = {
         check_in: data.check_in || null,
         check_out: data.check_out || null,
         today_status: data.today_status || "Absent",
         pending_leave_requests: data.pending_leave_requests || 0,
         pending_corrections: data.pending_corrections || 0,
-      });
-    } catch (error) {
-      toast.error(getErrorMessage(error));
+      };
+      if (requestSequence === attendanceRefreshSequence.current) setSnapshot(nextSnapshot);
+      return nextSnapshot;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const updateAttendanceStatus = useCallback((status: AttendanceStatus) => {
+    attendanceRefreshSequence.current += 1;
+    setSnapshot((current) => current ? {
+      ...current,
+      check_in: status.check_in,
+      check_out: status.check_out,
+      today_status: status.status || current.today_status,
+    } : current);
+  }, []);
+
   useEffect(() => {
-    fetchSnapshot();
+    void fetchSnapshot().catch((error) => toast.error(getErrorMessage(error)));
   }, [fetchSnapshot]);
 
   if (loading) return <Loading fullScreen />;
@@ -175,11 +187,13 @@ export default function EmployeeDashboard() {
             <div className="flex gap-3">
               <CheckInButton
                 disabled={checkedIn}
-                onSuccess={fetchSnapshot}
+                refreshStatus={fetchSnapshot}
+                onStatusUpdate={updateAttendanceStatus}
               />
               <CheckOutButton
                 disabled={!checkedIn || checkedOut}
-                onSuccess={fetchSnapshot}
+                refreshStatus={fetchSnapshot}
+                onStatusUpdate={updateAttendanceStatus}
               />
             </div>
           </div>

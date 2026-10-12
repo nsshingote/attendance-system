@@ -26,7 +26,17 @@ from models import (
 )
 from routers.holidays import add_holiday, delete_holiday
 from routers.company_settings import _read_company_settings_row, _upsert_company_settings_row
-from routers.attendance import attendance_calendar, monthly_summary
+from routers.attendance import (
+    attendance_calendar,
+    get_all_attendance,
+    manual_update,
+    manual_update_by_user_date,
+    mark_working_sunday,
+    monthly_summary,
+    my_attendance,
+    user_attendance,
+)
+import routers.attendance as attendance_router
 import routers.reports as reports_router
 from routers.leave import (
     _apply_sandwich_rule_on_request,
@@ -42,6 +52,7 @@ from routers.users import (
     update_user as update_employee_endpoint,
 )
 from schemas import (
+    AttendanceManualUpdate,
     HolidayCreate,
     LeaveAllocationOverride,
     LeaveDecision,
@@ -49,8 +60,10 @@ from schemas import (
     LeaveRequestCreate,
     UserCreate,
     UserUpdate,
+    WorkingSundayCreate,
 )
 from utils.attendance_status import determine_attendance_status_for_date, holiday_applies_to_user
+import routers.dashboard as dashboard_router
 from utils.leave_calculator import (
     _get_chargeable_leave_dates,
     accrue_monthly_leave,
@@ -1330,6 +1343,385 @@ def test_worked_assigned_holiday_counts_as_extra_working_day(
     )
 
     assert summary["Extra Working Day"] == 1
+    assert summary["Present"] == 1
+
+
+def test_worked_assigned_holiday_status_matches_all_attendance_views(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    target_date = date(2026, 10, 2)
+    create_holiday(db_session, admin.id, target_date)
+    db_session.add(WorkingSunday(user_id=user.id, work_date=target_date, marked_by=admin.id))
+    db_session.add(
+        Attendance(
+            user_id=user.id,
+            attendance_date=target_date,
+            check_in=datetime(2026, 10, 2, 9, 0),
+            check_out=datetime(2026, 10, 2, 17, 0),
+            status="Present",
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(attendance_router, "require_team_permission", lambda *_args: [])
+
+    employee_rows = my_attendance(
+        month=None,
+        year=None,
+        date_value=target_date.isoformat(),
+        db=db_session,
+        current_user=user,
+    )
+    selected_user_rows = user_attendance(
+        user_id=user.id,
+        month=None,
+        year=None,
+        date_value=target_date.isoformat(),
+        db=db_session,
+        current_user=user,
+    )
+    admin_rows = get_all_attendance(
+        year=target_date.year,
+        month=target_date.month,
+        date_value=target_date,
+        from_date=None,
+        to_date=None,
+        employee_ids=[user.id],
+        department_id=None,
+        db=db_session,
+        current_user=admin,
+    )
+    summary = monthly_summary(
+        user_id=user.id,
+        year=target_date.year,
+        month=target_date.month,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert [row["status"] for row in employee_rows] == ["Extra Working Day"]
+    assert [row["status"] for row in selected_user_rows] == ["Extra Working Day"]
+    assert [row["status"] for row in admin_rows] == ["Extra Working Day"]
+    assert summary["Extra Working Day"] == 1
+    assert summary["Present"] == 1
+    assert summary["Total Hours"] == 8.0
+    assert employee_rows[0]["check_in"].startswith("2026-10-02T09:00:00")
+    assert employee_rows[0]["check_out"].startswith("2026-10-02T17:00:00")
+    assert selected_user_rows[0]["check_in"].startswith("2026-10-02T09:00:00")
+    assert admin_rows[0]["check_out"].startswith("2026-10-02T17:00:00")
+
+
+def test_extra_working_day_mark_and_override_preserve_explicit_status(
+    db_session: Session,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    target_date = date(2026, 10, 2)
+    create_holiday(db_session, admin.id, target_date)
+
+    marked = mark_working_sunday(
+        WorkingSundayCreate(user_id=user.id, work_date=target_date),
+        db=db_session,
+        current_user=admin,
+    )
+    overridden = manual_update_by_user_date(
+        user_id=user.id,
+        date_value=target_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Present"),
+        db=db_session,
+        current_user=admin,
+    )
+
+    assert marked["message"] == "Marked as working day"
+    assert overridden["status"] == "Extra Working Day"
+    assert overridden["is_working_sunday"] is True
+    manual_extra_date = date(2026, 10, 16)
+    manual_extra = manual_update_by_user_date(
+        user_id=user.id,
+        date_value=manual_extra_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Extra Working Day"),
+        db=db_session,
+        current_user=admin,
+    )
+    summary = monthly_summary(
+        user_id=user.id,
+        year=target_date.year,
+        month=target_date.month,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert manual_extra["status"] == "Extra Working Day"
+    assert summary["Extra Working Day"] == 2
+    assert summary["Present"] == 2
+    assert db_session.query(WorkingSunday).filter_by(
+        user_id=user.id,
+        work_date=target_date,
+    ).count() == 1
+
+
+def test_manual_statuses_and_unassigned_nonworking_days_keep_their_meaning(
+    db_session: Session,
+):
+    user = create_user(db_session)
+    create_company_settings(db_session, weekly_off_day="Sunday")
+    statuses_by_date = {
+        date(2026, 10, 5): "Present",
+        date(2026, 10, 6): "Late",
+        date(2026, 10, 7): "Half Day",
+        date(2026, 10, 8): "WFH",
+        date(2026, 10, 9): "On Leave",
+        date(2026, 10, 10): "Absent",
+    }
+    db_session.add_all(
+        Attendance(
+            user_id=user.id,
+            attendance_date=attendance_date,
+            status=status,
+            manual_override=True,
+        )
+        for attendance_date, status in statuses_by_date.items()
+    )
+    create_holiday(db_session, user.id, date(2026, 10, 2))
+    db_session.commit()
+
+    assert {
+        attendance_date: determine_attendance_status_for_date(
+            db_session, user.id, attendance_date
+        )
+        for attendance_date in statuses_by_date
+    } == statuses_by_date
+    assert determine_attendance_status_for_date(
+        db_session, user.id, date(2026, 10, 2)
+    ) == "Holiday"
+    assert determine_attendance_status_for_date(
+        db_session, user.id, date(2026, 10, 11)
+    ) == "Weekly Off"
+
+
+def test_marking_unworked_weekly_off_does_not_count_as_present_or_extra_day(
+    db_session: Session,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    create_company_settings(db_session, weekly_off_day="Sunday")
+    target_date = date(2026, 10, 11)
+
+    mark_working_sunday(
+        WorkingSundayCreate(user_id=user.id, work_date=target_date),
+        db=db_session,
+        current_user=admin,
+    )
+    summary = monthly_summary(
+        user_id=user.id,
+        year=target_date.year,
+        month=target_date.month,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert summary["Present"] == 0
+    assert summary["Extra Working Day"] == 0
+
+
+def test_status_overrides_preserve_recorded_times_and_summary_hours(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    extra_date = date(2026, 10, 5)
+    late_date = date(2026, 10, 6)
+    leave_date = date(2026, 10, 7)
+    no_time_date = date(2026, 10, 8)
+    extra_record = Attendance(
+        user_id=user.id,
+        attendance_date=extra_date,
+        check_in=datetime(2026, 10, 5, 9, 0),
+        check_out=datetime(2026, 10, 5, 17, 0),
+        status="Present",
+    )
+    db_session.add_all(
+        [
+            extra_record,
+            Attendance(
+                user_id=user.id,
+                attendance_date=late_date,
+                check_in=datetime(2026, 10, 6, 10, 0),
+                check_out=datetime(2026, 10, 6, 17, 0),
+                status="Present",
+            ),
+            Attendance(
+                user_id=user.id,
+                attendance_date=leave_date,
+                check_in=datetime(2026, 10, 7, 9, 0),
+                check_out=datetime(2026, 10, 7, 17, 0),
+                status="Present",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    extra_result = manual_update(
+        attendance_id=extra_record.id,
+        payload=AttendanceManualUpdate(status="Extra Working Day"),
+        db=db_session,
+        current_user=admin,
+    )
+    late_result = manual_update_by_user_date(
+        user_id=user.id,
+        date_value=late_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Late"),
+        db=db_session,
+        current_user=admin,
+    )
+    leave_result = manual_update_by_user_date(
+        user_id=user.id,
+        date_value=leave_date.isoformat(),
+        payload=AttendanceManualUpdate(status="On Leave"),
+        db=db_session,
+        current_user=admin,
+    )
+    no_time_result = manual_update_by_user_date(
+        user_id=user.id,
+        date_value=no_time_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Extra Working Day"),
+        db=db_session,
+        current_user=admin,
+    )
+
+    assert extra_result["status"] == "Extra Working Day"
+    assert extra_result["check_in"].startswith("2026-10-05T09:00:00")
+    assert extra_result["check_out"].startswith("2026-10-05T17:00:00")
+    assert late_result["status"] == "Late"
+    assert late_result["check_in"].startswith("2026-10-06T10:00:00")
+    assert late_result["check_out"].startswith("2026-10-06T17:00:00")
+    assert leave_result["status"] == "On Leave"
+    assert leave_result["check_in"].startswith("2026-10-07T09:00:00")
+    assert leave_result["check_out"].startswith("2026-10-07T17:00:00")
+    assert no_time_result["status"] == "Extra Working Day"
+    assert no_time_result["check_in"] is None
+    assert no_time_result["check_out"] is None
+
+    monkeypatch.setattr(attendance_router, "require_team_permission", lambda *_args: [])
+    employee_rows = my_attendance(
+        month=10,
+        year=2026,
+        date_value=None,
+        db=db_session,
+        current_user=user,
+    )
+    selected_user_rows = user_attendance(
+        user_id=user.id,
+        month=10,
+        year=2026,
+        date_value=None,
+        db=db_session,
+        current_user=user,
+    )
+    admin_rows = get_all_attendance(
+        year=2026,
+        month=10,
+        date_value=None,
+        from_date=None,
+        to_date=None,
+        employee_ids=[user.id],
+        department_id=None,
+        db=db_session,
+        current_user=admin,
+    )
+    summary = monthly_summary(
+        user_id=user.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+    for rows in (employee_rows, selected_user_rows, admin_rows):
+        rows_by_date = {row["attendance_date"]: row for row in rows}
+        assert rows_by_date[extra_date.isoformat()]["status"] == "Extra Working Day"
+        assert rows_by_date[extra_date.isoformat()]["check_in"].startswith("2026-10-05T09:00:00")
+        assert rows_by_date[late_date.isoformat()]["status"] == "Late"
+        assert rows_by_date[late_date.isoformat()]["check_out"].startswith("2026-10-06T17:00:00")
+        assert rows_by_date[leave_date.isoformat()]["status"] == "On Leave"
+        assert rows_by_date[leave_date.isoformat()]["check_in"].startswith("2026-10-07T09:00:00")
+        assert rows_by_date[no_time_date.isoformat()]["check_in"] is None
+        assert rows_by_date[no_time_date.isoformat()]["check_out"] is None
+
+    assert summary["Present"] == 3
+    assert summary["Extra Working Day"] == 2
+    assert summary["Late"] == 1
+    assert summary["Leave"] == 1
+    assert summary["Total Hours"] == 23.0
+
+
+def test_admin_dashboard_counts_extra_working_day_as_present(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    today = date(2026, 10, 12)
+    db_session.add(
+        Attendance(
+            user_id=user.id,
+            attendance_date=today,
+            status="Extra Working Day",
+            manual_override=True,
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(dashboard_router, "india_today", lambda: today)
+
+    summary = dashboard_router.get_admin_dashboard(db=db_session, current_user=admin)
+
+    assert summary.present_today == 1
+    assert summary.extra_working_day_today == 1
+
+
+def test_approved_wfh_without_attendance_is_not_counted_as_present(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    target_date = date(2026, 10, 7)
+    db_session.add(WFHRequest(user_id=user.id, attendance_date=target_date, status="Approved"))
+    db_session.commit()
+    monkeypatch.setattr(reports_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(reports_router, "require_team_permission", lambda *_args: [])
+
+    summary = monthly_summary(
+        user_id=user.id,
+        year=target_date.year,
+        month=target_date.month,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+    employee_summaries = reports_router.employee_wise_summary(
+        year=target_date.year,
+        month=target_date.month,
+        db=db_session,
+        current_user=admin,
+    )
+    employee_summary = next(row for row in employee_summaries if row["user_id"] == user.id)
+
+    assert summary["WFH"] == 0
+    assert summary["Present"] == 0
+    assert employee_summary["WFH"] == 0
+    assert employee_summary["Present"] == 0
 
 
 def test_monthly_employee_summary_lists_worked_assigned_holiday_as_extra_day(
@@ -1369,7 +1761,7 @@ def test_monthly_employee_summary_lists_worked_assigned_holiday_as_extra_day(
 
     employee = next(row for row in summary if row["user_id"] == user.id)
     assert employee["Extra Working Day"] == 1
-    assert employee["Present"] == 0
+    assert employee["Present"] == 1
 
 
 def test_report_history_orders_holiday_between_report_dates(

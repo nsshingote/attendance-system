@@ -243,7 +243,7 @@ def update_summary_counts(summary: dict, status: str) -> None:
     Counting rules:
     - Late = Present + Late (both counters)
     - WFH = Present + WFH (both counters)
-    - Extra Working Day = Extra Working Day only
+    - Extra Working Day = Present + Extra Working Day
     - Half Day = Present + Half Day (already correct)
     - On Leave = Leave + Absent (only for non-overridden leaves)
     - Present = Present only
@@ -261,6 +261,7 @@ def update_summary_counts(summary: dict, status: str) -> None:
         summary["WFH"] += 1
         summary["Present"] += 1
     elif status == "Extra Working Day":
+        summary["Present"] += 1
         summary["Extra Working Day"] += 1
     elif status == "On Leave":
         summary["Leave"] += 1

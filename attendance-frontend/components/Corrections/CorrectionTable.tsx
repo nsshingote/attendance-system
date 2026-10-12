@@ -10,7 +10,7 @@
  * so they are displayed as-is without conversion.
  */
 
-import { Check, X } from "lucide-react";
+import { Check, RotateCcw, X } from "lucide-react";
 import Badge from "@/components/Common/Badge";
 import { parseISTDateTime } from "@/lib/date";
 
@@ -26,6 +26,7 @@ export interface CorrectionRow {
   new_check_out: string | null;
   status: string;
   created_at: string;
+  cancellation_reason?: string | null;
 }
 
 interface CorrectionTableProps {
@@ -33,6 +34,7 @@ interface CorrectionTableProps {
   canDecide?: boolean;
   excludeRequesterId?: number;
   onDecide?: (id: number, status: "Approved" | "Rejected") => void;
+  onCancel?: (id: number) => void;
 }
 
 function formatISTDateTime(isoString: string | null): string {
@@ -51,7 +53,7 @@ function formatISTDateTime(isoString: string | null): string {
   return `${datePart}, ${timePart}`;
 }
 
-export default function CorrectionTable({ corrections, canDecide, excludeRequesterId, onDecide }: CorrectionTableProps) {
+export default function CorrectionTable({ corrections, canDecide, excludeRequesterId, onDecide, onCancel }: CorrectionTableProps) {
   if (corrections.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-ink-300 bg-white py-12 text-center">
@@ -109,6 +111,7 @@ export default function CorrectionTable({ corrections, canDecide, excludeRequest
               </td>
               <td className="max-w-64 whitespace-normal wrap-break-word px-3 py-2 align-top text-[11px] leading-4 text-ink-600" title={c.reason ?? ""}>
                 {c.reason ?? "—"}
+                {c.cancellation_reason && <p className="mt-1 text-ink-500">Cancellation: {c.cancellation_reason}</p>}
               </td>
               <td className="px-3 py-2">
                 <Badge status={c.status} />
@@ -130,6 +133,18 @@ export default function CorrectionTable({ corrections, canDecide, excludeRequest
                         aria-label="Reject"
                       >
                         <X size={15} />
+                      </button>
+                    </div>
+                  )}
+                  {c.status === "Approved" && c.requested_by !== excludeRequesterId && (
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => onCancel?.(c.id)}
+                        className="rounded-md bg-amber-50 p-1.5 text-amber-700 hover:bg-amber-100"
+                        aria-label="Cancel approved correction"
+                        title="Cancel approved correction"
+                      >
+                        <RotateCcw size={15} />
                       </button>
                     </div>
                   )}

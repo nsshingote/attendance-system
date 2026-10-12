@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { XCircle } from "lucide-react";
 import api, { getErrorMessage } from "@/lib/api";
+import { halfDaySlotLabel } from "@/lib/halfDayPresentation";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
@@ -52,6 +53,7 @@ interface AttendanceSummary {
   Present: number;
   Late: number;
   "Half Day": number;
+  "Extra Working Day"?: number;
   Holiday: number;
   Absent: number;
   WFH: number;
@@ -494,10 +496,10 @@ export default function UserDetailPage() {
     return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
   };
 
-  const activeDays = attendanceSummary.Present + attendanceSummary["Half Day"] + attendanceSummary.WFH;
+  const activeDays = attendanceSummary.Present;
   const averageWorkingHours = formatAverageHours(attendanceSummary["Total Hours"], activeDays);
   const rangeActiveDays = rangeSummary
-    ? rangeSummary.Present + rangeSummary["Half Day"] + rangeSummary.WFH
+    ? rangeSummary.Present
     : 0;
   const rangeAverageWorkingHours = rangeSummary
     ? formatAverageHours(rangeSummary["Total Hours"], rangeActiveDays)
@@ -621,7 +623,7 @@ export default function UserDetailPage() {
                 <div className="flex items-center justify-between gap-3 mb-4"><h3 className="text-sm font-semibold text-ink-900">Average Working Hours</h3></div>
                 <div className="rounded-2xl bg-ink-50 p-6">
                   <div className="grid gap-4">
-                    <p className="text-sm text-ink-600">Average across present days, half days, and approved WFH</p>
+                    <p className="text-sm text-ink-600">Average across present days, half days, approved WFH, and extra working days</p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="space-y-1 text-sm text-ink-600">From Date<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm" /></label>
                       <label className="space-y-1 text-sm text-ink-600">To Date<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm" /></label>
@@ -711,7 +713,7 @@ export default function UserDetailPage() {
                       <tr key={`wfh-${row.id}`}><td className="px-4 py-3">WFH</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">Work From Home</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td><td className="px-4 py-3 text-right">{canCancelApprovedLeave && row.status === "Approved" && <button type="button" onClick={() => cancelApprovedRelatedRequest("WFH", row.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">Cancel</button>}</td></tr>
                     ))}
                     {(leaveFilter === "All" || leaveFilter === "Half Day") && halfDayRows.map((row) => (
-                      <tr key={`half-day-${row.id}`}><td className="px-4 py-3">Half Day</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">{row.slot}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td><td className="px-4 py-3 text-right">{canCancelApprovedLeave && row.status === "Approved" && <button type="button" onClick={() => cancelApprovedRelatedRequest("Half Day", row.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">Cancel</button>}</td></tr>
+                      <tr key={`half-day-${row.id}`}><td className="px-4 py-3">Half Day</td><td className="px-4 py-3">{row.attendance_date}</td><td className="px-4 py-3">{halfDaySlotLabel(row.slot)}</td><td className="px-4 py-3">{row.reason || "—"}</td><td className="px-4 py-3"><Badge status={row.status} /></td><td className="px-4 py-3 text-right">{canCancelApprovedLeave && row.status === "Approved" && <button type="button" onClick={() => cancelApprovedRelatedRequest("Half Day", row.id)} className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">Cancel</button>}</td></tr>
                     ))}
                   </tbody>
                 </table>

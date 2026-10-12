@@ -16,6 +16,7 @@ import toast from "react-hot-toast";
 import { Plus, Check, X, XCircle, Trash2, RefreshCw } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import api, { getErrorMessage } from "@/lib/api";
+import { halfDaySlotLabel } from "@/lib/halfDayPresentation";
 import { useSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import ExpandableText from "@/components/Common/ExpandableText";
@@ -123,11 +124,6 @@ interface RelatedRequestEdit {
   date: string;
   detail: string;
 }
-
-const SLOT_LABELS: Record<string, string> = {
-  morning: "Morning (10:00 AM - 2:30 PM)",
-  afternoon: "Afternoon (2:30 PM - 6:30 PM)",
-};
 
 export default function LeavePage() {
   const session = useSession();
@@ -468,7 +464,7 @@ export default function LeavePage() {
       type: "Half Day" as const,
       from_date: r.attendance_date,
       to_date: r.attendance_date,
-      detail: SLOT_LABELS[r.slot] ?? r.slot,
+      detail: halfDaySlotLabel(r.slot),
       reason: r.reason,
       status: r.status,
     })),
@@ -798,7 +794,7 @@ export default function LeavePage() {
                         <tr key={r.id} className="hover:bg-ink-50/60">
                           <td className="px-4 py-3 font-medium text-ink-900">{r.user_name ?? `User #${r.user_id}`}</td>
                           <td className="px-4 py-3 text-ink-700">{format(parseISO(r.attendance_date), "dd MMM yyyy")}</td>
-                          <td className="px-4 py-3 text-ink-700">{SLOT_LABELS[r.slot] ?? r.slot}</td>
+                          <td className="px-4 py-3 text-ink-700">{halfDaySlotLabel(r.slot)}</td>
                           <td className="w-[16rem] max-w-[16rem] min-w-0 wrap-break-word whitespace-normal px-4 py-3 align-top leading-5 text-ink-600">
                             <ExpandableText text={r.reason} limit={42} />
                           </td>
@@ -812,7 +808,7 @@ export default function LeavePage() {
                                   type: "Half Day",
                                   id: r.id,
                                   date: r.attendance_date,
-                                  detail: SLOT_LABELS[r.slot] ?? r.slot,
+                                  detail: halfDaySlotLabel(r.slot),
                                 })}
                                 className="rounded-md bg-sky-50 px-2 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
                               >

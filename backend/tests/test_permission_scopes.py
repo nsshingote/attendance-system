@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import date
+from datetime import date, datetime, time
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
@@ -18,13 +18,16 @@ from models import (
     ActivityLog,
     Attendance,
     AttendanceCorrection,
+    CompanySettings,
     EmployeeProfileEditRequest,
     PastReportSubmissionRequest,
     Team,
     TeamMember,
     User,
+    WorkingSunday,
 )
-from schemas import CorrectionCreate, CorrectionDecision, ProfileEditRequestDecision
+from schemas import CorrectionCancellation, CorrectionCreate, CorrectionDecision, ProfileEditRequestDecision
+from utils.attendance_status import determine_attendance_status_for_date
 
 
 @pytest.fixture
@@ -113,6 +116,297 @@ def test_team_leader_cannot_request_correction_for_team_member_attendance(
         )
 
     assert exc_info.value.status_code == 403
+    assert db_session.query(AttendanceCorrection).count() == 0
+
+
+def _create_attendance_settings(db: Session) -> None:
+    db.add(CompanySettings(
+        office_start_time=time(9, 0),
+        office_end_time=time(18, 0),
+        late_grace_minutes=15,
+        weekly_off_day="Sunday",
+    ))
+    db.commit()
+
+
+def _approve_correction(
+    db: Session,
+    user: User,
+    attendance: Attendance,
+    *,
+    new_check_in: datetime | None = None,
+    new_check_out: datetime | None = None,
+) -> AttendanceCorrection:
+    correction = AttendanceCorrection(
+        attendance_id=attendance.id,
+        requested_by=user.id,
+        reason="Correct recorded attendance time",
+        old_check_in=attendance.check_in,
+        new_check_in=new_check_in,
+        old_check_out=attendance.check_out,
+        new_check_out=new_check_out,
+        status="Pending",
+    )
+    db.add(correction)
+    db.commit()
+    return correction
+
+
+def _allow_correction_approval(monkeypatch) -> None:
+    monkeypatch.setattr(corrections_router, "has_permission", lambda _user, key, _db: key == "corrections.approve")
+    monkeypatch.setattr(team_scope, "has_permission", lambda _user, key, _db: key == "corrections.approve")
+
+
+def test_cancelled_sunday_correction_restores_calendar_weekly_off(db_session: Session, monkeypatch):
+    _create_attendance_settings(db_session)
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    sunday = date(2026, 10, 11)
+    attendance = Attendance(user_id=employee.id, attendance_date=sunday, status="Absent")
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(
+        db_session,
+        employee,
+        attendance,
+        new_check_in=datetime(2026, 10, 11, 9),
+        new_check_out=datetime(2026, 10, 11, 17),
+    )
+    _allow_correction_approval(monkeypatch)
+
+    approved = corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+    assert approved.approval_before_state["check_in"] is None
+    assert approved.approval_after_state["check_in"] == "2026-10-11T09:00:00"
+    assert determine_attendance_status_for_date(db_session, employee.id, sunday) == "Present"
+
+    cancelled = corrections_router.cancel_approved_correction(
+        correction.id, CorrectionCancellation(reason="Approved in error"), db_session, admin
+    )
+
+    assert cancelled.status == "Cancelled"
+    assert cancelled.cancelled_by == admin.id
+    assert cancelled.cancellation_reason == "Approved in error"
+    assert attendance.check_in is None
+    assert attendance.check_out is None
+    assert determine_attendance_status_for_date(db_session, employee.id, sunday) == "Weekly Off"
+
+
+def test_cancelled_working_day_correction_restores_preapproval_timestamps(db_session: Session, monkeypatch):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    workday = date(2026, 10, 12)
+    original_in = datetime(2026, 10, 12, 9)
+    original_out = datetime(2026, 10, 12, 17)
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=workday,
+        check_in=original_in,
+        check_out=original_out,
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(
+        db_session, employee, attendance, new_check_out=datetime(2026, 10, 12, 16)
+    )
+    _allow_correction_approval(monkeypatch)
+
+    corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+    assert attendance.check_out == datetime(2026, 10, 12, 16)
+
+    cancelled = corrections_router.cancel_approved_correction(
+        correction.id, CorrectionCancellation(), db_session, admin
+    )
+
+    assert cancelled.status == "Cancelled"
+    assert attendance.check_in == original_in
+    assert attendance.check_out == original_out
+
+
+def test_correction_cancellation_refuses_to_overwrite_later_attendance_edit(db_session: Session, monkeypatch):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    workday = date(2026, 10, 12)
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=workday,
+        check_in=datetime(2026, 10, 12, 9),
+        check_out=datetime(2026, 10, 12, 17),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(
+        db_session, employee, attendance, new_check_out=datetime(2026, 10, 12, 16)
+    )
+    _allow_correction_approval(monkeypatch)
+    corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+    attendance.check_out = datetime(2026, 10, 12, 19)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_approved_correction(
+            correction.id, CorrectionCancellation(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "changed after" in exc_info.value.detail
+    assert attendance.check_out == datetime(2026, 10, 12, 19)
+    assert correction.status == "Approved"
+
+
+def test_only_approved_corrections_can_be_cancelled(db_session: Session, monkeypatch):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    attendance = Attendance(user_id=employee.id, attendance_date=date(2026, 10, 12))
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(db_session, employee, attendance)
+    _allow_correction_approval(monkeypatch)
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_approved_correction(
+            correction.id, CorrectionCancellation(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 400
+    assert correction.status == "Pending"
+
+
+def test_cancelling_sunday_correction_preserves_preexisting_working_day_assignment(db_session: Session, monkeypatch):
+    _create_attendance_settings(db_session)
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    sunday = date(2026, 10, 11)
+    attendance = Attendance(user_id=employee.id, attendance_date=sunday, status="Absent")
+    assignment = WorkingSunday(user_id=employee.id, work_date=sunday, marked_by=admin.id)
+    db_session.add_all([attendance, assignment])
+    db_session.commit()
+    correction = _approve_correction(
+        db_session,
+        employee,
+        attendance,
+        new_check_in=datetime(2026, 10, 11, 9),
+    )
+    _allow_correction_approval(monkeypatch)
+    corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+
+    corrections_router.cancel_approved_correction(
+        correction.id, CorrectionCancellation(), db_session, admin
+    )
+
+    assert db_session.query(WorkingSunday).filter(
+        WorkingSunday.user_id == employee.id,
+        WorkingSunday.work_date == sunday,
+    ).one().id == assignment.id
+    assert attendance.check_in is None
+    assert determine_attendance_status_for_date(db_session, employee.id, sunday) == "Absent"
+
+
+def test_team_leader_cannot_cancel_correction_outside_active_team(db_session: Session, monkeypatch):
+    leader = _create_user(db_session, "team_leader")
+    outsider = _create_user(db_session)
+    attendance = Attendance(user_id=outsider.id, attendance_date=date(2026, 10, 12), status="Present")
+    db_session.add(attendance)
+    db_session.commit()
+    correction = AttendanceCorrection(
+        attendance_id=attendance.id,
+        requested_by=outsider.id,
+        status="Approved",
+        approval_before_state={"check_in": None},
+        approval_after_state={"check_in": None},
+    )
+    db_session.add(correction)
+    db_session.commit()
+    _allow_correction_approval(monkeypatch)
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_approved_correction(
+            correction.id, CorrectionCancellation(), db_session, leader
+        )
+
+    assert exc_info.value.status_code == 403
+    assert correction.status == "Approved"
+
+
+def test_team_leader_can_cancel_approved_correction_for_team_member(db_session: Session, monkeypatch):
+    leader = _create_user(db_session, "team_leader")
+    member = _create_user(db_session)
+    _create_team(db_session, leader, member)
+    attendance = Attendance(
+        user_id=member.id,
+        attendance_date=date(2026, 10, 12),
+        check_in=datetime(2026, 10, 12, 9),
+        check_out=datetime(2026, 10, 12, 17),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(
+        db_session, member, attendance, new_check_out=datetime(2026, 10, 12, 16)
+    )
+    _allow_correction_approval(monkeypatch)
+    corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, leader
+    )
+
+    cancelled = corrections_router.cancel_approved_correction(
+        correction.id, CorrectionCancellation(), db_session, leader
+    )
+
+    assert cancelled.status == "Cancelled"
+    assert attendance.check_out == datetime(2026, 10, 12, 17)
+
+
+def test_approval_rejects_attendance_owned_by_another_user(db_session: Session, monkeypatch):
+    requester = _create_user(db_session)
+    owner = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    attendance = Attendance(
+        user_id=owner.id,
+        attendance_date=date(2026, 10, 12),
+        check_in=datetime(2026, 10, 12, 9),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(db_session, requester, attendance)
+    _allow_correction_approval(monkeypatch)
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.decide_correction(
+            correction.id, CorrectionDecision(status="Approved"), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    assert correction.status == "Pending"
+    assert attendance.check_in == datetime(2026, 10, 12, 9)
+
+
+def test_correction_request_rejects_attendance_owned_by_another_user(db_session: Session, monkeypatch):
+    requester = _create_user(db_session)
+    other_user = _create_user(db_session)
+    attendance = Attendance(user_id=other_user.id, attendance_date=date(2026, 10, 12))
+    db_session.add(attendance)
+    db_session.commit()
+    monkeypatch.setattr(corrections_router, "has_permission", lambda *_args: False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.request_correction(
+            CorrectionCreate(attendance_id=attendance.id, reason="Wrong employee"),
+            db_session,
+            requester,
+        )
+
+    assert exc_info.value.status_code == 400
     assert db_session.query(AttendanceCorrection).count() == 0
 
 

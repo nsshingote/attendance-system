@@ -4,6 +4,8 @@ Attendance correction requests and approvals.
 """
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
@@ -11,7 +13,7 @@ from typing import List, Optional
 from database import get_db
 from models import User, Attendance, AttendanceCorrection
 from schemas import (
-    CorrectionOut, CorrectionCreate, CorrectionDecision
+    CorrectionOut, CorrectionCreate, CorrectionDecision, CorrectionCancellation
 )
 from auth import get_current_user, has_permission, require_roles, require_admin_permission, effective_role_key
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
@@ -22,13 +24,32 @@ from services.notifications import create_notification, get_approver_user_ids
 router = APIRouter()
 
 
+def _attendance_state(attendance: Attendance) -> dict:
+    state = {}
+    for column in Attendance.__table__.columns:
+        field = column.name
+        value = getattr(attendance, field)
+        if isinstance(value, (datetime, date)):
+            value = value.isoformat()
+        elif isinstance(value, Decimal):
+            value = str(value)
+        state[field] = value
+    return state
+
+
+def _state_value(field: str, value):
+    if field in {"check_in", "check_out", "manual_override_at"} and value is not None:
+        return datetime.fromisoformat(value)
+    return value
+
+
 # ------------------------------------------------------------
 # GET all corrections (Admin)
 # ------------------------------------------------------------
 
 @router.get("/", response_model=List[CorrectionOut])
 def get_all_corrections(
-    status: Optional[str] = Query(None, regex="^(Pending|Approved|Rejected)$"),
+    status: Optional[str] = Query(None, pattern="^(Pending|Approved|Rejected|Cancelled)$"),
     date_value: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -95,6 +116,8 @@ def request_correction(
             status_code=403,
             detail="Team Leaders can only request corrections for their own attendance",
         )
+    if attendance.user_id != target_user_id:
+        raise HTTPException(status_code=400, detail="Attendance record does not belong to the correction requester")
     
     # Parse time string to datetime if provided
     new_check_in = None
@@ -211,6 +234,28 @@ def get_pending_corrections(
     return query.filter(AttendanceCorrection.status == "Pending").order_by(AttendanceCorrection.created_at.desc()).all()
 
 
+@router.get("/reviewable", response_model=List[CorrectionOut])
+def get_reviewable_corrections(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return pending and approved requests the caller may review or cancel."""
+    if effective_role_key(current_user) != "superadmin" and not has_permission(
+        current_user, "corrections.approve", db
+    ):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+
+    query = db.query(AttendanceCorrection).options(joinedload(AttendanceCorrection.requester))
+    if effective_role_key(current_user) == "team_leader" and not has_permission(
+        current_user, "corrections.all_view", db
+    ):
+        team_ids = [current_user.id, *get_team_member_ids(db, current_user)]
+        query = query.filter(AttendanceCorrection.requested_by.in_(team_ids))
+    return query.filter(
+        AttendanceCorrection.status.in_(("Pending", "Approved"))
+    ).order_by(AttendanceCorrection.created_at.desc()).all()
+
+
 # ------------------------------------------------------------
 # GET - User corrections (Admin)
 # ------------------------------------------------------------
@@ -250,8 +295,8 @@ def decide_correction(
     """Admin approves or rejects a correction request."""
     correction = (
         db.query(AttendanceCorrection)
-        .options(joinedload(AttendanceCorrection.requester))
         .filter(AttendanceCorrection.id == correction_id)
+        .with_for_update()
         .first()
     )
     
@@ -265,40 +310,35 @@ def decide_correction(
             detail=f"Request already {correction.status}"
         )
     
-    correction.status = payload.status
-    
-    # If approved, update attendance record
     if payload.status == "Approved":
         attendance = db.query(Attendance).filter(
             Attendance.id == correction.attendance_id
-        ).first()
-        
-        if attendance:
-            # Update check-in if provided
-            if correction.new_check_in:
-                attendance.check_in = correction.new_check_in
-            
-            # Update check-out if provided
-            if correction.new_check_out:
-                attendance.check_out = correction.new_check_out
-            
-            # Recalculate status based on new times
-            if attendance.check_in:
-                # Check if it's a holiday first
-                holiday = applicable_holiday(db, attendance.user_id, attendance.attendance_date)
-                if holiday:
-                    attendance.status = "Holiday"
-                else:
-                    attendance.status = determine_attendance_status_for_date(
-                        db, 
-                        attendance.user_id, 
-                        attendance.attendance_date
-                    )
+        ).with_for_update().first()
+        if not attendance:
+            raise HTTPException(status_code=404, detail="Attendance record not found")
+        if attendance.user_id != correction.requested_by:
+            raise HTTPException(status_code=409, detail="Attendance record does not belong to the correction requester")
+
+        correction.approval_before_state = _attendance_state(attendance)
+        if correction.new_check_in:
+            attendance.check_in = correction.new_check_in
+        if correction.new_check_out:
+            attendance.check_out = correction.new_check_out
+        if attendance.check_in:
+            holiday = applicable_holiday(db, attendance.user_id, attendance.attendance_date)
+            if holiday:
+                attendance.status = "Holiday"
             else:
-                attendance.status = "Absent"
-            
-            db.commit()
-            db.refresh(attendance)
+                attendance.status = determine_attendance_status_for_date(
+                    db, attendance.user_id, attendance.attendance_date
+                )
+        else:
+            attendance.status = "Absent"
+        correction.approval_after_state = _attendance_state(attendance)
+        correction.approved_by = current_user.id
+        correction.approved_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+
+    correction.status = payload.status
     
     if correction.requested_by != current_user.id:
         create_notification(
@@ -318,4 +358,55 @@ def decide_correction(
     log_activity(db, current_user.id, 
                  f"{payload.status} correction #{correction_id}")
     
+    return correction
+
+
+@router.post("/{correction_id}/cancel", response_model=CorrectionOut)
+def cancel_approved_correction(
+    correction_id: int,
+    payload: CorrectionCancellation,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel an approved correction if its attendance row has not since changed."""
+    correction = db.query(AttendanceCorrection).filter(
+        AttendanceCorrection.id == correction_id
+    ).with_for_update().first()
+    if not correction:
+        raise HTTPException(status_code=404, detail="Correction request not found")
+    require_team_member_access(db, current_user, correction.requested_by, "corrections.approve")
+    if correction.status != "Approved":
+        raise HTTPException(status_code=400, detail="Only approved corrections can be cancelled")
+    if not correction.approval_before_state or not correction.approval_after_state:
+        raise HTTPException(
+            status_code=409,
+            detail="This correction has no approval-time snapshot and cannot be safely cancelled",
+        )
+
+    attendance = db.query(Attendance).filter(
+        Attendance.id == correction.attendance_id
+    ).with_for_update().first()
+    if not attendance or attendance.user_id != correction.requested_by:
+        raise HTTPException(status_code=409, detail="The attendance record is missing or no longer belongs to the requester")
+
+    current_state = _attendance_state(attendance)
+    if current_state != correction.approval_after_state:
+        raise HTTPException(
+            status_code=409,
+            detail="Attendance changed after this correction was approved; rollback was not applied",
+        )
+
+    for field in ("check_in", "check_out", "status"):
+        before_value = _state_value(field, correction.approval_before_state[field])
+        after_value = _state_value(field, correction.approval_after_state[field])
+        if before_value != after_value:
+            setattr(attendance, field, before_value)
+
+    correction.status = "Cancelled"
+    correction.cancelled_by = current_user.id
+    correction.cancelled_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+    correction.cancellation_reason = payload.reason
+    db.commit()
+    db.refresh(correction)
+    log_activity(db, current_user.id, f"Cancelled approved correction #{correction_id}")
     return correction

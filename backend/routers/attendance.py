@@ -69,7 +69,7 @@ from utils.leave_calculator import (
     get_carried_leave_balance,
     has_other_approved_or_pending_paid_leave_this_month,
 )
-from utils.email_service import send_wfh_decision_notification
+from utils.email_service import send_half_day_decision_notification, send_wfh_decision_notification
 from services.notifications import create_notification, get_approver_user_ids
 from utils.calender import build_month_calendar
 from utils.date_helpers import india_now, india_today, iso_with_offset
@@ -94,6 +94,10 @@ def attendance_validation_settings(
 HALF_DAY_SLOTS = {
     "morning": (time(10, 0), time(14, 30)),      # 10:00 AM - 2:30 PM
     "afternoon": (time(14, 30), time(18, 30)),   # 2:30 PM - 6:30 PM
+}
+HALF_DAY_SLOT_LABELS = {
+    "morning": "Morning Slot",
+    "afternoon": "Afternoon Slot",
 }
 
 # Grace timing cutoffs are now dynamic from CompanySettings.
@@ -581,32 +585,6 @@ def _mark_absent_records_for_date_range(
         db.commit()
 
 
-def _determine_attendance_status_for_record(
-    db: Session,
-    record: Attendance,
-    approved_wfh_keys: Set[Tuple[int, date]],
-    holiday_dates: Set[date],
-) -> str:
-    if getattr(record, "manual_override", False):
-        return record.status
-    if (record.user_id, record.attendance_date) in approved_wfh_keys:
-        return "WFH"
-    if applicable_holiday(db, record.user_id, record.attendance_date) and not _is_working_day(db, record.user_id, record.attendance_date):
-        return "Holiday"
-    if record.status == "On Leave":
-        return "On Leave"
-    if not record.check_in:
-        return "Absent"
-    user = db.query(User).filter(User.id == record.user_id).first()
-    if _is_onsite_user(user) and not getattr(record, "manual_override", False):
-        return "Present"
-    if not record.check_out:
-        return calculate_status(record.check_in, db)
-    if calculate_half_day(record.check_in, record.check_out, db):
-        return "Half Day"
-    return calculate_status(record.check_in, db)
-
-
 @router.post("/check-in", response_model=AttendanceOut)
 def check_in(
     request: Request,
@@ -951,8 +929,6 @@ def my_attendance(
 
     records = query.order_by(Attendance.attendance_date.desc()).all()
     attendance_dates = {attendance.attendance_date for attendance in records}
-    approved_wfh_keys = _load_approved_wfh_keys_for_users(db, {current_user.id}, attendance_dates)
-    holiday_dates = _load_holiday_dates(db, attendance_dates)
     report_keys = _load_report_keys_for_users(db, {current_user.id}, attendance_dates)
     working_sunday_keys = _load_working_sunday_keys_for_users(db, {current_user.id}, attendance_dates)
     manual_leave_categories = _load_manual_override_leave_categories(db, {attendance.id for attendance in records})
@@ -968,7 +944,7 @@ def my_attendance(
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
-            "status": _determine_attendance_status_for_record(db, attendance, approved_wfh_keys, holiday_dates),
+            "status": _format_attendance_status(attendance, db),
             "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
@@ -1028,8 +1004,6 @@ def user_attendance(
 
     records = query.order_by(Attendance.attendance_date.desc()).all()
     attendance_dates = {attendance.attendance_date for attendance in records}
-    approved_wfh_keys = _load_approved_wfh_keys_for_users(db, {user_id}, attendance_dates)
-    holiday_dates = _load_holiday_dates(db, attendance_dates)
     report_keys = _load_report_keys_for_users(db, {user_id}, attendance_dates)
     working_sunday_keys = _load_working_sunday_keys_for_users(db, {user_id}, attendance_dates)
     manual_leave_categories = _load_manual_override_leave_categories(db, {attendance.id for attendance in records})
@@ -1045,7 +1019,7 @@ def user_attendance(
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
-            "status": _determine_attendance_status_for_record(db, attendance, approved_wfh_keys, holiday_dates),
+            "status": _format_attendance_status(attendance, db),
             "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
@@ -1207,8 +1181,6 @@ def get_all_attendance(
     user_ids = {attendance.user_id for attendance, _, _, _ in results}
     attendance_dates = {attendance.attendance_date for attendance, _, _, _ in results}
     report_keys = _load_report_keys_for_users(db, user_ids, attendance_dates)
-    approved_wfh_keys = _load_approved_wfh_keys_for_users(db, user_ids, attendance_dates)
-    holiday_dates = _load_holiday_dates(db, attendance_dates)
 
     working_sunday_keys = _load_working_sunday_keys_for_users(db, user_ids, attendance_dates)
     manual_leave_categories = _load_manual_override_leave_categories(
@@ -1229,7 +1201,7 @@ def get_all_attendance(
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
-            "status": _determine_attendance_status_for_record(db, attendance, approved_wfh_keys, holiday_dates),
+            "status": _format_attendance_status(attendance, db),
             "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
@@ -1408,9 +1380,6 @@ def _add_monthly_summary_counts(summary: dict, status: str, attendance_record) -
     if status == "Holiday":
         summary["Holiday"] += 1
         return
-    if status == "Extra Working Day":
-        summary["Extra Working Day"] += 1
-        return
     update_summary_counts(summary, status)
 
 
@@ -1522,9 +1491,6 @@ def monthly_summary(
         if r.check_in and r.check_out:
             hours = (r.check_out - r.check_in).total_seconds() / 3600
             total_hours += hours
-
-    for wfh_date in approved_wfh_dates - processed_dates:
-        summary["WFH"] += 1
 
     # Configured holidays do not necessarily have an attendance row. Count each
     # applicable holiday once so the chart agrees with the calendar.
@@ -1834,8 +1800,6 @@ def manual_update(
 
         if update_data["status"] == "On Leave":
             record.status = "On Leave"
-            record.check_in = None
-            record.check_out = None
             _apply_manual_override_leave(db, record, leave_category or "Paid")
         else:
             _clear_legacy_leave_requests_on_override(db, record)
@@ -1937,8 +1901,6 @@ def manual_update_by_user_date(
 
         if update_data["status"] == "On Leave":
             record.status = "On Leave"
-            record.check_in = None
-            record.check_out = None
             _apply_manual_override_leave(db, record, leave_category or "Paid")
         else:
             _clear_legacy_leave_requests_on_override(db, record)
@@ -2237,8 +2199,33 @@ def decide_half_day(
     half_day_request.status = payload.status
     half_day_request.approved_by = current_user.id
     half_day_request.approved_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+    slot_label = HALF_DAY_SLOT_LABELS[half_day_request.slot]
+    if payload.status == "Approved" and request_user.id != current_user.id:
+        create_notification(
+            db,
+            recipient_user_id=request_user.id,
+            actor_user_id=current_user.id,
+            notification_type="half_day.approved",
+            title="Half-day request approved",
+            message=(
+                f"Your half-day request for {half_day_request.attendance_date} "
+                f"({slot_label}) was approved."
+            ),
+            route="/attendance",
+            entity_type="half_day_request",
+            entity_id=half_day_request.id,
+        )
     db.commit()
     db.refresh(half_day_request)
+
+    if payload.status == "Approved" and request_user.email:
+        send_half_day_decision_notification(
+            request_user.email,
+            request_user.name,
+            payload.status,
+            half_day_request.attendance_date,
+            slot_label,
+        )
 
     db.add(
         ActivityLog(

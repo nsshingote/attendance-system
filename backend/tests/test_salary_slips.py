@@ -7,6 +7,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 import routers.employee_documents as salary_router
@@ -344,18 +345,48 @@ def test_half_day_and_lwp_are_recalculated_on_approval(db_session: Session, monk
     assert result["half_day_days"] == 2
 
 
-def test_employee_request_uses_backend_attendance_counts_not_submitted_counts(db_session: Session, monkeypatch):
+def test_employee_request_saves_employee_submitted_day_counts(db_session: Session, monkeypatch):
     employee = make_user(db_session)
-    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 1.0, "half_day_days": 2.0})
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: pytest.fail("employee request must not derive attendance counts"))
     payload = SalarySlipRequestCreate(
         month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions(),
-        lwp_days=20, half_day_days=20,
+        employee_details=structured_details(), lwp_days=1, half_day_days=2,
     )
     result = salary_router.request_salary_slip(payload, db_session, employee)
     assert result["lwp_days"] == 1
     assert result["half_day_days"] == 2
-    assert result["lop_deduction"] == 403.23
-    assert result["half_day_deduction"] == 403.23
+    assert result["lop_deduction"] == 416.67
+    assert result["half_day_deduction"] == 416.67
+    reopened = salary_router.review_salary_slip(result["id"], SalarySlipReviewUpdate(), db_session, make_user(db_session, "admin"))
+    assert reopened["lwp_days"] == 1
+    assert reopened["half_day_days"] == 2
+
+
+@pytest.mark.parametrize("field", ["lwp_days", "half_day_days"])
+def test_employee_salary_request_rejects_negative_day_counts(field: str):
+    with pytest.raises(ValidationError):
+        SalarySlipRequestCreate(month=5, year=2026, **{field: -0.5})
+
+
+def test_employee_salary_request_defaults_omitted_day_counts_to_zero(db_session: Session):
+    employee = make_user(db_session)
+    created = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows()),
+        db_session, employee,
+    )
+    assert created["lwp_days"] == 0
+    assert created["half_day_days"] == 0
+
+
+def test_employee_salary_request_preserves_explicit_zero_day_counts(db_session: Session):
+    employee = make_user(db_session)
+    created = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows(), lwp_days=0, half_day_days=0),
+        db_session, employee,
+    )
+    assert created["lwp_days"] == 0
+    assert created["half_day_days"] == 0
 
 
 def test_employee_cannot_set_request_deduction_amounts_but_admin_can(db_session: Session, monkeypatch):
@@ -441,20 +472,26 @@ def test_admin_reviewed_deductions_survive_approval_when_approval_omits_rows(db_
     assert approved["net_pay"] == 12200
 
 
-def test_review_without_counts_refreshes_pending_attendance_suggestions(db_session: Session, monkeypatch):
+def test_review_without_counts_preserves_employee_submitted_day_counts(db_session: Session, monkeypatch):
     employee = make_user(db_session)
     admin = make_user(db_session, "admin")
     monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
-    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 0.0, "half_day_days": 0.0})
+    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: pytest.fail("pending request review must preserve submitted counts"))
     pending = salary_router.request_salary_slip(
-        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows()), db_session, employee,
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows(), lwp_days=1.5, half_day_days=0.5), db_session, employee,
     )
-    monkeypatch.setattr(salary_router, "derive_salary_attendance_counts", lambda *_args: {"lwp_days": 3.0, "half_day_days": 2.0})
     refreshed = salary_router.review_salary_slip(
         pending["id"], SalarySlipReviewUpdate(), db_session, admin,
     )
-    assert refreshed["lwp_days"] == 3
-    assert refreshed["half_day_days"] == 2
+    assert refreshed["lwp_days"] == 1.5
+    assert refreshed["half_day_days"] == 0.5
+    monkeypatch.setattr(salary_router, "send_email", lambda *_args, **_kwargs: False)
+    approved = salary_router.approve_salary_slip(
+        pending["id"], SalarySlipReviewUpdate(), db_session, admin,
+    )
+    assert approved["status"] == "Sent"
+    assert approved["lwp_days"] == 1.5
+    assert approved["half_day_days"] == 0.5
 
 
 def test_attendance_count_suggestions_respect_leave_dates_and_calendar_rules(db_session: Session, monkeypatch):

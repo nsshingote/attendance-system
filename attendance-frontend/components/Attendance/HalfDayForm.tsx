@@ -19,6 +19,7 @@ import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
+import { HALF_DAY_SLOTS } from "@/lib/halfDayPresentation";
 
 interface HalfDayFormProps {
   isAdmin: boolean;
@@ -32,11 +33,6 @@ interface UserOption {
   name: string;
   attendance_mode?: string | null;
 }
-
-const SLOTS = [
-  { value: "morning", label: "Morning — 10:00 AM to 2:30 PM" },
-  { value: "afternoon", label: "Afternoon — 2:30 PM to 6:30 PM" },
-];
 
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
@@ -153,7 +149,7 @@ export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, o
       <div>
         <label className="mb-1.5 block text-sm font-medium text-ink-700">Slot</label>
         <div className="space-y-2">
-          {SLOTS.map((s) => (
+          {HALF_DAY_SLOTS.map((s) => (
             <label
               key={s.value}
               className="flex items-center gap-2.5 rounded-lg border border-ink-200 px-3 py-2.5 text-sm has-:checked:border-brand-400 has-:checked:bg-brand-50"

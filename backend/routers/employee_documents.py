@@ -517,15 +517,15 @@ def _salary_calculation_from_payload(payload, employee: User, month: int, year: 
             earnings = existing_earnings
         if deductions is None:
             deductions = existing_deductions
-        suggestions = derive_salary_attendance_counts(db, employee, year, month)
-        if payload.lwp_days is None:
-            lwp_days = suggestions["lwp_days"]
+        if item.status == "Pending Review":
+            lwp_days = payload.lwp_days if payload.lwp_days is not None else item.lwp_days if item.lwp_days is not None else 0
+            half_day_days = payload.half_day_days if payload.half_day_days is not None else item.half_day_days if item.half_day_days is not None else 0
         else:
-            lwp_days = payload.lwp_days
-        if payload.half_day_days is None:
-            half_day_days = suggestions["half_day_days"]
-        else:
-            half_day_days = payload.half_day_days
+            suggestions = {"lwp_days": 0.0, "half_day_days": 0.0}
+            if payload.lwp_days is None or payload.half_day_days is None:
+                suggestions = derive_salary_attendance_counts(db, employee, year, month)
+            lwp_days = payload.lwp_days if payload.lwp_days is not None else suggestions["lwp_days"]
+            half_day_days = payload.half_day_days if payload.half_day_days is not None else suggestions["half_day_days"]
         employee_details = existing_details
     else:
         employee_details = payload.employee_details
@@ -621,7 +621,6 @@ def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(
         raise HTTPException(status_code=409, detail="A salary slip request or slip already exists for this month")
     if payload.earnings is None and payload.particulars is None:
         raise HTTPException(status_code=422, detail="Salary-slip earnings are required")
-    attendance_counts = derive_salary_attendance_counts(db, current_user, payload.year, payload.month)
     # Request deduction values are client-controlled. Seed the pending request
     # from the latest admin-reviewed slip, then let an authorized reviewer edit
     # or replace those values in the normal review workflow.
@@ -633,7 +632,8 @@ def request_salary_slip(payload: SalarySlipRequestCreate, db: Session = Depends(
     calculation = _calculate_salary_slip(
         current_user, payload.month, payload.year, employee_details=payload.employee_details,
         earnings=payload.earnings, deductions=trusted_deductions,
-        lwp_days=attendance_counts["lwp_days"], half_day_days=attendance_counts["half_day_days"],
+        lwp_days=payload.lwp_days if payload.lwp_days is not None else 0,
+        half_day_days=payload.half_day_days if payload.half_day_days is not None else 0,
         particulars=payload.particulars,
     )
     _apply_company_salary_payment_mode(db, calculation)

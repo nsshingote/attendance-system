@@ -122,7 +122,7 @@ def get_admin_dashboard(
         emp.id: determine_attendance_status_for_date(db, emp.id, today)
         for emp in employees
     }
-    present_count = sum(1 for status in today_status_map.values() if status in ["Present", "Late", "Half Day", "WFH"])
+    present_count = sum(1 for status in today_status_map.values() if status in ["Present", "Late", "Half Day", "WFH", "Extra Working Day"])
     half_day_count = sum(1 for status in today_status_map.values() if status == "Half Day")
     late_count = sum(1 for status in today_status_map.values() if status == "Late")
     wfh_count = sum(1 for status in today_status_map.values() if status == "WFH")

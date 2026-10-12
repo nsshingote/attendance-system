@@ -315,8 +315,8 @@ class SalarySlipCreate(BaseModel):
     employee_details: Optional[SalarySlipEmployeeDetails] = None
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
-    lwp_days: Optional[float] = None
-    half_day_days: Optional[float] = None
+    lwp_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    half_day_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     particulars: Optional[List[SalarySlipParticular]] = None
     send: bool = False
 
@@ -327,8 +327,8 @@ class SalarySlipRequestCreate(BaseModel):
     employee_details: Optional[SalarySlipEmployeeDetails] = None
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
-    lwp_days: Optional[float] = None
-    half_day_days: Optional[float] = None
+    lwp_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    half_day_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     particulars: Optional[List[SalarySlipParticular]] = None
 
 
@@ -336,8 +336,8 @@ class SalarySlipReviewUpdate(BaseModel):
     employee_details: Optional[SalarySlipEmployeeDetails] = None
     earnings: Optional[List[SalarySlipRow]] = None
     deductions: Optional[List[SalarySlipRow]] = None
-    lwp_days: Optional[float] = None
-    half_day_days: Optional[float] = None
+    lwp_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    half_day_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     particulars: Optional[List[SalarySlipParticular]] = None
 
 
@@ -502,7 +502,11 @@ class CorrectionCreate(BaseModel):
 
 
 class CorrectionDecision(BaseModel):
-    status: str  # "Approved" or "Rejected"
+    status: Literal["Approved", "Rejected"]
+
+
+class CorrectionCancellation(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=255)
 
 
 class CorrectionOut(ORMBase):
@@ -517,6 +521,11 @@ class CorrectionOut(ORMBase):
     new_check_out: Optional[datetime] = None
     status: str
     created_at: datetime
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    cancelled_by: Optional[int] = None
+    cancelled_at: Optional[datetime] = None
+    cancellation_reason: Optional[str] = None
 
 # =========================================================
 # Leave
