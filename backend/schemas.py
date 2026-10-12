@@ -509,6 +509,21 @@ class CorrectionCancellation(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=255)
 
 
+class LegacyCorrection149Cancellation(BaseModel):
+    correction_id: Literal[149]
+    attendance_id: Literal[1424]
+    user_id: Literal[23]
+    attendance_date: date
+    expected_check_in: datetime
+    expected_check_out: datetime
+    expected_status: Literal[
+        "Present", "Late", "Half Day", "Absent", "Holiday", "WFH", "On Leave", "Extra Working Day"
+    ]
+    restore_outcome: Literal["weekly_off_no_attendance"]
+    confirmation: Literal["I_CONFIRM_CLEAR_ATTENDANCE_FOR_WEEKLY_OFF_149"]
+    reason: str = Field(min_length=1, max_length=255)
+
+
 class CorrectionOut(ORMBase):
     id: int
     attendance_id: int

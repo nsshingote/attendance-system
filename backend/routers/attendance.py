@@ -2006,12 +2006,34 @@ def request_half_day(
         status="Pending",
     )
     db.add(half_day_request)
+    db.flush()
     db.add(
         ActivityLog(
             user_id=current_user.id,
             activity=f"Requested half day ({payload.slot}) for {payload.attendance_date}",
         )
     )
+    slot_label = HALF_DAY_SLOT_LABELS[payload.slot]
+    for approver_id in get_approver_user_ids(
+        db,
+        employee_id=current_user.id,
+        permission_key="attendance.half_day.approve",
+        actor_user_id=current_user.id,
+    ):
+        create_notification(
+            db,
+            recipient_user_id=approver_id,
+            actor_user_id=current_user.id,
+            notification_type="half_day.submitted",
+            title="New half-day request",
+            message=(
+                f"{current_user.name} submitted a half-day request for "
+                f"{half_day_request.attendance_date} ({slot_label})."
+            ),
+            route="/leave",
+            entity_type="half_day_request",
+            entity_id=half_day_request.id,
+        )
     db.commit()
     db.refresh(half_day_request)
     return half_day_request

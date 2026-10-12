@@ -11,13 +11,14 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
 from database import get_db
-from models import User, Attendance, AttendanceCorrection
+from models import User, Attendance, AttendanceCorrection, ActivityLog, WorkingSunday
 from schemas import (
-    CorrectionOut, CorrectionCreate, CorrectionDecision, CorrectionCancellation
+    CorrectionOut, CorrectionCreate, CorrectionDecision, CorrectionCancellation,
+    LegacyCorrection149Cancellation,
 )
 from auth import get_current_user, has_permission, require_roles, require_admin_permission, effective_role_key
 from team_scope import require_team_member_access, require_team_permission, get_team_member_ids
-from utils.attendance_status import applicable_holiday, determine_attendance_status_for_date
+from utils.attendance_status import applicable_holiday, determine_attendance_status_for_date, is_weekly_off
 from utils.logger import log_activity
 from services.notifications import create_notification, get_approver_user_ids
 
@@ -377,10 +378,18 @@ def cancel_approved_correction(
     require_team_member_access(db, current_user, correction.requested_by, "corrections.approve")
     if correction.status != "Approved":
         raise HTTPException(status_code=400, detail="Only approved corrections can be cancelled")
-    if not correction.approval_before_state or not correction.approval_after_state:
+    required_snapshot_fields = {column.name for column in Attendance.__table__.columns}
+    before_state = correction.approval_before_state
+    after_state = correction.approval_after_state
+    if (
+        not isinstance(before_state, dict)
+        or not isinstance(after_state, dict)
+        or not required_snapshot_fields.issubset(before_state)
+        or not required_snapshot_fields.issubset(after_state)
+    ):
         raise HTTPException(
             status_code=409,
-            detail="This correction has no approval-time snapshot and cannot be safely cancelled",
+            detail="This correction has missing or malformed approval-time snapshots and cannot be safely cancelled",
         )
 
     attendance = db.query(Attendance).filter(
@@ -390,23 +399,174 @@ def cancel_approved_correction(
         raise HTTPException(status_code=409, detail="The attendance record is missing or no longer belongs to the requester")
 
     current_state = _attendance_state(attendance)
-    if current_state != correction.approval_after_state:
+    if current_state != after_state:
         raise HTTPException(
             status_code=409,
             detail="Attendance changed after this correction was approved; rollback was not applied",
         )
 
-    for field in ("check_in", "check_out", "status"):
-        before_value = _state_value(field, correction.approval_before_state[field])
-        after_value = _state_value(field, correction.approval_after_state[field])
-        if before_value != after_value:
-            setattr(attendance, field, before_value)
+    try:
+        restored_values = {}
+        approved_values = {}
+        valid_statuses = set(Attendance.__table__.columns["status"].type.enums)
+        for field in ("check_in", "check_out", "status"):
+            before_value = before_state[field]
+            after_value = after_state[field]
+            if field == "status":
+                if (
+                    (before_value is not None and (
+                        not isinstance(before_value, str)
+                        or before_value not in valid_statuses
+                    ))
+                    or not isinstance(after_value, str)
+                    or after_value not in valid_statuses
+                ):
+                    raise ValueError("Invalid attendance status in snapshot")
+            elif (
+                before_value is not None and not isinstance(before_value, str)
+            ) or (
+                after_value is not None and not isinstance(after_value, str)
+            ):
+                raise ValueError("Invalid timestamp in snapshot")
+            restored_values[field] = _state_value(field, before_value)
+            approved_values[field] = _state_value(field, after_value)
+    except (TypeError, ValueError, KeyError) as error:
+        raise HTTPException(
+            status_code=409,
+            detail="This correction has malformed approval-time values and cannot be safely cancelled",
+        ) from error
+    try:
+        for field in ("check_in", "check_out", "status"):
+            if restored_values[field] != approved_values[field]:
+                setattr(attendance, field, restored_values[field])
 
-    correction.status = "Cancelled"
-    correction.cancelled_by = current_user.id
-    correction.cancelled_at = datetime.now(ZoneInfo("Asia/Kolkata"))
-    correction.cancellation_reason = payload.reason
-    db.commit()
+        correction.status = "Cancelled"
+        correction.cancelled_by = current_user.id
+        correction.cancelled_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        correction.cancellation_reason = payload.reason
+        db.add(ActivityLog(
+            user_id=current_user.id,
+            activity=f"Cancelled approved correction #{correction_id}",
+        ))
+        db.commit()
+    except Exception as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Correction cancellation failed; attendance, correction, and audit changes were rolled back",
+        ) from error
+
     db.refresh(correction)
-    log_activity(db, current_user.id, f"Cancelled approved correction #{correction_id}")
     return correction
+
+
+@router.post("/149/cancel-legacy", response_model=CorrectionOut)
+def cancel_legacy_correction_149(
+    payload: LegacyCorrection149Cancellation,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Explicit, one-record recovery for correction 149, whose snapshots are unavailable."""
+    if effective_role_key(current_user) not in {"admin", "superadmin"}:
+        raise HTTPException(status_code=403, detail="Only Admin or Super Admin can perform this recovery")
+    if payload.attendance_date != date(2026, 10, 11):
+        raise HTTPException(status_code=409, detail="Correction 149 is not for the confirmed attendance date")
+
+    try:
+        correction = (
+            db.query(AttendanceCorrection)
+            .filter(AttendanceCorrection.id == 149)
+            .with_for_update()
+            .first()
+        )
+        if (
+            not correction
+            or correction.attendance_id != 1424
+            or correction.requested_by != 23
+            or correction.status != "Approved"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Correction 149 no longer matches the approved legacy recovery preconditions",
+            )
+        if (
+            correction.approval_before_state is not None
+            or correction.approval_after_state is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Correction 149 now has snapshots; use normal snapshot-based cancellation",
+            )
+
+        attendance = (
+            db.query(Attendance)
+            .filter(Attendance.id == 1424)
+            .with_for_update()
+            .first()
+        )
+        if (
+            not attendance
+            or attendance.user_id != 23
+            or attendance.attendance_date != payload.attendance_date
+        ):
+            raise HTTPException(status_code=409, detail="Attendance 1424 no longer matches the confirmed user and date")
+
+        if (
+            attendance.check_in != payload.expected_check_in
+            or attendance.check_out != payload.expected_check_out
+            or attendance.status != payload.expected_status
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Attendance 1424 changed or does not match the values you confirmed",
+            )
+        if (
+            correction.old_check_in != datetime(2026, 10, 11, 12, 43, 57)
+            or correction.old_check_out is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Correction 149 no longer has the confirmed request-time values",
+            )
+        if (
+            not is_weekly_off(payload.attendance_date, db)
+            or applicable_holiday(db, 23, payload.attendance_date)
+            or db.query(WorkingSunday.id).filter(
+                WorkingSunday.user_id == 23,
+                WorkingSunday.work_date == payload.attendance_date,
+            ).first()
+            or attendance.manual_override
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Attendance 1424 is not currently eligible for calendar-derived Weekly Off restoration",
+            )
+
+        attendance.check_in = None
+        attendance.check_out = None
+        attendance.status = "Absent"
+        correction.status = "Cancelled"
+        correction.cancelled_by = current_user.id
+        correction.cancelled_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        correction.cancellation_reason = payload.reason
+        db.add(ActivityLog(
+            user_id=current_user.id,
+            activity="Performed administrator-confirmed no-attendance weekly-off recovery for correction #149",
+        ))
+        db.flush()
+        if determine_attendance_status_for_date(db, 23, payload.attendance_date) != "Weekly Off":
+            raise HTTPException(
+                status_code=409,
+                detail="The existing attendance resolver would not display Weekly Off after this recovery",
+            )
+        db.commit()
+        return correction
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Legacy correction recovery failed; attendance and correction changes were rolled back",
+        ) from error

@@ -101,6 +101,43 @@ export function CorrectionsContent() {
   };
 
   const handleCancel = async (id: number) => {
+    if (id === 149) {
+      const correction = all.find((row) => row.id === 149);
+      if (!correction) {
+        toast.error("Correction 149 is not available in the current review list.");
+        return;
+      }
+      if (!correction.old_check_in || correction.old_check_out !== null) {
+        toast.error("Correction 149 does not contain the expected request-time values for this recovery.");
+        return;
+      }
+      const expectedStatus = window.prompt(
+        "Verify the CURRENT stored attendance status for user 23 on 11 Oct 2026 (Present, Late, Half Day, Absent, Holiday, WFH, On Leave, or Extra Working Day).",
+      );
+      if (!expectedStatus) return;
+      if (!window.confirm(
+        "This one-record recovery clears both attendance timestamps and stores Absent for correction 149 / attendance 1424 / user 23. The existing resolver should then display Weekly Off because this date has no work assignment or holiday. The request-time old check-in does not prove the state before approval. Confirm this administrator-directed recovery.",
+      )) return;
+      try {
+        await api.post("/corrections/149/cancel-legacy", {
+          correction_id: 149,
+          attendance_id: 1424,
+          user_id: 23,
+          attendance_date: "2026-10-11",
+          expected_check_in: "2026-10-11T09:00:00",
+          expected_check_out: "2026-10-11T18:30:00",
+          expected_status: expectedStatus,
+          restore_outcome: "weekly_off_no_attendance",
+          confirmation: "I_CONFIRM_CLEAR_ATTENDANCE_FOR_WEEKLY_OFF_149",
+          reason: "Administrator-confirmed no-attendance weekly-off recovery for correction 149",
+        });
+        toast.success("Correction 149 cancelled; attendance cleared and calendar status restored.");
+        fetchData();
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+      return;
+    }
     if (!window.confirm("Cancel this approved correction and restore the attendance values it changed?")) return;
     try {
       await api.post(`/corrections/${id}/cancel`, {});

@@ -84,6 +84,72 @@ def decide_half_day(
     )
 
 
+def test_half_day_submission_notifies_active_admins_and_superadmins(
+    db_session: Session,
+):
+    employee = make_user(db_session)
+    admin = make_user(db_session, role="admin")
+    superadmin = make_user(db_session, role="superadmin")
+    inactive_admin = make_user(db_session, role="admin")
+    inactive_admin.status = "inactive"
+    db_session.commit()
+    attendance_date = date(2026, 10, 20)
+
+    request = attendance_router.request_half_day(
+        HalfDayCreate(
+            attendance_date=attendance_date,
+            slot="morning",
+        ),
+        db_session,
+        employee,
+    )
+
+    notifications = db_session.query(Notification).order_by(Notification.recipient_user_id).all()
+    assert {notification.recipient_user_id for notification in notifications} == {
+        admin.id,
+        superadmin.id,
+    }
+    assert all(notification.recipient_user_id != employee.id for notification in notifications)
+    assert all(notification.notification_type == "half_day.submitted" for notification in notifications)
+    assert all(notification.title == "New half-day request" for notification in notifications)
+    assert all(
+        notification.message
+        == f"{employee.name} submitted a half-day request for {attendance_date} (Morning Slot)."
+        for notification in notifications
+    )
+    assert all(notification.route == "/leave" for notification in notifications)
+    assert all(notification.entity_type == "half_day_request" for notification in notifications)
+    assert all(notification.entity_id == request.id for notification in notifications)
+
+
+def test_half_day_submission_failure_does_not_persist_request_or_notifications(
+    db_session: Session,
+    monkeypatch,
+):
+    employee = make_user(db_session)
+    make_user(db_session, role="admin")
+    original_commit = db_session.commit
+
+    def fail_commit():
+        raise RuntimeError("simulated request transaction failure")
+
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="simulated request transaction failure"):
+        attendance_router.request_half_day(
+            HalfDayCreate(
+                attendance_date=date(2026, 10, 20),
+                slot="afternoon",
+            ),
+            db_session,
+            employee,
+        )
+
+    monkeypatch.setattr(db_session, "commit", original_commit)
+    db_session.rollback()
+    assert db_session.query(HalfDayRequest).count() == 0
+    assert db_session.query(Notification).count() == 0
+
+
 def test_approved_half_day_notifies_employee_and_emails_slot_and_date(db_session: Session, monkeypatch):
     employee = make_user(db_session, email="employee@example.com")
     admin = make_user(db_session, role="admin", email="admin@example.com")

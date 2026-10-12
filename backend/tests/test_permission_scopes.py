@@ -6,9 +6,11 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 import routers.activity_logs as activity_logs_router
+import routers.attendance as attendance_router
 import routers.attendance_correction as corrections_router
 import routers.reports as reports_router
 import routers.users as users_router
@@ -20,13 +22,20 @@ from models import (
     AttendanceCorrection,
     CompanySettings,
     EmployeeProfileEditRequest,
+    Holiday,
     PastReportSubmissionRequest,
     Team,
     TeamMember,
     User,
     WorkingSunday,
 )
-from schemas import CorrectionCancellation, CorrectionCreate, CorrectionDecision, ProfileEditRequestDecision
+from schemas import (
+    CorrectionCancellation,
+    CorrectionCreate,
+    CorrectionDecision,
+    LegacyCorrection149Cancellation,
+    ProfileEditRequestDecision,
+)
 from utils.attendance_status import determine_attendance_status_for_date
 
 
@@ -165,6 +174,15 @@ def test_cancelled_sunday_correction_restores_calendar_weekly_off(db_session: Se
     attendance = Attendance(user_id=employee.id, attendance_date=sunday, status="Absent")
     db_session.add(attendance)
     db_session.commit()
+    summary_before = attendance_router.monthly_summary(
+        user_id=employee.id,
+        year=sunday.year,
+        month=sunday.month,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=employee,
+    )
     correction = _approve_correction(
         db_session,
         employee,
@@ -191,6 +209,16 @@ def test_cancelled_sunday_correction_restores_calendar_weekly_off(db_session: Se
     assert attendance.check_in is None
     assert attendance.check_out is None
     assert determine_attendance_status_for_date(db_session, employee.id, sunday) == "Weekly Off"
+    summary_after = attendance_router.monthly_summary(
+        user_id=employee.id,
+        year=sunday.year,
+        month=sunday.month,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=employee,
+    )
+    assert summary_after["Absent"] == summary_before["Absent"]
 
 
 def test_cancelled_working_day_correction_restores_preapproval_timestamps(db_session: Session, monkeypatch):
@@ -225,6 +253,333 @@ def test_cancelled_working_day_correction_restores_preapproval_timestamps(db_ses
     assert cancelled.status == "Cancelled"
     assert attendance.check_in == original_in
     assert attendance.check_out == original_out
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity == f"Cancelled approved correction #{correction.id}"
+    ).count() == 1
+
+
+def test_correction_cancellation_restores_null_preapproval_status(db_session: Session, monkeypatch):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=date(2026, 10, 12),
+        check_in=datetime(2026, 10, 12, 9),
+        check_out=datetime(2026, 10, 12, 17),
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    attendance.status = None
+    db_session.commit()
+    correction = _approve_correction(
+        db_session, employee, attendance, new_check_out=datetime(2026, 10, 12, 16)
+    )
+    _allow_correction_approval(monkeypatch)
+
+    approved = corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+    assert approved.approval_before_state["status"] is None
+    assert approved.approval_after_state["status"] == "Present"
+
+    cancelled = corrections_router.cancel_approved_correction(
+        correction.id, CorrectionCancellation(), db_session, admin
+    )
+
+    assert cancelled.status == "Cancelled"
+    assert attendance.status is None
+    assert attendance.check_in == datetime(2026, 10, 12, 9)
+    assert attendance.check_out == datetime(2026, 10, 12, 17)
+
+
+def _legacy_149_recovery_payload(*, expected_status: str = "Present"):
+    return LegacyCorrection149Cancellation(
+        correction_id=149,
+        attendance_id=1424,
+        user_id=23,
+        attendance_date=date(2026, 10, 11),
+        expected_check_in=datetime(2026, 10, 11, 9),
+        expected_check_out=datetime(2026, 10, 11, 18, 30),
+        expected_status=expected_status,
+        restore_outcome="weekly_off_no_attendance",
+        confirmation="I_CONFIRM_CLEAR_ATTENDANCE_FOR_WEEKLY_OFF_149",
+        reason="Administrator-confirmed legacy recovery",
+    )
+
+
+def _create_legacy_correction_149(db: Session):
+    employee = _create_user(db)
+    employee.id = 23
+    db.flush()
+    admin = _create_user(db, "admin")
+    attendance = Attendance(
+        id=1424,
+        user_id=employee.id,
+        attendance_date=date(2026, 10, 11),
+        check_in=datetime(2026, 10, 11, 9),
+        check_out=datetime(2026, 10, 11, 18, 30),
+        status="Present",
+    )
+    correction = AttendanceCorrection(
+        id=149,
+        attendance_id=1424,
+        requested_by=23,
+        old_check_in=datetime(2026, 10, 11, 12, 43, 57),
+        old_check_out=None,
+        new_check_in=datetime(2026, 10, 11, 9),
+        new_check_out=datetime(2026, 10, 11, 18, 30),
+        status="Approved",
+        approval_before_state=None,
+        approval_after_state=None,
+    )
+    db.add_all([attendance, correction])
+    db.commit()
+    return employee, admin, attendance, correction
+
+
+def test_legacy_correction_149_recovery_restores_confirmed_values_atomically(db_session: Session):
+    _create_attendance_settings(db_session)
+    employee, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    summary_before = attendance_router.monthly_summary(
+        user_id=employee.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=employee,
+    )
+
+    cancelled = corrections_router.cancel_legacy_correction_149(
+        _legacy_149_recovery_payload(), db_session, admin
+    )
+    summary_after = attendance_router.monthly_summary(
+        user_id=employee.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=employee,
+    )
+
+    assert cancelled.id == 149
+    assert cancelled.status == "Cancelled"
+    assert attendance.check_in is None
+    assert attendance.check_out is None
+    assert attendance.status == "Absent"
+    assert determine_attendance_status_for_date(db_session, 23, date(2026, 10, 11)) == "Weekly Off"
+    assert summary_after["Absent"] == summary_before["Absent"]
+    assert correction.id == 149
+    assert db_session.query(Attendance).filter(Attendance.id == 1424).count() == 1
+    assert db_session.query(AttendanceCorrection).filter(AttendanceCorrection.id == 149).count() == 1
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity.contains("no-attendance weekly-off recovery for correction #149")
+    ).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("before_state", "after_state"),
+    [
+        ({}, None),
+        (None, {}),
+        ({}, {}),
+    ],
+)
+def test_legacy_correction_149_recovery_rejects_non_null_snapshots(
+    db_session: Session, before_state, after_state
+):
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    correction.approval_before_state = before_state
+    correction.approval_after_state = after_state
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert attendance.check_out == datetime(2026, 10, 11, 18, 30)
+    assert attendance.status == "Present"
+    assert correction.status == "Approved"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("correction_id", 150),
+        ("attendance_id", 1425),
+        ("user_id", 24),
+        ("restore_outcome", "request_time_values"),
+        ("confirmation", "CANCEL"),
+    ],
+)
+def test_legacy_correction_149_recovery_rejects_invalid_confirmation(
+    db_session: Session, field, value
+):
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    payload_values = _legacy_149_recovery_payload().model_dump()
+    payload_values[field] = value
+
+    with pytest.raises(ValidationError):
+        LegacyCorrection149Cancellation(**payload_values)
+
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert attendance.check_out == datetime(2026, 10, 11, 18, 30)
+    assert correction.status == "Approved"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("attendance_date", date(2026, 10, 12)),
+        ("expected_check_in", datetime(2026, 10, 11, 8)),
+        ("expected_check_out", datetime(2026, 10, 11, 18)),
+    ],
+)
+def test_legacy_correction_149_recovery_rejects_changed_record_preconditions(
+    db_session: Session, field, value
+):
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    payload_values = _legacy_149_recovery_payload().model_dump()
+    payload_values[field] = value
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            LegacyCorrection149Cancellation(**payload_values), db_session, admin
+        )
+    assert exc_info.value.status_code == 409
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert attendance.check_out == datetime(2026, 10, 11, 18, 30)
+    assert correction.status == "Approved"
+
+
+def test_legacy_correction_149_recovery_rejects_status_mismatch(db_session: Session):
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+
+    with pytest.raises(HTTPException) as status_error:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(expected_status="Late"), db_session, admin
+        )
+    assert status_error.value.status_code == 409
+
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert correction.status == "Approved"
+
+
+def test_legacy_correction_149_recovery_requires_calendar_weekly_off_conditions(db_session: Session):
+    _create_attendance_settings(db_session)
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    db_session.add(WorkingSunday(user_id=23, work_date=date(2026, 10, 11), marked_by=admin.id))
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert attendance.check_out == datetime(2026, 10, 11, 18, 30)
+    assert correction.status == "Approved"
+
+
+@pytest.mark.parametrize("condition", ["holiday", "manual_override", "not_weekly_off"])
+def test_legacy_correction_149_recovery_rejects_non_weekly_off_context(
+    db_session: Session, condition: str
+):
+    _create_attendance_settings(db_session)
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    if condition == "holiday":
+        db_session.add(Holiday(
+            holiday_date=date(2026, 10, 11),
+            holiday_name="Test Holiday",
+            applies_to="all_users",
+            created_by=admin.id,
+        ))
+    elif condition == "manual_override":
+        attendance.manual_override = True
+    elif condition == "not_weekly_off":
+        db_session.query(CompanySettings).one().weekly_off_day = "Saturday"
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert attendance.check_out == datetime(2026, 10, 11, 18, 30)
+    assert correction.status == "Approved"
+
+
+def test_legacy_correction_149_recovery_is_admin_only(db_session: Session):
+    _, _, attendance, correction = _create_legacy_correction_149(db_session)
+    team_leader = _create_user(db_session, "team_leader")
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(), db_session, team_leader
+        )
+
+    assert exc_info.value.status_code == 403
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert correction.status == "Approved"
+
+
+@pytest.mark.parametrize("correction_status", ["Pending", "Rejected", "Cancelled"])
+def test_legacy_correction_149_recovery_requires_approved_status(
+    db_session: Session, correction_status: str
+):
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    correction.status = correction_status
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert correction.status == correction_status
+
+
+def test_legacy_correction_149_recovery_rolls_back_failed_commit(db_session: Session, monkeypatch):
+    _create_attendance_settings(db_session)
+    _, admin, attendance, correction = _create_legacy_correction_149(db_session)
+    original_commit = db_session.commit
+
+    def fail_commit():
+        raise RuntimeError("simulated transaction failure")
+
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_legacy_correction_149(
+            _legacy_149_recovery_payload(), db_session, admin
+        )
+    assert exc_info.value.status_code == 500
+    monkeypatch.setattr(db_session, "commit", original_commit)
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == datetime(2026, 10, 11, 9)
+    assert attendance.check_out == datetime(2026, 10, 11, 18, 30)
+    assert correction.status == "Approved"
 
 
 def test_correction_cancellation_refuses_to_overwrite_later_attendance_edit(db_session: Session, monkeypatch):
@@ -259,6 +614,124 @@ def test_correction_cancellation_refuses_to_overwrite_later_attendance_edit(db_s
     assert "changed after" in exc_info.value.detail
     assert attendance.check_out == datetime(2026, 10, 12, 19)
     assert correction.status == "Approved"
+
+
+@pytest.mark.parametrize(
+    ("snapshot_field", "snapshot_value", "malformed_field"),
+    [
+        ("approval_before_state", {}, None),
+        ("approval_after_state", {}, None),
+        ("approval_before_state", "not-a-datetime", "check_in"),
+        ("approval_before_state", "not-a-status", "status"),
+    ],
+)
+def test_correction_cancellation_rejects_malformed_snapshots(
+    db_session: Session,
+    monkeypatch,
+    snapshot_field: str,
+    snapshot_value,
+    malformed_field: str | None,
+):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=date(2026, 10, 12),
+        check_in=datetime(2026, 10, 12, 9),
+        check_out=datetime(2026, 10, 12, 17),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(
+        db_session, employee, attendance, new_check_out=datetime(2026, 10, 12, 16)
+    )
+    _allow_correction_approval(monkeypatch)
+    corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+    if malformed_field:
+        snapshot_value = getattr(correction, snapshot_field).copy()
+        snapshot_value[malformed_field] = (
+            "not-a-datetime" if malformed_field == "check_in" else "not-a-status"
+        )
+    setattr(correction, snapshot_field, snapshot_value)
+    db_session.commit()
+    current_check_out = attendance.check_out
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_approved_correction(
+            correction.id, CorrectionCancellation(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 409
+    assert attendance.check_in == datetime(2026, 10, 12, 9)
+    assert attendance.check_out == current_check_out
+    assert correction.status == "Approved"
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity == f"Cancelled approved correction #{correction.id}"
+    ).count() == 0
+
+
+@pytest.mark.parametrize("failure_stage", ["audit_add", "commit"])
+def test_correction_cancellation_rolls_back_when_audit_or_commit_fails(
+    db_session: Session,
+    monkeypatch,
+    failure_stage: str,
+):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    original_in = datetime(2026, 10, 12, 9)
+    original_out = datetime(2026, 10, 12, 17)
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=date(2026, 10, 12),
+        check_in=original_in,
+        check_out=original_out,
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    correction = _approve_correction(
+        db_session, employee, attendance, new_check_out=datetime(2026, 10, 12, 16)
+    )
+    _allow_correction_approval(monkeypatch)
+    corrections_router.decide_correction(
+        correction.id, CorrectionDecision(status="Approved"), db_session, admin
+    )
+    original_add = db_session.add
+    original_commit = db_session.commit
+
+    if failure_stage == "audit_add":
+        def fail_audit_add(instance):
+            if isinstance(instance, ActivityLog):
+                raise RuntimeError("simulated audit insert failure")
+            original_add(instance)
+
+        monkeypatch.setattr(db_session, "add", fail_audit_add)
+    else:
+        def fail_commit():
+            raise RuntimeError("simulated transaction commit failure")
+
+        monkeypatch.setattr(db_session, "commit", fail_commit)
+
+    with pytest.raises(HTTPException) as exc_info:
+        corrections_router.cancel_approved_correction(
+            correction.id, CorrectionCancellation(), db_session, admin
+        )
+
+    assert exc_info.value.status_code == 500
+    monkeypatch.setattr(db_session, "add", original_add)
+    monkeypatch.setattr(db_session, "commit", original_commit)
+    db_session.refresh(attendance)
+    db_session.refresh(correction)
+    assert attendance.check_in == original_in
+    assert attendance.check_out == datetime(2026, 10, 12, 16)
+    assert attendance.status == "Present"
+    assert correction.status == "Approved"
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity == f"Cancelled approved correction #{correction.id}"
+    ).count() == 0
 
 
 def test_only_approved_corrections_can_be_cancelled(db_session: Session, monkeypatch):
