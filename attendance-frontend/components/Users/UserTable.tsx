@@ -36,6 +36,7 @@ interface UserTableProps {
   onResetDevice: (user: UserRow) => void;
   onToggleStatus: (user: UserRow) => void;
   readOnly?: boolean;
+  showEmployeeId?: boolean;
 }
 
 export default function UserTable({
@@ -44,6 +45,7 @@ export default function UserTable({
   onResetDevice,
   onToggleStatus,
   readOnly = false,
+  showEmployeeId = false,
 }: UserTableProps) {
   const [photoVersion, setPhotoVersion] = useState(Date.now());
 
@@ -64,12 +66,22 @@ export default function UserTable({
   return (
     <div className="w-full rounded-xl border border-ink-200 bg-white shadow-card">
       <div className="w-full overflow-x-auto touch-auto">
-        <table className="w-full max-w-none table-fixed text-left text-xs sm:text-sm" style={{ minWidth: "720px" }}>
-          <colgroup><col className="w-[8%]" /><col className="w-[20%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[12%]" /><col className="w-[14%]" /><col className="w-[18%]" /></colgroup>
+        <table className="w-full max-w-none table-fixed text-left text-xs sm:text-sm" style={{ minWidth: showEmployeeId ? "800px" : "720px" }}>
+          <colgroup>
+            <col className={showEmployeeId ? "w-[7%]" : "w-[8%]"} />
+            <col className={showEmployeeId ? "w-[16%]" : "w-[20%]"} />
+            {showEmployeeId && <col className="w-[10%]" />}
+            <col className={showEmployeeId ? "w-[12%]" : "w-[14%]"} />
+            <col className="w-[14%]" />
+            <col className={showEmployeeId ? "w-[11%]" : "w-[12%]"} />
+            <col className={showEmployeeId ? "w-[12%]" : "w-[14%]"} />
+            <col className="w-[18%]" />
+          </colgroup>
           <thead>
             <tr className="border-b border-ink-200 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500 sm:text-xs">
               <th className="px-3 py-3 font-medium sm:px-4"></th>
               <th className="px-3 py-3 font-medium sm:px-4">Name</th>
+              {showEmployeeId && <th className="px-3 py-3 font-medium sm:px-4">Employee ID</th>}
               <th className="px-3 py-3 font-medium sm:px-4">Mobile</th>
               <th className="px-3 py-3 font-medium sm:px-4">Department</th>
               <th className="px-3 py-3 font-medium sm:px-4">Role</th>
@@ -104,6 +116,8 @@ export default function UserTable({
                   <p className="wrap-break-word whitespace-normal font-medium text-ink-900">{u.name}</p>
                   <p className="wrap-break-word whitespace-normal text-[11px] text-ink-500 sm:text-xs">{u.designation}</p>
                 </td>
+
+                {showEmployeeId && <td className="px-3 py-3 text-ink-700 sm:px-4">{u.id}</td>}
 
                 <td className="px-3 py-3 text-ink-700 sm:px-4">{u.mobile}</td>
 

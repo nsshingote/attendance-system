@@ -56,7 +56,11 @@ def build_month_calendar(db: Session, year: int, month: int, user_id: int | None
         if iso in holidays_map:
             day_type = "holiday"
             label = holidays_map[iso]
-        elif company_settings and d.strftime("%A") == company_settings.weekly_off_day:
+        elif (
+            company_settings
+            and company_settings.weekly_off_day
+            and d.strftime("%A").casefold() == company_settings.weekly_off_day.casefold()
+        ):
             day_type = "weekly_off"
             label = company_settings.weekly_off_day
         else:

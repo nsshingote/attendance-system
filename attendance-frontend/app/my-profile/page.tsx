@@ -17,7 +17,7 @@ import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
 import { HIDDEN_PDF_PREVIEW_CONTAINER_STYLE } from "@/lib/dynamicLetterLayout";
 import { shareIOSFile } from "@/lib/iosFileDownload";
 import { isIOSBrowser } from "@/lib/pdfDownload";
-import { canShowSalaryBreakdown, storedSalaryNetPay } from "@/lib/salarySlipPresentation";
+import { canShowSalaryBreakdown, salarySlipAmounts } from "@/lib/salarySlipPresentation";
 import api, { getErrorMessage, getProfilePhotoUrl } from "@/lib/api";
 import { getToken, updateSessionName } from "@/lib/auth";
 
@@ -371,13 +371,8 @@ export default function MyProfilePage() {
     details.payment_mode = companyBranding?.salary_payment_mode || details.payment_mode;
     const earnings = slip.earnings || (() => { try { return JSON.parse(slip.particulars) as SalaryRow[]; } catch { return []; } })();
     const deductions = slip.deductions || [];
-    const totalEarnings = Number(slip.total_earnings ?? slip.total_amount ?? 0);
-    const lopDeduction = Number(slip.lop_deduction ?? 0);
-    const halfDayDeduction = Number(slip.half_day_deduction ?? 0);
-    const salaryBreakdownTotal = Number(slip.salary_breakdown_total ?? (totalEarnings - lopDeduction - halfDayDeduction));
-    const otherDeductionTotal = deductions.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const { lopDeduction, halfDayDeduction, salaryBreakdownTotal, totalDeductions, netPay } = salarySlipAmounts(slip);
     const breakdownAvailable = canShowSalaryBreakdown(slip);
-    const netPay = storedSalaryNetPay(slip);
     let y = 17;
 
     try {
@@ -446,7 +441,7 @@ export default function MyProfilePage() {
       pdf.text("Original breakdown data is incomplete; the stored net amount is shown below.", margin, y); y += 8;
     } else {
       drawRows("SALARY BREAKDOWN", [...earnings, { name: "Leave Without Pay", amount: -lopDeduction }, { name: "Half-Day", amount: -halfDayDeduction }], "SALARY BREAKDOWN TOTAL", salaryBreakdownTotal);
-      drawRows("DEDUCTIONS", deductions, "TOTAL DEDUCTIONS", otherDeductionTotal);
+      drawRows("DEDUCTIONS", deductions, "TOTAL DEDUCTIONS", totalDeductions);
     }
     ensureSpace(36); pdf.setFillColor(239, 246, 255); pdf.rect(margin, y - 4, contentWidth, 10, "F");
     pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(31, 41, 55);
@@ -1112,18 +1107,13 @@ export default function MyProfilePage() {
                   details.payment_mode = companyBranding?.salary_payment_mode || details.payment_mode;
                   const earnings = selectedSlip.earnings || (JSON.parse(selectedSlip.particulars || "[]") as SalaryRow[]);
                   const deductions = selectedSlip.deductions || [];
-                  const totalEarnings = selectedSlip.total_earnings ?? selectedSlip.total_amount;
-                  const lwpDeduction = selectedSlip.lop_deduction || 0;
-                  const halfDayDeduction = selectedSlip.half_day_deduction || 0;
-                  const salaryBreakdownTotal = selectedSlip.salary_breakdown_total ?? (totalEarnings - lwpDeduction - halfDayDeduction);
-                  const otherDeductionTotal = deductions.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+                  const { lopDeduction: lwpDeduction, halfDayDeduction, salaryBreakdownTotal, totalDeductions, netPay } = salarySlipAmounts(selectedSlip);
                   const breakdownAvailable = canShowSalaryBreakdown(selectedSlip);
-                  const netPay = storedSalaryNetPay(selectedSlip);
                   return <>
                     <section className="mt-3"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Employee Details</h3><dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">{([["Name", details.name], ["Designation", details.designation], ["Department", details.department], ["Phone Number", details.phone_number], ["Email", details.email], ["Joining Date", details.joining_date], ["PAN No.", details.pan_number], ["Account No.", details.account_number], ["Location", details.location], ["Payment Mode", details.payment_mode], ["Days in Month", details.days_in_month], ["Days Worked", details.days_worked], ["Leave Without Pay", selectedSlip.historical_breakdown_incomplete ? "Not recorded" : selectedSlip.lwp_days || 0], ["Half-Day", selectedSlip.historical_breakdown_incomplete ? "Not recorded" : selectedSlip.half_day_days || 0]] as [string, string | number][]).map(([label, value]) => <div key={label}><dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt><dd className="mt-1 font-medium text-ink-900">{value ?? "?"}</dd></div>)}</dl></section>
                     {!breakdownAvailable ? <section className="mt-7 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Original breakdown data is incomplete. The stored net amount below is preserved; no breakdown total is inferred.</section> : <>
                     <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Salary Breakdown</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody>{earnings.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-ink-50/60" : "bg-white"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}<tr className="bg-ink-50/60"><td className="px-4 py-2">Leave Without Pay</td><td className="px-4 py-2 text-right font-medium text-red-700">−{money(lwpDeduction)}</td></tr><tr><td className="px-4 py-2">Half-Day</td><td className="px-4 py-2 text-right font-medium text-red-700">−{money(halfDayDeduction)}</td></tr></tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Salary Breakdown Total</th><th className="px-4 py-2 text-right">{money(salaryBreakdownTotal)}</th></tr></tfoot></table></div></section>
-                    <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Deductions</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody>{deductions.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-ink-50/60"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Deductions</th><th className="px-4 py-2 text-right">{money(otherDeductionTotal)}</th></tr></tfoot></table></div></section>
+                    <section className="mt-7"><h3 className="border-b border-ink-200 pb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Deductions</h3><div className="mt-3 overflow-hidden rounded-lg border border-ink-200"><table className="w-full text-sm"><thead className="bg-brand-50 text-left text-xs font-semibold uppercase tracking-wide text-brand-800"><tr><th className="px-4 py-2">Description</th><th className="px-4 py-2 text-right">Amount</th></tr></thead><tbody>{deductions.map((row, index) => <tr key={`${row.name}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-ink-50/60"}><td className="px-4 py-2">{row.name}</td><td className="px-4 py-2 text-right font-medium">{money(row.amount)}</td></tr>)}</tbody><tfoot className="border-t bg-brand-50"><tr><th className="px-4 py-2 text-left">Total Deductions</th><th className="px-4 py-2 text-right">{money(totalDeductions)}</th></tr></tfoot></table></div></section>
                     </>}
                     <section className="mt-5 rounded-lg bg-brand-50 p-4"><div className="flex justify-between text-base font-bold"><span>Net Salary</span><span>{money(netPay)}</span></div><p className="mt-2 text-xs"><strong>Amount in Words:</strong> {numberWords(netPay)}</p><p className="mt-2 text-center text-xs text-ink-500">This is a system-generated salary slip. No signature is required.</p></section>
                   </>;

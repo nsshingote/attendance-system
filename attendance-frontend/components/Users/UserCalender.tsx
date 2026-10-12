@@ -20,8 +20,8 @@ interface CalendarDay {
   day_type: string;
   status?: string;
   label?: string;
-  check_in?: string;
-  check_out?: string;
+  check_in?: string | null;
+  check_out?: string | null;
   leave_category?: string | null;
   is_manual_override?: boolean;
   working_day_label?: "Working Day" | "Extra Working Day" | null;
@@ -318,7 +318,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                       value={statusLocal}
                       onChange={(e) => {
                         setStatusLocal(e.target.value);
-                        if (e.target.value === "On Leave") {
+                        if (e.target.value === "On Leave" || e.target.value === "Weekly Off") {
                           setEnterTimesLocal(false);
                           setCheckInTimeLocal("");
                           setCheckOutTimeLocal("");
@@ -326,7 +326,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                       }}
                       className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                     >
-                      {["Present", "Late", "Absent", "WFH", "Half Day", "On Leave", "Extra Working Day"].map((status) => (
+                      {["Present", "Late", "Absent", "WFH", "Half Day", "On Leave", "Extra Working Day", "Weekly Off"].map((status) => (
                         <option key={status} value={status}>{status}</option>
                       ))}
                     </select>
@@ -346,6 +346,10 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                         <option value="Carried">Carried</option>
                       </select>
                     </label>
+                  ) : statusLocal === "Weekly Off" ? (
+                    <p className="text-xs text-ink-500">
+                      Check-in and check-out times will be cleared for Weekly Off.
+                    </p>
                   ) : (
                     <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
                       <p className="mb-2 text-sm font-medium text-ink-700">Do you want to fill Check-in and Check-out time?</p>
@@ -419,14 +423,22 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                             const payload: { status: string; check_in: null | string; check_out: null | string; leave_category?: string } = { status: normalized, check_in: null, check_out: null };
                             if (normalized === "On Leave") {
                               payload.leave_category = leaveCategoryRef.current?.value || "Paid";
-                            } else if (enterTimesLocal) {
+                            } else if (enterTimesLocal && normalized !== "Weekly Off") {
                               payload.check_in = checkInTimeLocal ? `${selectedDateLocal}T${checkInTimeLocal}:00` : null;
                               payload.check_out = checkOutTimeLocal ? `${selectedDateLocal}T${checkOutTimeLocal}:00` : null;
                             }
                             await api.put(`/attendance/user/${targetUserId}/date/${selectedDateLocal}`, payload);
                           toast.success("Override saved");
                           // update local day data
-                          setDays((prev) => prev.map(d => d.date === selectedDateLocal ? { ...d, status: normalized, leave_category: payload.leave_category ?? d.leave_category, check_in: payload.check_in ?? d.check_in, check_out: payload.check_out ?? d.check_out } : d));
+                          setDays((prev) => prev.map(d => d.date === selectedDateLocal ? {
+                            ...d,
+                            status: normalized,
+                            day_type: normalized === "Weekly Off" ? "weekly_off" : d.day_type,
+                            is_manual_override: true,
+                            leave_category: payload.leave_category ?? d.leave_category,
+                            check_in: normalized === "Weekly Off" ? null : payload.check_in ?? d.check_in,
+                            check_out: normalized === "Weekly Off" ? null : payload.check_out ?? d.check_out,
+                          } : d));
                           onOverrideSaved?.();
                         } catch (error) {
                           toast.error(getErrorMessage(error));

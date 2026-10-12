@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     attendance_date DATE NOT NULL,
     check_in DATETIME,
     check_out DATETIME,
-    status ENUM('Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'WFH', 'On Leave', 'Extra Working Day') DEFAULT 'Present',
+    status ENUM('Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'On Leave', 'WFH', 'Extra Working Day', 'Weekly Off') DEFAULT 'Present',
     ip_address VARCHAR(45),
     reason VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -695,7 +695,8 @@ CREATE TABLE IF NOT EXISTS salary_slips (
     employee_details TEXT NULL, earnings TEXT NULL, deductions TEXT NULL, lwp_days DECIMAL(8,2) NULL,
     half_day_days DECIMAL(8,2) NULL,
     total_earnings DECIMAL(12,2) NULL, lop_deduction DECIMAL(12,2) NULL,
-    half_day_deduction DECIMAL(12,2) NULL,
+    lop_deduction_override DECIMAL(12,2) NULL,
+    half_day_deduction DECIMAL(12,2) NULL, half_day_deduction_override DECIMAL(12,2) NULL,
     total_deductions DECIMAL(12,2) NULL, net_pay DECIMAL(12,2) NULL,
     FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT

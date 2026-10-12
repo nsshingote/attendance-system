@@ -487,13 +487,13 @@ export default function AttendancePage() {
     setSavingCalendarOverride(true);
     try {
       const normalizedStatus = normalizeOverrideStatus(calendarSelectedStatus);
-      const payload: any = {
+      const payload: { status: string; check_in: string | null; check_out: string | null } = {
         status: normalizedStatus,
         check_in: null,
         check_out: null,
       };
 
-      if (calendarEnterTimes) {
+      if (calendarEnterTimes && normalizedStatus !== "Weekly Off") {
         payload.check_in = calendarCheckInTime ? `${calendarSelectedDate}T${calendarCheckInTime}:00` : null;
         payload.check_out = calendarCheckOutTime ? `${calendarSelectedDate}T${calendarCheckOutTime}:00` : null;
       }
@@ -516,9 +516,11 @@ export default function AttendancePage() {
 
     try {
       const normalizedOverrideStatus = normalizeOverrideStatus(overrideStatus);
-      const payload: any = { status: normalizedOverrideStatus };
+      const payload: { status: string; check_in?: string | null; check_out?: string | null } = {
+        status: normalizedOverrideStatus,
+      };
 
-      if (enterTimes) {
+      if (enterTimes && normalizedOverrideStatus !== "Weekly Off") {
         payload.check_in = checkInTime ? `${manualOverrideModal.attendance_date}T${checkInTime}:00` : null;
         payload.check_out = checkOutTime ? `${manualOverrideModal.attendance_date}T${checkOutTime}:00` : null;
       } else {
@@ -839,6 +841,11 @@ setSummary(
                       onChange={(e) => {
                         const nextStatus = e.target.value;
                         setCalendarSelectedStatus(nextStatus);
+                        if (nextStatus === "Weekly Off") {
+                          setCalendarEnterTimes(false);
+                          setCalendarCheckInTime("");
+                          setCalendarCheckOutTime("");
+                        }
                       }}
                       className="mt-2 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
                     >
@@ -849,12 +856,17 @@ setSummary(
                         "WFH",
                         "Half Day",
                         "Extra Working Day",
+                        "Weekly Off",
                       ].map((status) => (
                         <option key={status} value={status}>{status}</option>
                       ))}
                     </select>
                   </label>
-                  <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
+                  {calendarSelectedStatus === "Weekly Off" ? (
+                    <p className="mt-4 text-xs text-ink-500">
+                      Check-in and check-out times will be cleared for Weekly Off.
+                    </p>
+                  ) : <div className="mt-4 rounded-xl border border-ink-200 bg-ink-50 p-4">
                       <p className="mb-2 text-sm font-medium text-ink-700">Do you want to fill Check-in and Check-out time?</p>
                       <div className="flex flex-wrap gap-2">
                         <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${calendarEnterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
@@ -904,7 +916,7 @@ setSummary(
                           </label>
                         </div>
                       )}
-                  </div>
+                  </div>}
                   <button
                     type="button"
                     onClick={saveSelectedCalendarOverride}
@@ -972,7 +984,13 @@ setSummary(
               <select
                 value={overrideStatus}
                 onChange={(e) => {
-                  setOverrideStatus(e.target.value);
+                  const nextStatus = e.target.value;
+                  setOverrideStatus(nextStatus);
+                  if (nextStatus === "Weekly Off") {
+                    setEnterTimes(false);
+                    setCheckInTime("");
+                    setCheckOutTime("");
+                  }
                 }}
                 className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
               >
@@ -983,6 +1001,7 @@ setSummary(
                   "Absent",
                   "WFH",
                   "Extra Working Day",
+                  "Weekly Off",
                 ].map((status) => (
                   <option key={status} value={status}>
                     {status}
@@ -991,7 +1010,11 @@ setSummary(
               </select>
             </div>
 
-            <div>
+            {overrideStatus === "Weekly Off" ? (
+              <p className="text-xs text-ink-500">
+                Check-in and check-out times will be cleared for Weekly Off.
+              </p>
+            ) : <div>
               <label className="mb-1 block text-sm font-medium text-ink-700">Enter Check-in/Check-out time?</label>
               <div className="flex flex-wrap gap-2">
                 <label className={`flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm ${enterTimes ? "border-brand-500 bg-brand-500 text-white" : "border-ink-200 bg-white text-ink-700"}`}>
@@ -1018,8 +1041,7 @@ setSummary(
               <p className="mt-2 text-xs text-ink-500">
                 Choose No to clear any existing check-in/check-out times and save only the override status.
               </p>
-            </div>
-
+            </div>}
             {enterTimes && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>

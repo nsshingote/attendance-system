@@ -284,6 +284,63 @@ def _format_attendance_status(record: Attendance, db: Session) -> str:
     return determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
 
 
+def _display_only_weekly_off_rows(
+    db: Session,
+    users: List[User],
+    start_date: date,
+    end_date: date,
+    existing_pairs: Set[Tuple[int, date]],
+) -> List[dict]:
+    """Build non-persistent weekly-off rows for attendance history tables."""
+    if start_date > end_date or not users:
+        return []
+
+    user_ids = {user.id for user in users}
+    existing_pairs = set(existing_pairs)
+    existing_pairs.update(
+        db.query(Attendance.user_id, Attendance.attendance_date)
+        .filter(
+            Attendance.user_id.in_(user_ids),
+            Attendance.attendance_date >= start_date,
+            Attendance.attendance_date <= end_date,
+        )
+        .all()
+    )
+
+    rows = []
+    current_date = start_date
+    while current_date <= end_date:
+        if is_weekly_off(current_date, db):
+            for user in users:
+                key = (user.id, current_date)
+                if key in existing_pairs or determine_attendance_status_for_date(
+                    db, user.id, current_date
+                ) != "Weekly Off":
+                    continue
+
+                rows.append({
+                    "id": -(user.id * 10_000_000 + current_date.toordinal()),
+                    "is_display_only": True,
+                    "user_id": user.id,
+                    "user_name": user.name,
+                    "department": user.department,
+                    "attendance_mode": user.attendance_mode,
+                    "attendance_date": current_date.isoformat(),
+                    "check_in": None,
+                    "check_out": None,
+                    "status": "Weekly Off",
+                    "leave_category": None,
+                    "ip_address": None,
+                    "reason": None,
+                    "created_at": None,
+                    "has_report": False,
+                    "is_working_sunday": False,
+                })
+                existing_pairs.add(key)
+        current_date += timedelta(days=1)
+    return rows
+
+
 def _has_report_for_date(db: Session, user_id: int, target_date: date) -> bool:
     """Check if a user has submitted a report for a specific date."""
     data_report = db.query(DailyReportData).filter(
@@ -937,6 +994,7 @@ def my_attendance(
     for attendance in records:
         results.append({
             "id": attendance.id,
+            "is_display_only": False,
             "user_id": attendance.user_id,
             "user_name": current_user.name,
             "department": current_user.department,
@@ -962,6 +1020,15 @@ def my_attendance(
             "check_in_validation_method": attendance.check_in_validation_method,
             "check_out_validation_method": attendance.check_out_validation_method,
         })
+    if target_start is not None and target_end is not None:
+        results.extend(_display_only_weekly_off_rows(
+            db,
+            [current_user],
+            target_start,
+            target_end,
+            {(record.user_id, record.attendance_date) for record in records},
+        ))
+        results.sort(key=lambda row: row["attendance_date"], reverse=True)
     return results
 
 
@@ -1012,6 +1079,7 @@ def user_attendance(
     for attendance in records:
         results.append({
             "id": attendance.id,
+            "is_display_only": False,
             "user_id": attendance.user_id,
             "user_name": user.name,
             "department": user.department,
@@ -1033,6 +1101,15 @@ def user_attendance(
             "check_out_longitude": attendance.check_out_longitude,
             "check_out_accuracy": attendance.check_out_accuracy,
         })
+    if target_start is not None and target_end is not None:
+        results.extend(_display_only_weekly_off_rows(
+            db,
+            [user],
+            target_start,
+            target_end,
+            {(record.user_id, record.attendance_date) for record in records},
+        ))
+        results.sort(key=lambda row: row["attendance_date"], reverse=True)
     return results
 
 
@@ -1128,6 +1205,8 @@ def get_all_attendance(
         for employee in employee_query.all():
             if employee.id in existing_today_ids:
                 continue
+            if determine_attendance_status_for_date(db, employee.id, today) == "Weekly Off":
+                continue
             results.append((
                 Attendance(
                     user_id=employee.id,
@@ -1194,6 +1273,7 @@ def get_all_attendance(
 
         formatted_results.append({
             "id": attendance.id,
+            "is_display_only": False,
             "user_id": attendance.user_id,
             "user_name": user_name,
             "department": department,
@@ -1214,6 +1294,37 @@ def get_all_attendance(
             "check_out_longitude": attendance.check_out_longitude,
             "check_out_accuracy": attendance.check_out_accuracy,
         })
+
+    if target_start is not None and target_end is not None:
+        employee_query = db.query(User).filter(User.status == "active")
+        if employee_ids:
+            employee_query = employee_query.filter(User.id.in_(employee_ids))
+        if department_id is not None:
+            employee_query = employee_query.join(
+                UserDepartment,
+                User.id == UserDepartment.user_id,
+            ).filter(UserDepartment.department_id == department_id)
+        scoped_users = {user.id: user for user in employee_query.all()}
+        for attendance, user_name, department, attendance_mode in results:
+            if attendance.user_id not in scoped_users:
+                scoped_users[attendance.user_id] = User(
+                    id=attendance.user_id,
+                    name=user_name,
+                    department=department,
+                    attendance_mode=attendance_mode,
+                )
+        result_pairs = {
+            (attendance.user_id, attendance.attendance_date)
+            for attendance, _, _, _ in results
+        }
+        formatted_results.extend(_display_only_weekly_off_rows(
+            db,
+            list(scoped_users.values()),
+            target_start,
+            target_end,
+            result_pairs,
+        ))
+        formatted_results.sort(key=lambda row: (row["attendance_date"], row.get("user_name") or ""))
     
     return formatted_results
 
@@ -1312,6 +1423,7 @@ def attendance_calendar(
             and target_user.date_of_joining
             and calendar_date < target_user.date_of_joining
         ):
+            day["day_type"] = "working_day"
             day["status"] = "Not Started"
             day["check_in"] = None
             day["check_out"] = None
@@ -1322,13 +1434,25 @@ def attendance_calendar(
 
         day_records = records_by_date.get(date_key, [])
 
+        if (
+            not aggregated_all
+            and day["day_type"] == "weekly_off"
+            and calendar_date in working_day_dates
+        ):
+            day["day_type"] = "working_day"
+            day["label"] = "Working Day"
+
         if day_records:
             if aggregated_all:
                 final_statuses = {
                     determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
                     for record in day_records
                 }
-                if "Extra Working Day" in final_statuses:
+                if final_statuses == {"Weekly Off"}:
+                    day["status"] = "Weekly Off"
+                    day["day_type"] = "weekly_off"
+                    day["label"] = "Weekly Off"
+                elif "Extra Working Day" in final_statuses:
                     day["status"] = "Extra Working Day"
                 elif final_statuses.intersection({"Present", "Late", "Half Day", "WFH"}):
                     day["status"] = "Present"
@@ -1344,6 +1468,9 @@ def attendance_calendar(
                     key=lambda item: (bool(item.manual_override), item.check_in is not None, item.check_out is not None, item.id),
                 )
                 day["status"] = determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+                if day["status"] == "Weekly Off":
+                    day["day_type"] = "weekly_off"
+                    day["label"] = "Weekly Off"
                 day["leave_category"] = manual_leave_categories.get(record.id)
                 day["is_manual_override"] = bool(record.manual_override)
                 if day["status"] == "Extra Working Day":
@@ -1360,7 +1487,12 @@ def attendance_calendar(
             if day["day_type"] == "holiday":
                 day["status"] = "Holiday"
             elif day["day_type"] == "weekly_off":
-                day["status"] = "Weekly Off"
+                day["status"] = determine_attendance_status_for_date(
+                    db, target_user_id, calendar_date
+                )
+                if day["status"] != "Weekly Off":
+                    day["day_type"] = "working_day"
+                    day["label"] = "Working Day"
             else:
                 day["status"] = "Absent"
             day["check_in"] = None
@@ -1564,7 +1696,16 @@ def monthly_summary(
 # ============================================================
 # ADMIN MANUAL UPDATE
 # ============================================================
-MANUAL_ATTENDANCE_STATUSES = {"Present", "Absent", "Late", "WFH", "Half Day", "On Leave", "Extra Working Day"}
+MANUAL_ATTENDANCE_STATUSES = {
+    "Present",
+    "Absent",
+    "Late",
+    "WFH",
+    "Half Day",
+    "On Leave",
+    "Extra Working Day",
+    "Weekly Off",
+}
 
 
 MANUAL_LEAVE_CATEGORIES = {"Paid", "Carried", "Unpaid", "Privilege"}
@@ -1743,6 +1884,60 @@ def _clear_legacy_leave_requests_on_override(db: Session, record: Attendance) ->
         db.delete(leave_request)
 
 
+def _prepare_attendance_override(
+    db: Session,
+    user_id: int,
+    target_date: date,
+    update_data: dict,
+) -> None:
+    if update_data.get("status") != "Weekly Off":
+        return
+    if _is_working_day(db, user_id, target_date):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot mark Weekly Off while this date is assigned as a working day.",
+        )
+    if applicable_holiday(db, user_id, target_date):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot mark Weekly Off on a public holiday.",
+        )
+    approved_wfh = db.query(WFHRequestModel.id).filter(
+        WFHRequestModel.user_id == user_id,
+        WFHRequestModel.attendance_date == target_date,
+        WFHRequestModel.status == "Approved",
+    ).first()
+    if approved_wfh:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot mark Weekly Off on a date with an approved WFH request.",
+        )
+
+    approved_leaves = db.query(LeaveRequest).filter(
+        LeaveRequest.user_id == user_id,
+        LeaveRequest.status == "Approved",
+        LeaveRequest.from_date <= target_date,
+        LeaveRequest.to_date >= target_date,
+    ).all()
+    has_approved_leave = any(
+        (
+            not leave.allocations and (leave.total_days or 0) > 0
+        ) or any(
+            allocation.allocation_date == target_date and not allocation.is_cancelled
+            for allocation in leave.allocations
+        )
+        for leave in approved_leaves
+    )
+    if has_approved_leave:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot mark Weekly Off on a date covered by approved leave.",
+        )
+
+    update_data["check_in"] = None
+    update_data["check_out"] = None
+
+
 @router.put("/{attendance_id}", response_model=AttendanceOut)
 def manual_update(
     attendance_id: int,
@@ -1764,6 +1959,9 @@ def manual_update(
     leave_category = update_data.pop("leave_category", None)
     if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
+    _prepare_attendance_override(
+        db, record.user_id, record.attendance_date, update_data
+    )
 
     requested_status = update_data.get("status")
 
@@ -1855,6 +2053,7 @@ def manual_update_by_user_date(
     leave_category = update_data.pop("leave_category", None)
     if "status" in update_data and update_data["status"] not in MANUAL_ATTENDANCE_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid manual attendance status.")
+    _prepare_attendance_override(db, user_id, target_date, update_data)
     requested_status = update_data.get("status")
 
     if record:
@@ -2407,6 +2606,18 @@ def mark_working_sunday(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    weekly_off_override = db.query(Attendance.id).filter(
+        Attendance.user_id == user_id,
+        Attendance.attendance_date == work_date,
+        Attendance.manual_override.is_(True),
+        Attendance.status == "Weekly Off",
+    ).first()
+    if weekly_off_override:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot assign a working day while this date has a Weekly Off attendance override.",
+        )
 
     existing = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == work_date).first()
     if existing:

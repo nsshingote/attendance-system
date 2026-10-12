@@ -224,7 +224,9 @@ def _salary_slip_dict(item: SalarySlip):
         "employee_details": employee_details, "earnings": earnings, "deductions": deductions,
         "lwp_days": lwp_days, "half_day_days": half_day_days,
         "total_earnings": total_earnings, "lop_deduction": lop_deduction,
+        "lop_deduction_override": float(item.lop_deduction_override) if item.lop_deduction_override is not None else None,
         "half_day_deduction": half_day_deduction,
+        "half_day_deduction_override": float(item.half_day_deduction_override) if item.half_day_deduction_override is not None else None,
         "salary_breakdown_total": round(total_earnings - lop_deduction - half_day_deduction, 2) if has_structured_breakdown else None,
         "historical_breakdown_incomplete": not has_structured_breakdown,
         "total_deductions": total_deductions, "net_pay": net_pay, "total_amount": net_pay,
@@ -442,7 +444,7 @@ def _validated_employee_details(details, employee: User | None, month: int, year
     return result
 
 
-def _calculate_salary_slip(employee: User | None, month: int, year: int, *, employee_details=None, earnings=None, deductions=None, lwp_days=0, half_day_days=0, particulars=None, default_details=None) -> dict:
+def _calculate_salary_slip(employee: User | None, month: int, year: int, *, employee_details=None, earnings=None, deductions=None, lwp_days=0, half_day_days=0, lop_deduction_override=None, half_day_deduction_override=None, particulars=None, default_details=None) -> dict:
     if earnings is None:
         earnings, legacy_deductions = _legacy_salary_rows(particulars)
         if deductions is None:
@@ -458,8 +460,12 @@ def _calculate_salary_slip(employee: User | None, month: int, year: int, *, empl
     if lwp + half_days > days_in_month:
         raise HTTPException(status_code=422, detail="Combined LWP and Half-Day counts cannot exceed Days in Month")
     total_earnings = sum((_round_money(row["amount"]) for row in earnings), Decimal("0.00")).quantize(MONEY_QUANTUM)
-    lop_deduction = (total_earnings / days_in_month * lwp).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
-    half_day_deduction = (total_earnings / days_in_month * Decimal("0.5") * half_days).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    automatic_lop_deduction = (total_earnings / days_in_month * lwp).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    lop_deduction_override = _round_money(lop_deduction_override) if lop_deduction_override is not None else None
+    lop_deduction = lop_deduction_override if lop_deduction_override is not None else automatic_lop_deduction
+    automatic_half_day_deduction = (total_earnings / days_in_month * Decimal("0.5") * half_days).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    half_day_deduction_override = _round_money(half_day_deduction_override) if half_day_deduction_override is not None else None
+    half_day_deduction = half_day_deduction_override if half_day_deduction_override is not None else automatic_half_day_deduction
     other_deductions = sum((_round_money(row["amount"]) for row in deductions), Decimal("0.00")).quantize(MONEY_QUANTUM)
     salary_breakdown_total = (total_earnings - lop_deduction - half_day_deduction).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
     total_deductions = (lop_deduction + half_day_deduction + other_deductions).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
@@ -468,7 +474,9 @@ def _calculate_salary_slip(employee: User | None, month: int, year: int, *, empl
         raise HTTPException(status_code=422, detail="Total deductions cannot exceed total earnings")
     return {"employee_details": details, "earnings": earnings, "deductions": deductions, "lwp_days": float(lwp),
             "half_day_days": float(half_days), "total_earnings": total_earnings, "lop_deduction": lop_deduction,
-            "half_day_deduction": half_day_deduction, "salary_breakdown_total": salary_breakdown_total,
+            "lop_deduction_override": lop_deduction_override,
+            "half_day_deduction": half_day_deduction, "half_day_deduction_override": half_day_deduction_override,
+            "salary_breakdown_total": salary_breakdown_total,
             "total_deductions": total_deductions, "net_pay": net_pay}
 
 
@@ -480,7 +488,9 @@ def _persist_salary_calculation(item: SalarySlip, calculation: dict) -> None:
     item.half_day_days = calculation["half_day_days"]
     item.total_earnings = calculation["total_earnings"]
     item.lop_deduction = calculation["lop_deduction"]
+    item.lop_deduction_override = calculation["lop_deduction_override"]
     item.half_day_deduction = calculation["half_day_deduction"]
+    item.half_day_deduction_override = calculation["half_day_deduction_override"]
     item.total_deductions = calculation["total_deductions"]
     item.net_pay = calculation["net_pay"]
     item.total_amount = calculation["net_pay"]
@@ -500,6 +510,11 @@ def _salary_calculation_from_payload(payload, employee: User, month: int, year: 
     legacy_particulars = payload.particulars
     earnings = payload.earnings
     deductions = payload.deductions
+    payload_fields = getattr(payload, "model_fields_set", None)
+    if payload_fields is None:
+        payload_fields = getattr(payload, "__fields_set__", set())
+    lop_deduction_override = _resolve_salary_override(payload, payload_fields, item, "lop_deduction_override")
+    half_day_deduction_override = _resolve_salary_override(payload, payload_fields, item, "half_day_deduction_override")
     if item is not None:
         if payload.employee_details is None:
             try:
@@ -534,9 +549,17 @@ def _salary_calculation_from_payload(payload, employee: User, month: int, year: 
         half_day_days = payload.half_day_days if payload.half_day_days is not None else suggestions["half_day_days"]
     calculation = _calculate_salary_slip(
         employee, month, year, employee_details=employee_details, earnings=earnings,
-        deductions=deductions, lwp_days=lwp_days, half_day_days=half_day_days, particulars=legacy_particulars,
+        deductions=deductions, lwp_days=lwp_days, half_day_days=half_day_days,
+        lop_deduction_override=lop_deduction_override,
+        half_day_deduction_override=half_day_deduction_override, particulars=legacy_particulars,
     )
     return _apply_company_salary_payment_mode(db, calculation)
+
+
+def _resolve_salary_override(payload, payload_fields: set[str], item: SalarySlip | None, field: str):
+    if field in payload_fields or item is None:
+        return getattr(payload, field, None)
+    return getattr(item, field)
 
 
 def _salary_slip_request_key(employee_id: int, year: int, month: int) -> str:
@@ -694,6 +717,8 @@ def create_salary_slip(payload: SalarySlipCreate, db: Session = Depends(get_db),
     required_permissions = ["employee_documents.salary_slips.create"]
     if payload.send:
         required_permissions.append("employee_documents.salary_slips.send")
+    if payload.lop_deduction_override is not None or payload.half_day_deduction_override is not None:
+        required_permissions.append("employee_documents.salary_slips.edit")
     _require_document_permissions(current_user, db, *required_permissions)
     if not 1 <= payload.month <= 12 or not 1900 <= payload.year <= 9999:
         raise HTTPException(status_code=422, detail="Invalid month or year")

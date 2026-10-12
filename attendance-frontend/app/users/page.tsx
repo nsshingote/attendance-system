@@ -244,6 +244,7 @@ export default function UsersPage() {
           <>
             <UserTable
               users={users}
+              showEmployeeId
               onEdit={openEditModal}
               onResetDevice={handleResetDevice}
               onToggleStatus={handleToggleStatus}

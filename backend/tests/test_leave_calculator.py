@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
 from models import (
     Attendance,
+    ActivityLog,
+    ChangedLog,
     CompanySettings,
     DailyReportData,
     Holiday,
@@ -52,6 +54,7 @@ from routers.users import (
     update_user as update_employee_endpoint,
 )
 from schemas import (
+    AttendanceOut,
     AttendanceManualUpdate,
     HolidayCreate,
     LeaveAllocationOverride,
@@ -71,6 +74,8 @@ from utils.leave_calculator import (
     get_leave_year_quota,
     paid_leave_available_this_month,
 )
+from services.salary_attendance import derive_salary_attendance_counts
+import services.salary_attendance as salary_attendance
 
 
 @pytest.fixture
@@ -290,6 +295,145 @@ def test_attendance_calendar_marks_prejoining_dates_not_started(
     assert days_by_date["2026-09-25"]["status"] == "Not Started"
     assert days_by_date["2026-09-25"]["working_day_label"] is None
     assert days_by_date["2026-09-26"]["status"] == "Absent"
+
+
+def test_attendance_calendar_resolves_weekly_off_case_insensitively_and_respects_overrides(
+    db_session: Session,
+):
+    create_company_settings(db_session, weekly_off_day="sUnDaY")
+    regular_user = create_user(db_session)
+    assigned_user = create_user(db_session)
+    target_sunday = date(2026, 10, 11)
+    holiday_sunday = date(2026, 10, 18)
+    db_session.add(
+        WorkingSunday(user_id=assigned_user.id, work_date=target_sunday)
+    )
+    create_holiday(db_session, regular_user.id, holiday_sunday)
+    db_session.commit()
+
+    def calendar_for(user: User) -> dict[str, dict]:
+        days = attendance_calendar(
+            year=2026,
+            month=10,
+            user_id=user.id,
+            employee_ids=None,
+            department_id=None,
+            db=db_session,
+            current_user=user,
+        )
+        return {day["date"]: day for day in days}
+
+    regular_days = calendar_for(regular_user)
+    assigned_days = calendar_for(assigned_user)
+
+    assert regular_days[target_sunday.isoformat()]["day_type"] == "weekly_off"
+    assert regular_days[target_sunday.isoformat()]["status"] == "Weekly Off"
+    assert regular_days[holiday_sunday.isoformat()]["day_type"] == "holiday"
+    assert regular_days[holiday_sunday.isoformat()]["status"] == "Holiday"
+    assert assigned_days[target_sunday.isoformat()]["day_type"] == "working_day"
+    assert assigned_days[target_sunday.isoformat()]["status"] != "Weekly Off"
+    assert db_session.query(Attendance).filter(
+        Attendance.user_id == regular_user.id,
+        Attendance.attendance_date == target_sunday,
+    ).count() == 0
+
+
+def test_attendance_history_includes_display_only_weekly_off_rows_without_changing_counts(
+    db_session: Session,
+    monkeypatch,
+):
+    create_company_settings(db_session, weekly_off_day="sunday")
+    user = create_user(db_session)
+    admin = create_user(db_session, role="admin")
+    target_sunday = date(2026, 10, 11)
+    future_sunday = date(2026, 10, 25)
+    assigned_sunday = date(2026, 10, 4)
+    holiday_sunday = date(2026, 10, 18)
+    db_session.add(WorkingSunday(user_id=user.id, work_date=assigned_sunday))
+    create_holiday(db_session, admin.id, holiday_sunday)
+    db_session.commit()
+    monkeypatch.setattr(
+        attendance_router, "india_today", lambda: date(2026, 10, 12)
+    )
+    monkeypatch.setattr(
+        attendance_router, "require_team_permission", lambda *_args: []
+    )
+
+    summary_before = monthly_summary(
+        user_id=user.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+    employee_rows = my_attendance(
+        month=10,
+        year=2026,
+        date_value=None,
+        db=db_session,
+        current_user=user,
+    )
+    selected_user_rows = user_attendance(
+        user_id=user.id,
+        month=10,
+        year=2026,
+        date_value=None,
+        db=db_session,
+        current_user=user,
+    )
+    admin_rows = get_all_attendance(
+        year=2026,
+        month=10,
+        date_value=None,
+        from_date=None,
+        to_date=None,
+        employee_ids=[user.id],
+        department_id=None,
+        db=db_session,
+        current_user=admin,
+    )
+    summary_after = monthly_summary(
+        user_id=user.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+
+    for rows in (employee_rows, selected_user_rows, admin_rows):
+        weekly_off_rows = [
+            row for row in rows
+            if row["attendance_date"] in {
+                target_sunday.isoformat(),
+                future_sunday.isoformat(),
+            }
+        ]
+        assert {row["attendance_date"] for row in weekly_off_rows} == {
+            target_sunday.isoformat(),
+            future_sunday.isoformat(),
+        }
+        assert all(row["status"] == "Weekly Off" for row in weekly_off_rows)
+        assert all(row["is_display_only"] is True for row in weekly_off_rows)
+        assert all(row["id"] < 0 for row in weekly_off_rows)
+        assert AttendanceOut.model_validate(weekly_off_rows[0]).is_display_only
+        assert not any(
+            row["is_display_only"]
+            and row["attendance_date"] in {
+                assigned_sunday.isoformat(),
+                holiday_sunday.isoformat(),
+            }
+            for row in rows
+        )
+
+    assert summary_after["Absent"] == summary_before["Absent"]
+    assert db_session.query(Attendance).filter(
+        Attendance.user_id == user.id,
+        Attendance.attendance_date == target_sunday,
+    ).count() == 0
 
 
 def create_holiday(
@@ -1503,6 +1647,358 @@ def test_manual_statuses_and_unassigned_nonworking_days_keep_their_meaning(
     assert determine_attendance_status_for_date(
         db_session, user.id, date(2026, 10, 11)
     ) == "Weekly Off"
+
+
+def test_weekly_off_override_clears_times_and_does_not_affect_attendance_or_salary_counts(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    create_company_settings(db_session, weekly_off_day="Sunday")
+    target_date = date(2026, 10, 11)
+    attendance = Attendance(
+        user_id=user.id,
+        attendance_date=target_date,
+        check_in=datetime(2026, 10, 11, 9, 0),
+        check_out=datetime(2026, 10, 11, 17, 0),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    monkeypatch.setattr(
+        salary_attendance, "india_today", lambda: date(2026, 10, 12)
+    )
+
+    summary_before = monthly_summary(
+        user_id=user.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+    salary_before = derive_salary_attendance_counts(db_session, user, 2026, 10)
+    result = manual_update(
+        attendance_id=attendance.id,
+        payload=AttendanceManualUpdate(
+            status="Weekly Off",
+            check_in=datetime(2026, 10, 11, 10, 0),
+            check_out=datetime(2026, 10, 11, 18, 0),
+        ),
+        db=db_session,
+        current_user=admin,
+    )
+    db_session.refresh(attendance)
+    summary_after = monthly_summary(
+        user_id=user.id,
+        year=2026,
+        month=10,
+        from_date=None,
+        to_date=None,
+        db=db_session,
+        current_user=user,
+    )
+    history_rows = my_attendance(
+        month=10,
+        year=2026,
+        date_value=None,
+        db=db_session,
+        current_user=user,
+    )
+    salary_after = derive_salary_attendance_counts(db_session, user, 2026, 10)
+    history_row = next(
+        row for row in history_rows
+        if row["attendance_date"] == target_date.isoformat()
+    )
+
+    assert result["status"] == "Weekly Off"
+    assert attendance.status == "Weekly Off"
+    assert attendance.manual_override is True
+    assert attendance.check_in is None
+    assert attendance.check_out is None
+    assert history_row["status"] == "Weekly Off"
+    assert history_row["is_display_only"] is False
+    assert determine_attendance_status_for_date(
+        db_session, user.id, target_date
+    ) == "Weekly Off"
+    assert summary_before["Present"] == 1
+    assert summary_after["Present"] == 0
+    assert summary_after["Absent"] == summary_before["Absent"]
+    assert summary_after["Late"] == summary_before["Late"]
+    assert summary_after["Half Day"] == summary_before["Half Day"]
+    assert summary_after["Extra Working Day"] == summary_before["Extra Working Day"]
+    assert summary_after["Holiday"] == summary_before["Holiday"]
+    assert salary_after == salary_before
+    assert db_session.query(Attendance).filter_by(
+        user_id=user.id, attendance_date=target_date
+    ).count() == 1
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity == f"Manually updated attendance #{attendance.id}"
+    ).count() == 1
+    changed_status = db_session.query(ChangedLog).filter(
+        ChangedLog.employee_id == user.id,
+        ChangedLog.item_name == f"{target_date} Status",
+        ChangedLog.new_value == "Weekly Off",
+    ).first()
+    assert changed_status is not None
+    changed_check_in = db_session.query(ChangedLog).filter(
+        ChangedLog.employee_id == user.id,
+        ChangedLog.item_name == f"{target_date} Check In",
+        ChangedLog.new_value.is_(None),
+    ).first()
+    assert changed_check_in is not None
+
+
+def test_weekly_off_override_rejects_working_sunday_without_writes(db_session: Session):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    create_company_settings(db_session, weekly_off_day="Sunday")
+    target_date = date(2026, 10, 11)
+    db_session.add(WorkingSunday(user_id=user.id, work_date=target_date))
+    attendance = Attendance(
+        user_id=user.id,
+        attendance_date=target_date,
+        check_in=datetime(2026, 10, 11, 9, 0),
+        check_out=datetime(2026, 10, 11, 17, 0),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        manual_update_by_user_date(
+            user_id=user.id,
+            date_value=target_date.isoformat(),
+            payload=AttendanceManualUpdate(status="Weekly Off"),
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert exc_info.value.status_code == 400
+    db_session.refresh(attendance)
+    assert attendance.status == "Present"
+    assert attendance.check_in == datetime(2026, 10, 11, 9, 0)
+    assert attendance.check_out == datetime(2026, 10, 11, 17, 0)
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity.contains("Manually updated attendance")
+    ).count() == 0
+    with pytest.raises(HTTPException) as existing_record_error:
+        manual_update(
+            attendance_id=attendance.id,
+            payload=AttendanceManualUpdate(status="Weekly Off"),
+            db=db_session,
+            current_user=admin,
+        )
+    assert existing_record_error.value.status_code == 400
+    db_session.refresh(attendance)
+    assert attendance.status == "Present"
+    assert attendance.check_in == datetime(2026, 10, 11, 9, 0)
+    assert attendance.check_out == datetime(2026, 10, 11, 17, 0)
+
+
+def test_weekly_off_override_rolls_back_attendance_and_audit_on_commit_failure(
+    db_session: Session,
+    monkeypatch,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    target_date = date(2026, 10, 12)
+    attendance = Attendance(
+        user_id=user.id,
+        attendance_date=target_date,
+        check_in=datetime(2026, 10, 12, 9, 0),
+        check_out=datetime(2026, 10, 12, 17, 0),
+        status="Present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+
+    def fail_commit():
+        raise RuntimeError("simulated attendance override commit failure")
+
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="simulated attendance override commit failure"):
+        manual_update_by_user_date(
+            user_id=user.id,
+            date_value=target_date.isoformat(),
+            payload=AttendanceManualUpdate(status="Weekly Off"),
+            db=db_session,
+            current_user=admin,
+        )
+
+    db_session.rollback()
+    persisted = db_session.query(Attendance).filter_by(id=attendance.id).one()
+    assert persisted.status == "Present"
+    assert persisted.check_in == datetime(2026, 10, 12, 9, 0)
+    assert persisted.check_out == datetime(2026, 10, 12, 17, 0)
+    assert persisted.manual_override is False
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity.contains("Manually updated attendance")
+    ).count() == 0
+    assert db_session.query(ChangedLog).filter(
+        ChangedLog.employee_id == user.id,
+        ChangedLog.item_name == f"{target_date} Status",
+    ).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("conflict", "endpoint"),
+    [
+        ("holiday", "by_date"),
+        ("holiday", "by_id"),
+        ("wfh", "by_date"),
+        ("wfh", "by_id"),
+        ("leave", "by_date"),
+        ("leave", "by_id"),
+    ],
+)
+def test_weekly_off_override_rejects_holiday_and_approved_attendance_exceptions(
+    db_session: Session,
+    conflict: str,
+    endpoint: str,
+):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    target_date = date(2026, 10, 11)
+    if conflict == "holiday":
+        create_holiday(db_session, admin.id, target_date)
+        expected_detail = "Cannot mark Weekly Off on a public holiday."
+    elif conflict == "wfh":
+        db_session.add(
+            WFHRequest(
+                user_id=user.id,
+                attendance_date=target_date,
+                status="Approved",
+            )
+        )
+        db_session.commit()
+        expected_detail = "Cannot mark Weekly Off on a date with an approved WFH request."
+    else:
+        create_leave_request(
+            db_session,
+            user,
+            target_date,
+            target_date,
+            [(target_date, "Paid")],
+        )
+        expected_detail = "Cannot mark Weekly Off on a date covered by approved leave."
+
+    attendance = None
+    if endpoint == "by_id":
+        attendance = Attendance(
+            user_id=user.id,
+            attendance_date=target_date,
+            check_in=datetime(2026, 10, 11, 9, 0),
+            check_out=datetime(2026, 10, 11, 17, 0),
+            status="Present",
+        )
+        db_session.add(attendance)
+        db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        if endpoint == "by_date":
+            manual_update_by_user_date(
+                user_id=user.id,
+                date_value=target_date.isoformat(),
+                payload=AttendanceManualUpdate(status="Weekly Off"),
+                db=db_session,
+                current_user=admin,
+            )
+        else:
+            assert attendance is not None
+            manual_update(
+                attendance_id=attendance.id,
+                payload=AttendanceManualUpdate(status="Weekly Off"),
+                db=db_session,
+                current_user=admin,
+            )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == expected_detail
+    assert db_session.query(WorkingSunday).filter_by(
+        user_id=user.id, work_date=target_date
+    ).count() == 0
+    assert db_session.query(Attendance).filter(
+        Attendance.user_id == user.id,
+        Attendance.attendance_date == target_date,
+    ).count() == (1 if attendance else 0)
+    if attendance:
+        db_session.refresh(attendance)
+        assert attendance.status == "Present"
+        assert attendance.check_in == datetime(2026, 10, 11, 9, 0)
+        assert attendance.check_out == datetime(2026, 10, 11, 17, 0)
+        assert attendance.manual_override is False
+    assert db_session.query(ActivityLog).filter(
+        ActivityLog.activity.contains("Manually updated attendance")
+    ).count() == 0
+    assert db_session.query(ChangedLog).filter(
+        ChangedLog.employee_id == user.id,
+        ChangedLog.item_name.contains(str(target_date)),
+    ).count() == 0
+
+
+def test_working_sunday_rejects_persisted_weekly_off_override(db_session: Session):
+    admin = create_user(db_session, role="admin")
+    user = create_user(db_session)
+    create_company_settings(db_session, weekly_off_day="Sunday")
+    target_date = date(2026, 10, 11)
+    manual_update_by_user_date(
+        user_id=user.id,
+        date_value=target_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Weekly Off"),
+        db=db_session,
+        current_user=admin,
+    )
+    attendance = db_session.query(Attendance).filter_by(
+        user_id=user.id,
+        attendance_date=target_date,
+    ).one()
+    existing_activity_count = db_session.query(ActivityLog).count()
+
+    with pytest.raises(HTTPException) as exc_info:
+        mark_working_sunday(
+            WorkingSundayCreate(user_id=user.id, work_date=target_date),
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == (
+        "Cannot assign a working day while this date has a Weekly Off attendance override."
+    )
+    assert db_session.query(WorkingSunday).filter_by(
+        user_id=user.id, work_date=target_date
+    ).count() == 0
+    assert db_session.query(ActivityLog).count() == existing_activity_count
+    db_session.refresh(attendance)
+    assert attendance.status == "Weekly Off"
+    assert attendance.check_in is None
+    assert attendance.check_out is None
+
+
+def test_unauthorized_team_leader_cannot_apply_weekly_off_override(
+    db_session: Session,
+    monkeypatch,
+):
+    team_leader = create_user(db_session, role="team_leader")
+    employee = create_user(db_session)
+    monkeypatch.setattr(
+        attendance_router, "has_permission", lambda *_args: False
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        manual_update_by_user_date(
+            user_id=employee.id,
+            date_value="2026-10-11",
+            payload=AttendanceManualUpdate(status="Weekly Off"),
+            db=db_session,
+            current_user=team_leader,
+        )
+
+    assert exc_info.value.status_code == 403
+    assert db_session.query(Attendance).filter_by(user_id=employee.id).count() == 0
 
 
 def test_marking_unworked_weekly_off_does_not_count_as_present_or_extra_day(

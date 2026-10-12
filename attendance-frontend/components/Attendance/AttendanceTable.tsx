@@ -12,6 +12,7 @@ import ExpandableText from "@/components/Common/ExpandableText";
 
 export interface AttendanceRecord {
   id: number;
+  is_display_only?: boolean;
   user_id: number;
   attendance_date: string;
   check_in: string | null;
@@ -240,7 +241,7 @@ export default function AttendanceTable({
                 {(showRequestCorrection || showAdminActions) && (
                   <td className="px-2 py-2 whitespace-nowrap">
                     <div className="flex flex-col gap-1">
-                      {showRequestCorrection && canRequestCorrection?.(r) !== false && r.check_out && (
+                      {showRequestCorrection && !r.is_display_only && canRequestCorrection?.(r) !== false && r.check_out && (
                         <button
                           onClick={() => onRequestCorrection?.(r)}
                           className="text-[10px] font-medium text-brand-600 hover:text-brand-700"
@@ -248,7 +249,7 @@ export default function AttendanceTable({
                           Correct
                         </button>
                       )}
-                      {showAdminActions && (
+                      {showAdminActions && !r.is_display_only && (
                         <>
                           <button
                             onClick={() => onManualOverride?.(r)}

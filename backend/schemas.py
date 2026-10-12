@@ -317,6 +317,8 @@ class SalarySlipCreate(BaseModel):
     deductions: Optional[List[SalarySlipRow]] = None
     lwp_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     half_day_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    lop_deduction_override: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    half_day_deduction_override: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     particulars: Optional[List[SalarySlipParticular]] = None
     send: bool = False
 
@@ -338,6 +340,8 @@ class SalarySlipReviewUpdate(BaseModel):
     deductions: Optional[List[SalarySlipRow]] = None
     lwp_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     half_day_days: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    lop_deduction_override: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    half_day_deduction_override: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     particulars: Optional[List[SalarySlipParticular]] = None
 
 
@@ -356,7 +360,9 @@ class SalarySlipOut(ORMBase):
     half_day_days: Optional[float] = None
     total_earnings: Optional[float] = None
     lop_deduction: Optional[float] = None
+    lop_deduction_override: Optional[float] = None
     half_day_deduction: Optional[float] = None
+    half_day_deduction_override: Optional[float] = None
     salary_breakdown_total: Optional[float] = None
     total_deductions: Optional[float] = None
     net_pay: Optional[float] = None
@@ -443,6 +449,7 @@ class CheckOutRequest(BaseModel):
 
 class AttendanceOut(ORMBase):
     id: int
+    is_display_only: bool = False
     user_id: int
     user_name: Optional[str] = None
     department: Optional[str] = None
@@ -454,7 +461,7 @@ class AttendanceOut(ORMBase):
     leave_category: Optional[str] = None
     ip_address: Optional[str] = None
     reason: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     has_report: Optional[bool] = None
     is_working_sunday: Optional[bool] = None
     check_in_latitude: Optional[float] = None

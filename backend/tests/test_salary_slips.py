@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 import routers.employee_documents as salary_router
 from database import Base, SessionLocal, engine
 from models import Attendance, CompanySettings, Holiday, LeaveRequest, LeaveRequestAllocation, Notification, SalarySlip, User, WFHRequest
-from schemas import SalarySlipEmployeeDetails, SalarySlipRequestCreate, SalarySlipReviewUpdate, SalarySlipParticular, SalarySlipRow
+from schemas import SalarySlipCreate, SalarySlipEmployeeDetails, SalarySlipRequestCreate, SalarySlipReviewUpdate, SalarySlipParticular, SalarySlipRow
 from services.salary_attendance import derive_salary_attendance_counts
 import services.salary_attendance as salary_attendance
 
@@ -343,6 +343,155 @@ def test_half_day_and_lwp_are_recalculated_on_approval(db_session: Session, monk
     assert result["total_deductions"] == 1475
     assert result["net_pay"] == 11525
     assert result["half_day_days"] == 2
+
+
+def test_employee_request_cannot_set_half_day_deduction_override(db_session: Session):
+    employee = make_user(db_session)
+    payload = SalarySlipRequestCreate(
+        month=5, year=2026, earnings=structured_rows(), employee_details=structured_details(),
+        lwp_days=1, half_day_days=2, lop_deduction_override=10, half_day_deduction_override=10,
+    )
+    result = salary_router.request_salary_slip(payload, db_session, employee)
+
+    assert result["lop_deduction_override"] is None
+    assert result["lop_deduction"] == 416.67
+    assert result["half_day_deduction_override"] is None
+    assert result["half_day_deduction"] == 416.67
+
+
+def test_attendance_deduction_overrides_are_preserved_through_review_and_approval(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    monkeypatch.setattr(salary_router, "send_email", lambda *_args, **_kwargs: False)
+    pending = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(
+            month=5, year=2026, earnings=structured_rows(), deductions=structured_deductions(),
+            employee_details=structured_details(), lwp_days=1, half_day_days=2,
+        ),
+        db_session, employee,
+    )
+    assert pending["half_day_deduction"] == 416.67
+    assert pending["half_day_deduction_override"] is None
+
+    reviewed = salary_router.review_salary_slip(
+        pending["id"],
+        SalarySlipReviewUpdate(
+            lop_deduction_override=300, half_day_deduction_override=250,
+            deductions=structured_deductions(),
+        ),
+        db_session, admin,
+    )
+    assert reviewed["lop_deduction"] == 300
+    assert reviewed["lop_deduction_override"] == 300
+    assert reviewed["half_day_deduction"] == 250
+    assert reviewed["half_day_deduction_override"] == 250
+    assert reviewed["total_deductions"] == 725
+    assert reviewed["salary_breakdown_total"] == 11950
+    assert reviewed["net_pay"] == 11775
+
+    approved = salary_router.approve_salary_slip(
+        pending["id"], SalarySlipReviewUpdate(), db_session, admin,
+    )
+    persisted = db_session.query(SalarySlip).filter_by(id=pending["id"]).one()
+    assert approved["status"] == "Sent"
+    assert approved["lop_deduction"] == 300
+    assert approved["lop_deduction_override"] == 300
+    assert approved["half_day_deduction"] == 250
+    assert approved["half_day_deduction_override"] == 250
+    assert approved["total_deductions"] == 725
+    assert approved["net_pay"] == 11775
+    assert float(persisted.lop_deduction_override) == 300
+    assert float(persisted.half_day_deduction_override) == 250
+
+
+def test_saved_salary_slip_override_survives_omitted_update_and_can_be_cleared(db_session: Session, monkeypatch):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(salary_router, "has_permission", lambda *_args: True)
+    initial = SalarySlipCreate(
+        employee_id=employee.id, month=5, year=2026, employee_details=structured_details(),
+        earnings=structured_rows(), deductions=structured_deductions(), lwp_days=1, half_day_days=2,
+    )
+    created = salary_router.create_salary_slip(initial, db_session, admin)
+    assert created["half_day_deduction"] == 416.67
+
+    override = SalarySlipCreate(
+        employee_id=employee.id, month=5, year=2026, employee_details=structured_details(),
+        earnings=structured_rows(), deductions=structured_deductions(), lwp_days=1, half_day_days=2,
+        lop_deduction_override=200, half_day_deduction_override=200,
+    )
+    updated = salary_router.update_salary_slip(created["id"], override, db_session, admin)
+    assert updated["lop_deduction"] == 200
+    assert updated["lop_deduction_override"] == 200
+    assert updated["half_day_deduction"] == 200
+    assert updated["total_deductions"] == 575
+    assert updated["net_pay"] == 11925
+
+    omitted_override = SalarySlipCreate(
+        employee_id=employee.id, month=5, year=2026, employee_details=structured_details(),
+        earnings=structured_rows(), deductions=structured_deductions(), lwp_days=1, half_day_days=2,
+    )
+    retained = salary_router.update_salary_slip(created["id"], omitted_override, db_session, admin)
+    assert retained["lop_deduction_override"] == 200
+    assert retained["lop_deduction"] == 200
+    assert retained["half_day_deduction_override"] == 200
+    assert retained["half_day_deduction"] == 200
+
+    automatic = SalarySlipCreate(
+        employee_id=employee.id, month=5, year=2026, employee_details=structured_details(),
+        earnings=structured_rows(), deductions=structured_deductions(), lwp_days=1, half_day_days=2,
+        lop_deduction_override=None, half_day_deduction_override=None,
+    )
+    reset = salary_router.update_salary_slip(created["id"], automatic, db_session, admin)
+    assert reset["lop_deduction_override"] is None
+    assert reset["lop_deduction"] == 416.67
+    assert reset["half_day_deduction_override"] is None
+    assert reset["half_day_deduction"] == 416.67
+    assert reset["total_deductions"] == 1008.34
+    assert reset["net_pay"] == 11491.66
+
+
+def test_employee_cannot_override_half_day_deduction_during_review(db_session: Session):
+    employee = make_user(db_session)
+    pending = salary_router.request_salary_slip(
+        SalarySlipRequestCreate(month=5, year=2026, earnings=structured_rows()), db_session, employee,
+    )
+
+    with pytest.raises(HTTPException) as error:
+        salary_router.review_salary_slip(
+            pending["id"], SalarySlipReviewUpdate(half_day_deduction_override=1), db_session, employee,
+        )
+
+    assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("override_field", ["lop_deduction_override", "half_day_deduction_override"])
+def test_salary_slip_create_requires_edit_permission_for_attendance_override(db_session: Session, monkeypatch, override_field: str):
+    employee = make_user(db_session)
+    admin = make_user(db_session, "admin")
+    monkeypatch.setattr(
+        salary_router, "has_permission",
+        lambda _user, permission, _db: permission == "employee_documents.salary_slips.create",
+    )
+    payload = SalarySlipCreate(
+        employee_id=employee.id, month=5, year=2026, earnings=structured_rows(),
+        **{override_field: 100},
+    )
+
+    with pytest.raises(HTTPException) as error:
+        salary_router.create_salary_slip(payload, db_session, admin)
+
+    assert error.value.status_code == 403
+    assert db_session.query(SalarySlip).count() == 0
+
+
+def test_half_day_override_rejects_negative_and_non_finite_amounts():
+    for invalid_amount in (-1, float("inf"), float("nan")):
+        with pytest.raises(ValidationError):
+            SalarySlipReviewUpdate(half_day_deduction_override=invalid_amount)
+        with pytest.raises(ValidationError):
+            SalarySlipReviewUpdate(lop_deduction_override=invalid_amount)
 
 
 def test_employee_request_saves_employee_submitted_day_counts(db_session: Session, monkeypatch):

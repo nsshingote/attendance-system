@@ -203,7 +203,9 @@ class SalarySlip(Base):
     half_day_days = Column(DECIMAL(8, 2), nullable=True)
     total_earnings = Column(DECIMAL(12, 2), nullable=True)
     lop_deduction = Column(DECIMAL(12, 2), nullable=True)
+    lop_deduction_override = Column(DECIMAL(12, 2), nullable=True)
     half_day_deduction = Column(DECIMAL(12, 2), nullable=True)
+    half_day_deduction_override = Column(DECIMAL(12, 2), nullable=True)
     total_deductions = Column(DECIMAL(12, 2), nullable=True)
     net_pay = Column(DECIMAL(12, 2), nullable=True)
 
@@ -350,6 +352,7 @@ class Attendance(Base):
             "WFH",
             "On Leave",
             "Extra Working Day",
+            "Weekly Off",
             name="attendance_status",
         ),
         default="Present",
