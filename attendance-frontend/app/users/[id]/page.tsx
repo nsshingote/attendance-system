@@ -18,6 +18,7 @@ import MonthSelector from "@/components/Calendar/MonthSelector";
 import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLetterGenerator";
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
 import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
+import DocumentViewer from "@/components/Documents/DocumentViewer";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
@@ -112,7 +113,6 @@ type PersonalDocument = {
   title: string;
   original_filename: string;
   file_name: string;
-  file_path: string;
   mime_type?: string | null;
   file_size: number;
   uploaded_at: string;
@@ -238,6 +238,7 @@ export default function UserDetailPage() {
   const [selectedGeneratedDocument, setSelectedGeneratedDocument] = useState<GeneratedDocument | null>(null);
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<GeneratedDocument | null>(null);
   const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
+  const [viewingPersonalDocument, setViewingPersonalDocument] = useState<{ url: string; filename: string; mimeType?: string | null } | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
 
   const handleSelectDay = (day: SelectedCalendarDay) => {
@@ -434,7 +435,6 @@ export default function UserDetailPage() {
   };
 
   const handleViewPersonalDoc = async (documentId: number) => {
-    const previewWindow = window.open("about:blank", "_blank");
     const token = getToken();
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/employee-documents/personal-documents/download/${documentId}`, {
@@ -444,16 +444,10 @@ export default function UserDetailPage() {
         const error = await response.text();
         throw new Error(error || "Unable to view file");
       }
+      const doc = personalDocs.find(item => item.id === documentId);
       const url = window.URL.createObjectURL(await response.blob());
-      if (previewWindow) {
-        previewWindow.location.href = url;
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      } else {
-        window.URL.revokeObjectURL(url);
-        toast.error("Allow pop-ups to view the document");
-      }
+      setViewingPersonalDocument({ url, filename: doc?.original_filename || `document_${documentId}`, mimeType: doc?.mime_type });
     } catch (error) {
-      previewWindow?.close();
       toast.error(getErrorMessage(error));
     }
   };
@@ -523,9 +517,9 @@ export default function UserDetailPage() {
     try {
       const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
       if (document.document_type === "appointment_letter") {
-        downloadAppointmentLetterPdf(values);
+        await downloadAppointmentLetterPdf(values);
       } else if (document.document_type === "offer_letter") {
-        downloadOfferLetterPdf(values);
+        await downloadOfferLetterPdf(values);
       } else if (values.resolved_content) {
         setSelectedGeneratedDocument(document);
         setPendingDynamicPdf(document);
@@ -842,6 +836,7 @@ export default function UserDetailPage() {
                         <p className="text-xs text-ink-500">{doc.original_filename}</p>
                       </div>
                       <div className="flex gap-2">
+                        <button onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">View</button>
                         <button onClick={() => void handleDownloadPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><span>Download</span></button>
                       </div>
                     </div>
@@ -859,6 +854,7 @@ export default function UserDetailPage() {
                         <p className="text-xs text-ink-500">{new Date(document.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
                       </div>
                       <div className="flex gap-2">
+                        <button onClick={() => setSelectedGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">View</button>
                         <button onClick={() => void downloadGeneratedDocument(document)} className="rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">Download</button>
                         {canDeleteGeneratedDocuments && <button onClick={() => handleDeleteDocument(document.id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600">Delete</button>}
                       </div>
@@ -875,8 +871,8 @@ export default function UserDetailPage() {
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
           <div className="mx-auto my-4 max-w-4xl rounded-xl bg-ink-100 p-3 shadow-xl sm:p-6">
             <div className="mb-3 flex flex-wrap justify-end gap-2">
-              {appointmentValues && <button onClick={() => downloadAppointmentLetterPdf(appointmentValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
-              {offerValues && <button onClick={() => downloadOfferLetterPdf(offerValues)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
+              {appointmentValues && <button onClick={() => void downloadAppointmentLetterPdf(appointmentValues).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
+              {offerValues && <button onClick={() => void downloadOfferLetterPdf(offerValues).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium">Download PDF</button>}
               {dynamicValues?.resolved_content && <button onClick={() => void downloadDynamicLetterPdf(selectedGeneratedDocument.title, dynamicValues.resolved_content || "", user?.name, dynamicPreviewRef.current, null, file => setIOSDownloadFile(file)).catch(error => toast.error(getErrorMessage(error)))} className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-ink-300 bg-white px-4 py-2 text-sm font-medium sm:flex-none">Download PDF</button>}
               <button onClick={() => setSelectedGeneratedDocument(null)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium">Close</button>
             </div>
@@ -886,6 +882,7 @@ export default function UserDetailPage() {
           </div>
         </div>
       )}
+      {viewingPersonalDocument && <DocumentViewer url={viewingPersonalDocument.url} filename={viewingPersonalDocument.filename} mimeType={viewingPersonalDocument.mimeType} onClose={() => setViewingPersonalDocument(null)} />}
       {pendingDynamicPdf && selectedGeneratedDocument && dynamicValues?.resolved_content && (
         <div aria-hidden="true" style={HIDDEN_PDF_PREVIEW_CONTAINER_STYLE}>
           <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />
