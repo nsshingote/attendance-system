@@ -11,9 +11,11 @@ import UserAttendanceChart from "@/components/Users/AttendanceChart";
 import { AppointmentLetterPreview } from "@/components/Documents/AppointmentLetterGenerator";
 import { OfferLetterPreview } from "@/components/Documents/OfferLetterGenerator";
 import DynamicLetterPreview from "@/components/Documents/DynamicLetterPreview";
+import DocumentViewer from "@/components/Documents/DocumentViewer";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
+import { getGeneratedLetterKind, type DynamicLetterSnapshot } from "@/lib/dynamicLetterSnapshot";
 import { HIDDEN_PDF_PREVIEW_CONTAINER_STYLE } from "@/lib/dynamicLetterLayout";
 import { shareIOSFile } from "@/lib/iosFileDownload";
 import { isIOSBrowser } from "@/lib/pdfDownload";
@@ -147,6 +149,9 @@ export default function MyProfilePage() {
   const [personalDocumentRequests, setPersonalDocumentRequests] = useState<PersonalDocumentRequest[]>([]);
   const [deleteRequestDocumentId, setDeleteRequestDocumentId] = useState<number | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<GeneratedDocument | null>(null);
+  const [viewingPersonalDocument, setViewingPersonalDocument] = useState<{ id: number; url: string; filename: string; mimeType?: string | null } | null>(null);
+  const [personalDocumentViewLoading, setPersonalDocumentViewLoading] = useState(false);
+  const personalDocumentViewAbortRef = useRef<AbortController | null>(null);
   const [pendingDynamicPdf, setPendingDynamicPdf] = useState<{ document: GeneratedDocument; targetWindow: Window | null } | null>(null);
   const [iosDownloadFile, setIOSDownloadFile] = useState<File | null>(null);
   const dynamicPreviewRef = useRef<HTMLDivElement>(null);
@@ -484,24 +489,30 @@ export default function MyProfilePage() {
   };
 
   const handleViewPersonalDoc = async (documentId: number) => {
-    // This must run synchronously with the tap; iOS blocks popups opened after
-    // an awaited network request.
-    const previewWindow = window.open("about:blank", "_blank");
+    personalDocumentViewAbortRef.current?.abort();
+    const controller = new AbortController();
+    personalDocumentViewAbortRef.current = controller;
+    setPersonalDocumentViewLoading(true);
     try {
-      const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, { responseType: "blob" });
+      const { data } = await api.get<Blob>(`/employee-documents/personal-documents/download/${documentId}`, { responseType: "blob", signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const doc = personalDocuments.find(item => item.id === documentId);
       const url = window.URL.createObjectURL(data);
-      if (previewWindow) {
-        previewWindow.location.href = url;
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      } else {
-        window.location.assign(url);
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-      }
+      setViewingPersonalDocument({ id: documentId, url, filename: doc?.original_filename || `document_${documentId}`, mimeType: doc?.mime_type || data.type });
     } catch (error) {
-      previewWindow?.close();
-      toast.error(getErrorMessage(error));
+      if (!controller.signal.aborted) toast.error(getErrorMessage(error));
+    } finally {
+      if (personalDocumentViewAbortRef.current === controller) {
+        personalDocumentViewAbortRef.current = null;
+        setPersonalDocumentViewLoading(false);
+      }
     }
   };
+
+  useEffect(() => () => {
+    personalDocumentViewAbortRef.current?.abort();
+    personalDocumentViewAbortRef.current = null;
+  }, []);
 
   const requestReplacePersonalDoc = (documentId: number) => {
     const input = document.createElement("input");
@@ -537,17 +548,11 @@ export default function MyProfilePage() {
 
   const pendingDocumentRequest = (documentId: number) => personalDocumentRequests.find((request) => request.document_id === documentId && request.status === "Pending");
 
-  const appointmentValues =
-    selectedDocument?.document_type === "appointment_letter" && !JSON.parse(selectedDocument.content).resolved_content
-      ? (JSON.parse(selectedDocument.content) as AppointmentLetterValues)
-      : null;
-  const offerValues =
-    selectedDocument?.document_type === "offer_letter" && !JSON.parse(selectedDocument.content).resolved_content
-      ? (JSON.parse(selectedDocument.content) as OfferLetterValues)
-      : null;
-  const dynamicValues = selectedDocument && !appointmentValues && !offerValues
-    ? (JSON.parse(selectedDocument.content) as { resolved_content?: string; template_content?: string; template_layout?: unknown; layout_validated?: boolean })
-    : null;
+  const selectedGeneratedValues = selectedDocument ? JSON.parse(selectedDocument.content) as AppointmentLetterValues & OfferLetterValues & DynamicLetterSnapshot : null;
+  const selectedLetterKind = selectedDocument ? getGeneratedLetterKind(selectedDocument.document_type, selectedGeneratedValues) : "other";
+  const appointmentValues = selectedLetterKind === "appointment" && selectedGeneratedValues ? selectedGeneratedValues as AppointmentLetterValues : null;
+  const offerValues = selectedLetterKind === "offer" && selectedGeneratedValues ? selectedGeneratedValues as OfferLetterValues : null;
+  const dynamicValues = selectedLetterKind === "dynamic" || selectedLetterKind === "other" ? selectedGeneratedValues : null;
 
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedDocument || selectedDocument.id !== pendingDynamicPdf.document.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
@@ -561,15 +566,17 @@ export default function MyProfilePage() {
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
-      const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
-      if (values.resolved_content) {
+      const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & DynamicLetterSnapshot;
+      const letterKind = getGeneratedLetterKind(document.document_type, values);
+      if (letterKind === "dynamic") {
+        if (!values.resolved_content) throw new Error("This document has no renderable content");
         const targetWindow = null;
         setSelectedDocument(document);
         setPendingDynamicPdf({ document, targetWindow });
         return;
-      } else if (document.document_type === "appointment_letter") {
+      } else if (letterKind === "appointment") {
         downloadAppointmentLetterPdf(values, file => setIOSDownloadFile(file));
-      } else if (document.document_type === "offer_letter") {
+      } else if (letterKind === "offer") {
         downloadOfferLetterPdf(values, file => setIOSDownloadFile(file));
       } else {
         throw new Error("This document has no renderable content");
@@ -897,6 +904,7 @@ export default function MyProfilePage() {
                           <p className="text-xs text-ink-500">{doc.original_filename}</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => void handleViewPersonalDoc(doc.id)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
                           <button type="button" onClick={() => void handleDownloadPersonalDoc(doc.id, doc.original_filename)} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Download size={14} /> Download</button>
                           <button type="button" onClick={() => requestReplacePersonalDoc(doc.id)} disabled={Boolean(pendingDocumentRequest(doc.id))} style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent", cursor: "pointer", pointerEvents: "auto" }} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"><Pencil size={14} /> Replace</button>
                           {deleteRequestDocumentId === doc.id ? (
@@ -937,7 +945,8 @@ export default function MyProfilePage() {
                             })}
                           </p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => setSelectedDocument(document)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700"><Eye size={14} /> View</button>
                           <button onClick={() => void downloadGeneratedDocument(document)} className="inline-flex items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-sm font-medium text-brand-700">
                             <Download size={14} /> Download
                           </button>
@@ -1089,6 +1098,8 @@ export default function MyProfilePage() {
             </div>
           </div>
         )}
+        {personalDocumentViewLoading && <div className="fixed inset-0 z-[69] flex items-center justify-center bg-black/60 p-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" role="status" aria-live="polite"><p className="rounded-lg bg-white px-5 py-4 text-sm font-medium text-ink-900">Loading document…</p></div>}
+        {viewingPersonalDocument && <DocumentViewer url={viewingPersonalDocument.url} filename={viewingPersonalDocument.filename} mimeType={viewingPersonalDocument.mimeType} onDownload={() => void handleDownloadPersonalDoc(viewingPersonalDocument.id, viewingPersonalDocument.filename)} onClose={() => setViewingPersonalDocument(null)} />}
         {pendingDynamicPdf && selectedDocument && dynamicValues?.resolved_content && (
           <div aria-hidden="true" style={HIDDEN_PDF_PREVIEW_CONTAINER_STYLE}>
             <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />

@@ -22,6 +22,7 @@ import DocumentViewer from "@/components/Documents/DocumentViewer";
 import { downloadAppointmentLetterPdf, type AppointmentLetterValues } from "@/lib/appointmentLetterPdf";
 import { downloadOfferLetterPdf, type OfferLetterValues } from "@/lib/offerLetterPdf";
 import { downloadDynamicLetterPdf } from "@/lib/dynamicLetterPdf";
+import { getGeneratedLetterKind, type DynamicLetterSnapshot } from "@/lib/dynamicLetterSnapshot";
 import { HIDDEN_PDF_PREVIEW_CONTAINER_STYLE } from "@/lib/dynamicLetterLayout";
 import { shareIOSFile } from "@/lib/iosFileDownload";
 import { getSession, getToken } from "@/lib/auth";
@@ -499,9 +500,11 @@ export default function UserDetailPage() {
     ? formatAverageHours(rangeSummary["Total Hours"], rangeActiveDays)
     : "-";
 
-  const appointmentValues = selectedGeneratedDocument?.document_type === "appointment_letter" ? JSON.parse(selectedGeneratedDocument.content) as AppointmentLetterValues : null;
-  const offerValues = selectedGeneratedDocument?.document_type === "offer_letter" ? JSON.parse(selectedGeneratedDocument.content) as OfferLetterValues : null;
-  const dynamicValues = selectedGeneratedDocument && !appointmentValues && !offerValues ? JSON.parse(selectedGeneratedDocument.content) as { resolved_content?: string; template_content?: string; template_layout?: unknown; layout_validated?: boolean } : null;
+  const selectedGeneratedValues = selectedGeneratedDocument ? JSON.parse(selectedGeneratedDocument.content) as AppointmentLetterValues & OfferLetterValues & DynamicLetterSnapshot : null;
+  const selectedLetterKind = selectedGeneratedDocument ? getGeneratedLetterKind(selectedGeneratedDocument.document_type, selectedGeneratedValues) : "other";
+  const appointmentValues = selectedLetterKind === "appointment" && selectedGeneratedValues ? selectedGeneratedValues as AppointmentLetterValues : null;
+  const offerValues = selectedLetterKind === "offer" && selectedGeneratedValues ? selectedGeneratedValues as OfferLetterValues : null;
+  const dynamicValues = selectedLetterKind === "dynamic" || selectedLetterKind === "other" ? selectedGeneratedValues : null;
 
   useEffect(() => {
     if (!pendingDynamicPdf || !selectedGeneratedDocument || selectedGeneratedDocument.id !== pendingDynamicPdf.id || !dynamicValues?.resolved_content || !dynamicPreviewRef.current) return;
@@ -515,10 +518,15 @@ export default function UserDetailPage() {
 
   const downloadGeneratedDocument = async (document: GeneratedDocument) => {
     try {
-      const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & { resolved_content?: string };
-      if (document.document_type === "appointment_letter") {
+      const values = JSON.parse(document.content) as AppointmentLetterValues & OfferLetterValues & DynamicLetterSnapshot;
+      const letterKind = getGeneratedLetterKind(document.document_type, values);
+      if (letterKind === "dynamic") {
+        if (!values.resolved_content) throw new Error("This document has no renderable content");
+        setSelectedGeneratedDocument(document);
+        setPendingDynamicPdf(document);
+      } else if (letterKind === "appointment") {
         await downloadAppointmentLetterPdf(values);
-      } else if (document.document_type === "offer_letter") {
+      } else if (letterKind === "offer") {
         await downloadOfferLetterPdf(values);
       } else if (values.resolved_content) {
         setSelectedGeneratedDocument(document);
@@ -878,7 +886,7 @@ export default function UserDetailPage() {
             </div>
               {appointmentValues && <AppointmentLetterPreview values={appointmentValues} />}
               {offerValues && <OfferLetterPreview values={offerValues} />}
-              {dynamicValues?.resolved_content && <DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} />}
+              {dynamicValues?.resolved_content && <div className="overflow-auto"><DynamicLetterPreview ref={dynamicPreviewRef} title={selectedGeneratedDocument.title} content={dynamicValues.resolved_content} templateContent={dynamicValues.template_content} templateLayout={dynamicValues.template_layout} layoutValidated={dynamicValues.layout_validated} /></div>}
           </div>
         </div>
       )}

@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Minus, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Minus, Plus, X } from "lucide-react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
-type Props = { url: string; filename: string; mimeType?: string | null; onClose: () => void };
+type Props = { url: string; filename: string; mimeType?: string | null; onClose: () => void; onDownload?: () => void };
 
-export default function DocumentViewer({ url, filename, mimeType, onClose }: Props) {
+export default function DocumentViewer({ url, filename, mimeType, onClose, onDownload }: Props) {
   const isPdf = mimeType === "application/pdf" || filename.toLowerCase().endsWith(".pdf");
   const isImage = mimeType?.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(filename);
   const [pageCount, setPageCount] = useState(0);
@@ -19,6 +19,7 @@ export default function DocumentViewer({ url, filename, mimeType, onClose }: Pro
   const [error, setError] = useState("");
   const [fitScale, setFitScale] = useState(1);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
@@ -28,7 +29,10 @@ export default function DocumentViewer({ url, filename, mimeType, onClose }: Pro
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(entries => setViewportWidth(entries[0]?.contentRect.width || 0));
+    const observer = new ResizeObserver(entries => {
+      setViewportWidth(entries[0]?.contentRect.width || 0);
+      setViewportHeight(entries[0]?.contentRect.height || 0);
+    });
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
@@ -92,12 +96,13 @@ export default function DocumentViewer({ url, filename, mimeType, onClose }: Pro
     const image = new Image();
     image.onload = () => {
       const host = containerRef.current;
-      if (host) setFitScale(Math.min(1, (viewportWidth - 32) / image.naturalWidth, (host.clientHeight - 32) / image.naturalHeight));
+      if (host) setFitScale(Math.min(1, Math.max(0.1, (viewportWidth - 32) / image.naturalWidth), Math.max(0.1, (viewportHeight - 32) / image.naturalHeight)));
       setLoading(false);
     };
     image.onerror = () => { setError("This image could not be opened."); setLoading(false); };
     image.src = url;
-  }, [isImage, url, viewportWidth]);
+    return () => { image.onload = null; image.onerror = null; image.src = ""; };
+  }, [isImage, url, viewportWidth, viewportHeight]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -105,10 +110,11 @@ export default function DocumentViewer({ url, filename, mimeType, onClose }: Pro
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  return <div className="fixed inset-0 z-70 flex flex-col bg-slate-950 text-white" role="dialog" aria-modal="true" aria-label={`Document viewer: ${filename}`}>
-    <header className="flex min-h-14 items-center gap-3 border-b border-white/15 px-3 sm:px-5">
-      <button onClick={onClose} aria-label="Close document viewer" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg hover:bg-white/10"><X size={22}/></button>
+  return <div className="fixed inset-0 z-70 flex h-[100dvh] flex-col bg-slate-950 text-white" role="dialog" aria-modal="true" aria-label={`Document viewer: ${filename}`}>
+    <header className="flex min-h-14 items-center gap-2 border-b border-white/15 px-3 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-5">
+      <button onClick={onClose} aria-label="Close document viewer" className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-sm hover:bg-white/10"><X size={22}/><span>Close</span></button>
       <p className="min-w-0 flex-1 truncate text-sm font-medium sm:text-base">{filename}</p>
+      {onDownload && <button onClick={onDownload} aria-label="Download document" className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-xs hover:bg-white/10 sm:gap-2 sm:px-3 sm:text-sm"><Download size={17}/><span>Download</span></button>}
       {isPdf && pageCount > 0 && <div className="flex items-center gap-1">
         <button aria-label="Zoom out" onClick={() => setZoom(value => Math.max(.5, value - .2))} className="min-h-10 min-w-10 rounded-lg hover:bg-white/10"><Minus size={18}/></button>
         <span className="min-w-12 text-center text-xs">{Math.round(zoom * 100)}%</span>
@@ -120,13 +126,13 @@ export default function DocumentViewer({ url, filename, mimeType, onClose }: Pro
       <span className="text-sm">Page {page} of {pageCount}</span>
       <button aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage(value => Math.min(pageCount, value + 1))} className="inline-flex min-h-10 items-center gap-1 rounded-lg px-3 disabled:opacity-40">Next<ChevronRight size={18}/></button>
     </nav>}
-    <main ref={containerRef} className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-800 p-3 sm:p-6">
+    <main ref={containerRef} className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto bg-slate-800 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:p-6">
       {loading && <p role="status">Loading document…</p>}
       {error && <div role="alert" className="rounded-lg bg-red-950 p-4 text-center text-sm">{error}</div>}
       {!isPdf && !isImage && !error && <p role="alert" className="text-center text-sm">Preview is available for PDF and image files only.</p>}
       {isPdf && <canvas ref={canvasRef} className={loading || error ? "hidden" : "max-w-none shadow-xl"}/>}
       {isImage && url && !error && <img src={url} alt={filename} onLoad={() => setLoading(false)} style={{ transform: `scale(${zoom})`, maxWidth: `${fitScale * 100}%`, maxHeight: `${fitScale * 100}%`, objectFit: "contain" }} className={loading ? "hidden" : "origin-center"}/>}
-      {isImage && !error && <div className="absolute bottom-4 right-4 flex gap-2 rounded-lg bg-slate-950/80 p-1">
+      {isImage && !error && <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+1rem)] right-4 flex gap-2 rounded-lg bg-slate-950/80 p-1">
         <button aria-label="Zoom out" onClick={() => setZoom(value => Math.max(.5, value - .2))} className="min-h-10 min-w-10 rounded"><Minus size={18}/></button><span className="flex items-center text-xs">{Math.round(zoom * 100)}%</span><button aria-label="Zoom in" onClick={() => setZoom(value => Math.min(3, value + .2))} className="min-h-10 min-w-10 rounded"><Plus size={18}/></button><button aria-label="Fit image" onClick={() => setZoom(1)} className="px-2 text-xs">Fit</button>
       </div>}
     </main>
