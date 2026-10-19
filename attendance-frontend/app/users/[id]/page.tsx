@@ -40,6 +40,8 @@ interface UserDetail {
   annual_leave: number;
   leave_encashed: number;
   date_of_joining?: string | null;
+  pan_number?: string | null;
+  account_number?: string | null;
   address_line_1?: string | null;
   address_line_2?: string | null;
   city?: string | null;
@@ -795,7 +797,7 @@ export default function UserDetailPage() {
             <section className="rounded-xl border border-ink-200 bg-white p-5 shadow-card">
               <h2 className="mb-5 font-semibold">Basic Information</h2>
               <dl className="grid gap-5 sm:grid-cols-2">
-                {[ ["Name", user.name], ["Designation", user.designation], ["Department", user.department], ["Phone", user.mobile || "—"], ["Email", user.email || "—"], ["Joining Date", user.date_of_joining ? new Date(`${user.date_of_joining}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "—"] ].map(([label, value]) => (
+                {[ ["Name", user.name], ["Designation", user.designation], ["Department", user.department], ["Phone", user.mobile || "—"], ["Email", user.email || "—"], ["Joining Date", user.date_of_joining ? new Date(`${user.date_of_joining}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "—"], ["PAN No.", user.pan_number || "—"], ["Account No.", user.account_number || "—"] ].map(([label, value]) => (
                   <div key={String(label)}>
                     <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</dt>
                     <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>

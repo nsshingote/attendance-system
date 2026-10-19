@@ -97,6 +97,15 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
   // derive selected day from days + selectedDateLocal
   const selectedDayLocal: CalendarDay | null = days.find((d) => d.date === selectedDateLocal) || null;
 
+  const enteredDuration = (() => {
+    if (!checkInTimeLocal || !checkOutTimeLocal) return null;
+    const [inHours, inMinutes] = checkInTimeLocal.split(":").map(Number);
+    const [outHours, outMinutes] = checkOutTimeLocal.split(":").map(Number);
+    let minutes = outHours * 60 + outMinutes - (inHours * 60 + inMinutes);
+    if (minutes < 0) minutes += 24 * 60; // Checkout is on the following day.
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  })();
+
   useEffect(() => {
     const toTimeInput = (isoString?: string | null) => {
       if (!isoString) return "";
@@ -382,7 +391,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                       {enterTimesLocal && (
                         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <label className="space-y-1 text-sm text-ink-600">
-                            Check In
+                            Check In <span className="text-xs text-ink-400">(24-hour time)</span>
                             <input
                               type="time"
                               value={checkInTimeLocal}
@@ -391,7 +400,7 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                             />
                           </label>
                           <label className="space-y-1 text-sm text-ink-600">
-                            Check Out
+                            Check Out <span className="text-xs text-ink-400">(24-hour time)</span>
                             <input
                               type="time"
                               value={checkOutTimeLocal}
@@ -400,6 +409,11 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                             />
                           </label>
                         </div>
+                      )}
+                      {enterTimesLocal && enteredDuration && (
+                        <p className="mt-2 text-xs text-ink-500">
+                          Duration: {enteredDuration}. Checkout earlier than check-in is treated as the following day.
+                        </p>
                       )}
                     </div>
                   )}
@@ -425,7 +439,14 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                               payload.leave_category = leaveCategoryRef.current?.value || "Paid";
                             } else if (enterTimesLocal && normalized !== "Weekly Off") {
                               payload.check_in = checkInTimeLocal ? `${selectedDateLocal}T${checkInTimeLocal}:00` : null;
-                              payload.check_out = checkOutTimeLocal ? `${selectedDateLocal}T${checkOutTimeLocal}:00` : null;
+                              if (checkOutTimeLocal) {
+                                const isOvernight = Boolean(checkInTimeLocal) && checkOutTimeLocal < checkInTimeLocal;
+                                const [year, month, day] = selectedDateLocal.split("-").map(Number);
+                                const checkOutDate = isOvernight
+                                  ? new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10)
+                                  : selectedDateLocal;
+                                payload.check_out = `${checkOutDate}T${checkOutTimeLocal}:00`;
+                              }
                             }
                             await api.put(`/attendance/user/${targetUserId}/date/${selectedDateLocal}`, payload);
                           toast.success("Override saved");

@@ -110,7 +110,7 @@ export default function DocumentViewer({ url, filename, mimeType, onClose, onDow
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  return <div className="fixed inset-0 z-70 flex h-[100dvh] flex-col bg-slate-950 text-white" role="dialog" aria-modal="true" aria-label={`Document viewer: ${filename}`}>
+  return <div className="fixed inset-0 z-70 flex h-dvh flex-col bg-slate-950 text-white" role="dialog" aria-modal="true" aria-label={`Document viewer: ${filename}`}>
     <header className="flex min-h-14 items-center gap-2 border-b border-white/15 px-3 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-5">
       <button onClick={onClose} aria-label="Close document viewer" className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-sm hover:bg-white/10"><X size={22}/><span>Close</span></button>
       <p className="min-w-0 flex-1 truncate text-sm font-medium sm:text-base">{filename}</p>
