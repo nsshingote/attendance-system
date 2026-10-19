@@ -54,6 +54,41 @@ const STATUS_COLORS: Record<string, string> = {
   "Extra Working Day": "bg-blue-500 text-white",
 };
 
+function Time12HourInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [rawHours = "", minutes = "", rawPeriod = ""] = value.match(/^(\d{2}):(\d{2})$/)
+    ? (() => {
+        const [hours, mins] = value.split(":").map(Number);
+        return [String(hours % 12 || 12).padStart(2, "0"), mins.toString().padStart(2, "0"), hours >= 12 ? "PM" : "AM"];
+      })()
+    : [];
+  const commit = (hours: string, mins: string, period: string) => {
+    const hour12 = Number(hours || 12);
+    const hour24 = (hour12 % 12) + (period === "PM" ? 12 : 0);
+    onChange(`${String(hour24).padStart(2, "0")}:${mins || "00"}`);
+  };
+
+  return (
+    <fieldset className="min-w-0 space-y-1 text-sm text-ink-600">
+      <legend>{label}</legend>
+      <div className="flex gap-2">
+        <select aria-label={`${label} hour`} value={rawHours} onChange={(event) => commit(event.target.value, minutes, rawPeriod)} className="min-w-0 flex-1 rounded-lg border border-ink-200 bg-white px-2 py-2 text-sm">
+          <option value="">Hour</option>
+          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => <option key={hour} value={hour}>{Number(hour)}</option>)}
+        </select>
+        <select aria-label={`${label} minute`} value={minutes} onChange={(event) => commit(rawHours, event.target.value, rawPeriod)} className="min-w-0 flex-1 rounded-lg border border-ink-200 bg-white px-2 py-2 text-sm">
+          <option value="">Minute</option>
+          {Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, "0")).map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+        </select>
+        <select aria-label={`${label} AM or PM`} value={rawPeriod} onChange={(event) => commit(rawHours, minutes, event.target.value)} className="rounded-lg border border-ink-200 bg-white px-2 py-2 text-sm">
+          <option value="">AM/PM</option>
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
+      </div>
+    </fieldset>
+  );
+}
+
 export default function UserCalendar({ userId, employeeIds, departmentId, year, month, selectedDate, canOverride = false, onOverrideDate, onSelectDay, refreshKey = 0, showStatus = false, onOverrideSaved }: UserCalendarProps) {
   const [days, setDays] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
@@ -390,24 +425,8 @@ export default function UserCalendar({ userId, employeeIds, departmentId, year, 
                       </div>
                       {enterTimesLocal && (
                         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="space-y-1 text-sm text-ink-600">
-                            Check In <span className="text-xs text-ink-400">(24-hour time)</span>
-                            <input
-                              type="time"
-                              value={checkInTimeLocal}
-                              onChange={(e) => setCheckInTimeLocal(e.target.value)}
-                              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                          <label className="space-y-1 text-sm text-ink-600">
-                            Check Out <span className="text-xs text-ink-400">(24-hour time)</span>
-                            <input
-                              type="time"
-                              value={checkOutTimeLocal}
-                              onChange={(e) => setCheckOutTimeLocal(e.target.value)}
-                              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
+                          <Time12HourInput label="Check In" value={checkInTimeLocal} onChange={setCheckInTimeLocal} />
+                          <Time12HourInput label="Check Out" value={checkOutTimeLocal} onChange={setCheckOutTimeLocal} />
                         </div>
                       )}
                       {enterTimesLocal && enteredDuration && (
