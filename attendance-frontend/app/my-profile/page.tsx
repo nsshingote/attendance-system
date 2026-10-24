@@ -162,6 +162,7 @@ export default function MyProfilePage() {
   const [editingEmergency, setEditingEmergency] = useState(false);
   const [otherDocumentTitle, setOtherDocumentTitle] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [uploading, setUploading] = useState(false);
@@ -363,6 +364,22 @@ export default function MyProfilePage() {
       window.dispatchEvent(new Event("profile-updated"));
       toast.success("Profile image updated");
     } catch (error) { toast.error(getErrorMessage(error)); }
+  };
+
+  const handlePhotoRemove = async () => {
+    if (!window.confirm("Remove your profile photo?")) return;
+    try {
+      setRemovingPhoto(true);
+      await api.delete("/users/me/profile-photo");
+      setPhotoUrl(null);
+      window.dispatchEvent(new Event("profile-photo-updated"));
+      window.dispatchEvent(new Event("profile-updated"));
+      toast.success("Profile photo removed");
+    } catch (error) {
+      toast.error(`Unable to remove profile photo: ${getErrorMessage(error)}`);
+    } finally {
+      setRemovingPhoto(false);
+    }
   };
 
   const downloadSalarySlip = async (slip: Slip) => {
@@ -626,10 +643,20 @@ export default function MyProfilePage() {
                     <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-3xl font-semibold text-brand-700">
                       {photoUrl ? <img src={photoUrl} alt="Profile" className="h-full w-full object-cover" onError={() => setPhotoUrl(null)} /> : profile?.name?.charAt(0)}
                     </div>
-                    <label className="cursor-pointer rounded-lg border border-ink-300 px-3 py-2 text-xs font-medium text-brand-700">
-                      Upload Photo
-                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePhotoUpload(event.target.files?.[0] || null)} className="hidden" />
-                    </label>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <label className="cursor-pointer rounded-lg border border-ink-300 px-3 py-2 text-xs font-medium text-brand-700">
+                        Upload Photo
+                        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePhotoUpload(event.target.files?.[0] || null)} className="hidden" />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handlePhotoRemove()}
+                        disabled={removingPhoto}
+                        className="rounded-lg border border-ink-300 px-3 py-2 text-xs font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {removingPhoto ? "Removing..." : "Remove Profile Photo"}
+                      </button>
+                    </div>
                   </div>
                   <form onSubmit={handleBasicSave} className="flex-1">
                     <dl className="grid gap-5 sm:grid-cols-2">

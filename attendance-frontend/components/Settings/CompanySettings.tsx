@@ -103,7 +103,7 @@ export default function CompanySettings() {
       <div className="max-w-lg space-y-4 rounded-xl border border-ink-200 bg-white p-6 shadow-card">
         <div className="border-t border-ink-100 pt-4">
           <h2 className="font-semibold text-ink-900">Attendance Location</h2>
-          <p className="mt-1 text-xs text-ink-500">The backend recalculates distance from these coordinates. GPS readings above 100 metres accuracy are rejected.</p>
+          <p className="mt-1 text-xs text-ink-500">The configured radius controls both the office distance limit and the maximum accepted GPS accuracy.</p>
           <label className="mt-4 flex items-center gap-2 text-sm font-medium text-ink-700">
             <input type="checkbox" checked={form.attendance_location_enabled} onChange={(e) => setForm({ ...form, attendance_location_enabled: e.target.checked })} className="h-4 w-4 rounded border-ink-300 text-brand-600" />
             Enable location attendance

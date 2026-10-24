@@ -84,10 +84,11 @@ def attendance_validation_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    settings = db.query(CompanySettings).first()
+    settings = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
     return {
         "location_enabled": bool(getattr(settings, "attendance_location_enabled", False)),
         "validation_mode": getattr(settings, "attendance_validation_mode", None) or "ip_only",
+        "attendance_radius_meters": getattr(settings, "attendance_radius_meters", None),
     }
 
 # Half-day slot boundaries
@@ -201,7 +202,9 @@ def _attendance_validation(
         if accuracy is not None and accuracy > 100:
             raise HTTPException(status_code=400, detail="LOCATION_INACCURATE: Move to an area with a stronger GPS signal and try again.")
         return "location", None
-    settings = db.query(CompanySettings).first()
+    # Match the row returned by GET /company-settings/ so the Settings page
+    # and attendance validation use the same configured geofence.
+    settings = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
     mode = getattr(settings, "attendance_validation_mode", None) or "ip_only"
     location_enabled = bool(getattr(settings, "attendance_location_enabled", False))
     location_configured = settings and settings.office_latitude is not None and settings.office_longitude is not None
@@ -216,8 +219,16 @@ def _attendance_validation(
         if latitude is not None or longitude is not None or accuracy is not None:
             try:
                 _validate_location(latitude, longitude, accuracy)
+                radius_meters = settings.attendance_radius_meters
+                if radius_meters is None or radius_meters <= 0:
+                    raise HTTPException(status_code=500, detail="Attendance location radius is not configured.")
+                if accuracy is None or accuracy > radius_meters:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"LOCATION_INACCURATE: GPS accuracy must be provided and be {radius_meters} metres or better. Move to an area with a stronger GPS signal and try again.",
+                    )
                 distance = _location_distance_meters(latitude, longitude, float(settings.office_latitude), float(settings.office_longitude))
-                location_allowed = distance <= (settings.attendance_radius_meters or 200)
+                location_allowed = distance <= radius_meters
             except HTTPException:
                 if mode == "location_only":
                     raise

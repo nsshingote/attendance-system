@@ -48,14 +48,15 @@ export default function CheckOutButton({ disabled, refreshStatus, onStatusUpdate
         const userRequest = api.get<{ attendance_mode?: string }>("/users/me")
           .catch(() => ({ data: { attendance_mode: "office" } }));
         const validationSettingsRequest = api
-          .get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings")
+          .get<{ location_enabled: boolean; validation_mode: string; attendance_radius_meters: number | null }>("/attendance/validation-settings")
           .then(
             (response) => ({ response } as const),
             (error: unknown) => ({ error } as const)
           );
         const { data: user } = await userRequest;
         const payload: { reason?: string; latitude?: number; longitude?: number; accuracy?: number } = reasonText ? { reason: reasonText } : {};
-        const captureLocation = () => getCurrentLocation("check out").then(
+        let validationRadiusMeters: number | null = null;
+        const captureLocation = () => getCurrentLocation("check out", user.attendance_mode === "onsite" ? null : validationRadiusMeters).then(
           (position) => ({ position } as const),
           (error: unknown) => ({ error } as const)
         );
@@ -65,6 +66,7 @@ export default function CheckOutButton({ disabled, refreshStatus, onStatusUpdate
         const validationSettingsResult = await validationSettingsRequest;
         if ("error" in validationSettingsResult) throw validationSettingsResult.error;
         const { data: validationSettings } = validationSettingsResult.response;
+        validationRadiusMeters = validationSettings.attendance_radius_meters;
         const needsLocation = user.attendance_mode === "onsite" || (
           validationSettings.location_enabled &&
           ["location_only", "ip_or_location"].includes(validationSettings.validation_mode)

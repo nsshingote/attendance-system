@@ -340,6 +340,34 @@ def get_profile_photo(current_user: User = Depends(get_current_user)):
     return FileResponse(path)
 
 
+@router.delete("/me/profile-photo")
+def remove_profile_photo(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    path = _profile_photo_path(current_user.id)
+    if path is None:
+        return {"message": "Profile image removed"}
+
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as error:
+        raise HTTPException(status_code=500, detail="Unable to remove profile image") from error
+
+    db.add(ActivityLog(user_id=current_user.id, activity="Removed profile photo"))
+    record_changed_log(
+        db,
+        current_user.id,
+        current_user.id,
+        "profile",
+        "Profile photo",
+        path.name,
+        None,
+    )
+    db.commit()
+    return {"message": "Profile image removed"}
+
+
 @router.get("/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Self access remains available; broader access is permission- and scope-controlled.

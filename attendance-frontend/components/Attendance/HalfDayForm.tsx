@@ -15,8 +15,10 @@
  *   applied immediately, no approval needed since an admin is doing it)
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
+import { Mail } from "lucide-react";
+import { isMobile } from "react-device-detect";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
 import { HALF_DAY_SLOTS } from "@/lib/halfDayPresentation";
@@ -34,6 +36,17 @@ interface UserOption {
   attendance_mode?: string | null;
 }
 
+interface NotificationEmailOption {
+  id: number;
+  name: string | null;
+  email: string | null;
+}
+
+interface RecipientLoadResult {
+  recipients: NotificationEmailOption[];
+  error: string | null;
+}
+
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -46,6 +59,8 @@ export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, o
   const isAdminUser = isAdmin;
   
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [emailOptions, setEmailOptions] = useState<NotificationEmailOption[]>([]);
+  const [recipientLoadError, setRecipientLoadError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(propTargetUserId || session?.userId);
   const [attendanceDate, setAttendanceDate] = useState(formatLocalDate(new Date()));
   const [slot, setSlot] = useState("morning");
@@ -69,6 +84,48 @@ export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, o
         .catch(() => toast.error("Failed to load users"));
     }
   }, [isAdminUser, propTargetUserId]);
+
+  const loadRecipientEmails = useCallback(async (): Promise<RecipientLoadResult> => {
+    try {
+      const response = await api.get<NotificationEmailOption[]>("/notification-emails/");
+      if (!Array.isArray(response.data)) throw new Error("Invalid notification recipient response");
+      setEmailOptions(response.data);
+      setRecipientLoadError(null);
+      return { recipients: response.data, error: null };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setRecipientLoadError(message);
+      return { recipients: [], error: message };
+    }
+  }, []);
+
+  useEffect(() => { void Promise.resolve().then(loadRecipientEmails); }, [loadRecipientEmails]);
+
+  const handleComposeEmail = async () => {
+    if (!attendanceDate) { toast.error("Please select a date"); return; }
+    if (isAdminUser && !selectedUserId) { toast.error("Please select an employee"); return; }
+    let recipients = emailOptions;
+    let loadError = recipientLoadError;
+    if (recipients.length === 0) {
+      const result = await loadRecipientEmails();
+      recipients = result.recipients;
+      loadError = result.error;
+    }
+    const toAddresses = recipients.map((option) => option.email?.trim()).filter((email): email is string => !!email);
+    if (toAddresses.length === 0) {
+      toast.error(loadError ? `Unable to load notification recipients: ${loadError}` : "No notification recipients configured. Add HR emails on the Notification Emails page first.");
+      return;
+    }
+    const applicantName = isAdminUser ? users.find((user) => user.id === selectedUserId)?.name ?? "Employee" : session?.name ?? "Employee";
+    const slotLabel = HALF_DAY_SLOTS.find((option) => option.value === slot)?.label ?? slot;
+    const subject = `Half Day Request - ${applicantName} (${attendanceDate})`;
+    const body = [`Employee: ${applicantName}`, `Date: ${attendanceDate}`, `Slot: ${slotLabel}`, `Reason: ${reason || "-"}`, "", "Regards,", session?.name ?? ""].join("\n");
+    if (isMobile) {
+      window.location.href = `mailto:${encodeURIComponent(toAddresses.join(","))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    } else {
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(toAddresses.join(","))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, "_blank");
+    }
+  };
 
   const handleSubmit = async () => {
     if (submittingRef.current) return;
@@ -179,14 +236,21 @@ export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, o
         />
       </div>
 
-      <div className="flex justify-end gap-2 pt-2">
+      <div className="flex items-center justify-between gap-2 pt-2">
+        <button type="button" onClick={handleComposeEmail} className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50">
+          <Mail size={15} />
+          Compose Email
+        </button>
+        <div className="flex gap-2">
         <button 
+          type="button"
           onClick={onCancel} 
           className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
         >
           Cancel
         </button>
         <button
+          type="button"
           onClick={handleSubmit}
           disabled={submitting || (isAdminUser && !selectedUserId)}
           className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-60"
@@ -198,6 +262,7 @@ export default function HalfDayForm({ isAdmin, targetUserId: propTargetUserId, o
               : "Submit Request"
           }
         </button>
+        </div>
       </div>
     </div>
   );

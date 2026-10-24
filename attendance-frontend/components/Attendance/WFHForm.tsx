@@ -14,8 +14,10 @@
  *   since an admin is doing it)
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
+import { Mail } from "lucide-react";
+import { isMobile } from "react-device-detect";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
 
@@ -32,6 +34,17 @@ interface UserOption {
   attendance_mode?: string | null;
 }
 
+interface NotificationEmailOption {
+  id: number;
+  name: string | null;
+  email: string | null;
+}
+
+interface RecipientLoadResult {
+  recipients: NotificationEmailOption[];
+  error: string | null;
+}
+
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -44,6 +57,8 @@ export default function WFHForm({ isAdmin, targetUserId: propTargetUserId, onSuc
   const isAdminUser = isAdmin;
 
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [emailOptions, setEmailOptions] = useState<NotificationEmailOption[]>([]);
+  const [recipientLoadError, setRecipientLoadError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | undefined>(propTargetUserId || session?.userId);
   const todayIso = formatLocalDate(new Date());
   const [fromDate, setFromDate] = useState(todayIso);
@@ -54,6 +69,48 @@ export default function WFHForm({ isAdmin, targetUserId: propTargetUserId, onSuc
 
   const isPastDate = (dateValue: string) => {
     return new Date(`${dateValue}T00:00:00`) < new Date(`${todayIso}T00:00:00`);
+  };
+
+  const loadRecipientEmails = useCallback(async (): Promise<RecipientLoadResult> => {
+    try {
+      const response = await api.get<NotificationEmailOption[]>("/notification-emails/");
+      if (!Array.isArray(response.data)) throw new Error("Invalid notification recipient response");
+      setEmailOptions(response.data);
+      setRecipientLoadError(null);
+      return { recipients: response.data, error: null };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setRecipientLoadError(message);
+      return { recipients: [], error: message };
+    }
+  }, []);
+
+  useEffect(() => { void Promise.resolve().then(loadRecipientEmails); }, [loadRecipientEmails]);
+
+  const handleComposeEmail = async () => {
+    if (!fromDate || !toDate) { toast.error("Please select a From Date and To Date"); return; }
+    if (fromDate > toDate) { toast.error("From Date cannot be after To Date"); return; }
+    if (isAdminUser && !selectedUserId) { toast.error("Please select an employee"); return; }
+    let recipients = emailOptions;
+    let loadError = recipientLoadError;
+    if (recipients.length === 0) {
+      const result = await loadRecipientEmails();
+      recipients = result.recipients;
+      loadError = result.error;
+    }
+    const toAddresses = recipients.map((option) => option.email?.trim()).filter((email): email is string => !!email);
+    if (toAddresses.length === 0) {
+      toast.error(loadError ? `Unable to load notification recipients: ${loadError}` : "No notification recipients configured. Add HR emails on the Notification Emails page first.");
+      return;
+    }
+    const applicantName = isAdminUser ? users.find((user) => user.id === selectedUserId)?.name ?? "Employee" : session?.name ?? "Employee";
+    const subject = `WFH Request - ${applicantName} (${fromDate} to ${toDate})`;
+    const body = [`Employee: ${applicantName}`, `From: ${fromDate}`, `To: ${toDate}`, `Reason: ${reason || "-"}`, "", "Regards,", session?.name ?? ""].join("\n");
+    if (isMobile) {
+      window.location.href = `mailto:${encodeURIComponent(toAddresses.join(","))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    } else {
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(toAddresses.join(","))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, "_blank");
+    }
   };
 
   const getRequestedDates = () => {
@@ -188,14 +245,21 @@ export default function WFHForm({ isAdmin, targetUserId: propTargetUserId, onSuc
         />
       </div>
 
-      <div className="flex justify-end gap-2 pt-2">
+      <div className="flex items-center justify-between gap-2 pt-2">
+        <button type="button" onClick={handleComposeEmail} className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50">
+          <Mail size={15} />
+          Compose Email
+        </button>
+        <div className="flex gap-2">
         <button
+          type="button"
           onClick={onCancel}
           className="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
         >
           Cancel
         </button>
         <button
+          type="button"
           onClick={handleSubmit}
           disabled={submitting || (isAdminUser && !selectedUserId)}
           className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-60"
@@ -207,6 +271,7 @@ export default function WFHForm({ isAdmin, targetUserId: propTargetUserId, onSuc
               : "Submit Request"
           }
         </button>
+        </div>
       </div>
     </div>
   );

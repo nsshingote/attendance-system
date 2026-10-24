@@ -19,9 +19,12 @@ function hasUsableCoordinates(position: GeolocationPosition): boolean {
     && accuracy >= 0;
 }
 
-function isRecentUsablePosition(position: GeolocationPosition): boolean {
+function isRecentUsablePosition(position: GeolocationPosition, maxAccuracyMeters?: number | null): boolean {
   const age = Date.now() - position.timestamp;
-  return hasUsableCoordinates(position) && age >= 0 && age <= MAX_CACHED_LOCATION_AGE_MS;
+  return hasUsableCoordinates(position)
+    && age >= 0
+    && age <= MAX_CACHED_LOCATION_AGE_MS
+    && (maxAccuracyMeters == null || position.coords.accuracy <= maxAccuracyMeters);
 }
 
 function isPermissionDenied(error: unknown): error is GeolocationPositionError {
@@ -43,11 +46,14 @@ function locationError(action: "check in" | "check out", error: GeolocationPosit
     default:
       detail = "Enable location access and try again.";
   }
-  return new Error(`LOCATION_REQUIRED: Location is required to ${action} onsite. ${detail}`);
+  return new Error(`LOCATION_REQUIRED: Location is required to ${action}. ${detail}`);
 }
 
 /** Reuse a recent browser fix when possible, then fall back to a fresh fix. */
-export function getCurrentLocation(action: "check in" | "check out"): Promise<GeolocationPosition> {
+export function getCurrentLocation(
+  action: "check in" | "check out",
+  maxAccuracyMeters?: number | null,
+): Promise<GeolocationPosition> {
   if (typeof window === "undefined" || !navigator.geolocation) {
     const secureContextHint = typeof window !== "undefined" && !window.isSecureContext
       ? " Open this site using HTTPS, which is required for location access on iPhone."
@@ -62,7 +68,7 @@ export function getCurrentLocation(action: "check in" | "check out"): Promise<Ge
         timeout: 0,
         maximumAge: MAX_CACHED_LOCATION_AGE_MS,
       });
-      if (isRecentUsablePosition(cachedPosition)) return cachedPosition;
+      if (isRecentUsablePosition(cachedPosition, maxAccuracyMeters)) return cachedPosition;
     } catch (error) {
       if (isPermissionDenied(error)) throw locationError(action, error);
     }
@@ -78,7 +84,12 @@ export function getCurrentLocation(action: "check in" | "check out"): Promise<Ge
       throw locationError(action, error as GeolocationPositionError);
     }
 
-    if (hasUsableCoordinates(freshPosition)) return freshPosition;
-    throw new Error(`LOCATION_REQUIRED: Location is required to ${action} onsite. Your current location could not be determined. Check that Location Services are on and try again.`);
+    if (hasUsableCoordinates(freshPosition)) {
+      if (maxAccuracyMeters != null && freshPosition.coords.accuracy > maxAccuracyMeters) {
+        throw new Error(`LOCATION_INACCURATE: GPS accuracy must be ${maxAccuracyMeters} metres or better. Move to an area with a stronger GPS signal and try again.`);
+      }
+      return freshPosition;
+    }
+    throw new Error(`LOCATION_REQUIRED: Location is required to ${action}. Your current location could not be determined. Check that Location Services are on and try again.`);
   })();
 }

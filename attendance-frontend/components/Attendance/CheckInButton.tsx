@@ -76,7 +76,7 @@ export default function CheckInButton({ disabled, refreshStatus, onStatusUpdate 
           );
         const validationSettingsStartedAt = performance.now();
         const validationSettingsRequest = api
-          .get<{ location_enabled: boolean; validation_mode: string }>("/attendance/validation-settings")
+          .get<{ location_enabled: boolean; validation_mode: string; attendance_radius_meters: number | null }>("/attendance/validation-settings")
           .then(
             (response) => {
               const completedAt = performance.now();
@@ -93,9 +93,10 @@ export default function CheckInButton({ disabled, refreshStatus, onStatusUpdate 
           );
         const { data: user } = await userRequest;
         const payload: { reason?: string; latitude?: number; longitude?: number; accuracy?: number } = reason ? { reason } : {};
+        let validationRadiusMeters: number | null = null;
         const captureLocation = () => {
           const gpsStartedAt = performance.now();
-          return getCurrentLocation("check in").then(
+          return getCurrentLocation("check in", user.attendance_mode === "onsite" ? null : validationRadiusMeters).then(
             (position) => {
               const completedAt = performance.now();
               logCheckInTiming("gps_duration", completedAt - gpsStartedAt);
@@ -116,6 +117,7 @@ export default function CheckInButton({ disabled, refreshStatus, onStatusUpdate 
         const validationSettingsResult = await validationSettingsRequest;
         if ("error" in validationSettingsResult) throw validationSettingsResult.error;
         const { data: validationSettings } = validationSettingsResult.response;
+        validationRadiusMeters = validationSettings.attendance_radius_meters;
         const needsLocation = user.attendance_mode === "onsite" || (
           validationSettings.location_enabled &&
           ["location_only", "ip_or_location"].includes(validationSettings.validation_mode)
