@@ -378,8 +378,11 @@
  * Note: Half Day marking now lives on the Leave page only (app/leave/page.tsx).
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
+import { format, parseISO } from "date-fns";
+import { Download, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 import api, { getErrorMessage } from "@/lib/api";
 import { getSession } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
@@ -391,6 +394,7 @@ import AttendanceTable, { AttendanceRecord } from "@/components/Attendance/Atten
 import CorrectionForm from "@/components/Corrections/Correctionform";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 import { hasPermission, usePermissions } from "@/lib/permissions";
+import { parseISTDateTime } from "@/lib/date";
 
 interface UserOption {
   id: number;
@@ -426,8 +430,29 @@ function getMonthsInRange(fromDate: string, toDate: string): { year: number; mon
   return months;
 }
 
+function formatAttendanceTime(value: string | null): string {
+  const date = parseISTDateTime(value);
+  return date
+    ? date.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+    : "";
+}
+
+function formatAttendanceHours(checkIn: string | null, checkOut: string | null): string {
+  const start = parseISTDateTime(checkIn);
+  const end = parseISTDateTime(checkOut);
+  if (!start || !end) return "";
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+  if (minutes <= 0) return "";
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 export default function AttendancePage() {
   const session = getSession();
+  const sessionUserId = session?.userId;
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -452,6 +477,8 @@ export default function AttendancePage() {
   const [records, setRecords] = useState<PageAttendanceRecord[]>([]);
   const [summary, setSummary] = useState({ Present: 0, Late: 0, "Half Day": 0, Absent: 0, Holiday: 0, Leave: 0, WFH: 0 });
   const [loading, setLoading] = useState(true);
+  const fetchRequestSequence = useRef(0);
+  const [loadedAttendanceFilterKey, setLoadedAttendanceFilterKey] = useState<string | null>(null);
 
   const [correctionModal, setCorrectionModal] = useState<PageAttendanceRecord | null>(null);
   const [manualOverrideModal, setManualOverrideModal] = useState<PageAttendanceRecord | null>(null);
@@ -469,6 +496,19 @@ export default function AttendancePage() {
   const canFilterDepartments = isAdminRole && admin;
   const teamView = session?.role === "team_leader" &&
     hasPermission(permissions, "attendance.team_view");
+  const attendanceFilterKey = JSON.stringify([
+    year,
+    month,
+    fromDate,
+    toDate,
+    selectedUserIds,
+    selectedDepartmentId,
+    admin,
+    teamView,
+    sessionUserId,
+  ]);
+  const canExportAttendance =
+    !loading && loadedAttendanceFilterKey === attendanceFilterKey;
   const canOverrideAttendance = hasPermission(permissions, "attendance.manual_override");
   const canOverrideTable = canOverrideAttendance && (
     session?.role !== "team_leader" || (teamView && selectedUserIds.length === 1)
@@ -586,26 +626,35 @@ export default function AttendancePage() {
   }, [calendarSelectedDate]);
 
   const fetchData = useCallback(async () => {
+    const requestId = ++fetchRequestSequence.current;
+    setLoadedAttendanceFilterKey(null);
     setLoading(true);
     try {
       // Build params with date range filter if selected
-      const params: any = { year, month };
+      const params: {
+        year: number;
+        month: number;
+        from_date?: string;
+        to_date?: string;
+        employee_ids?: number[];
+        department_id?: number;
+      } = { year, month };
       if (fromDate && toDate) {
         params.from_date = fromDate;
         params.to_date = toDate;
       }
 
       const teamUserId = !admin && teamView && selectedUserIds.length === 1 ? selectedUserIds[0] : null;
-      const attendanceUrl = admin
+      const attendanceUrl = admin || (teamView && selectedUserIds.length > 1)
         ? "/attendance/all"
         : teamUserId
           ? `/attendance/user/${teamUserId}`
           : "/attendance/me";
-      if (admin && selectedUserIds.length) params.employee_ids = selectedUserIds;
+      if ((admin || teamView) && selectedUserIds.length) params.employee_ids = selectedUserIds;
       if (admin && selectedDepartmentId) params.department_id = selectedDepartmentId;
-      const summaryUserId = teamUserId || (selectedUserIds.length === 1 ? selectedUserIds[0] : session?.userId);
+      const summaryUserId = teamUserId || (selectedUserIds.length === 1 ? selectedUserIds[0] : sessionUserId);
 
-      const recordsRequest = !admin && !teamUserId && fromDate && toDate
+      const recordsRequest = !admin && !teamView && !teamUserId && fromDate && toDate
         ? Promise.all(
             getMonthsInRange(fromDate, toDate).map(({ year: rangeYear, month: rangeMonth }) =>
               api.get<PageAttendanceRecord[]>(attendanceUrl, {
@@ -627,46 +676,124 @@ export default function AttendancePage() {
         ).catch(() => ({ data: {} })),
       ]);
 
-const recordsWithReport = recordsData.map((record: any) => ({
-  ...record,
-  report:
-    typeof record.has_report === "boolean"
-      ? record.has_report
-        ? "Submitted"
-        : "Not Submitted"
-      : record.report || "Not Submitted",
-}));
+      if (requestId !== fetchRequestSequence.current) return;
 
-setRecords(recordsWithReport || []);
+      const recordsWithReport = recordsData.map((record) => ({
+        ...record,
+        report:
+          typeof record.has_report === "boolean"
+            ? record.has_report
+              ? "Submitted"
+              : "Not Submitted"
+            : record.report || "Not Submitted",
+      }));
 
-setSummary(
-  summaryRes.data || {
-    Present: 0,
-    Late: 0,
-    "Half Day": 0,
-    Absent: 0,
-    Holiday: 0,
-    Leave: 0,
-    WFH: 0,
-  }
-);
+      setRecords(recordsWithReport || []);
+      setLoadedAttendanceFilterKey(attendanceFilterKey);
+
+      setSummary(
+        summaryRes.data || {
+          Present: 0,
+          Late: 0,
+          "Half Day": 0,
+          Absent: 0,
+          Holiday: 0,
+          Leave: 0,
+          WFH: 0,
+        }
+      );
     } catch (error) {
+      if (requestId !== fetchRequestSequence.current) return;
       toast.error(getErrorMessage(error));
       setRecords([]);
+      setLoadedAttendanceFilterKey(null);
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestSequence.current) {
+        setLoading(false);
+      }
     }
-  }, [selectedUserIds, selectedDepartmentId, year, month, admin, teamView, session?.userId, fromDate, toDate]);
+  }, [
+    selectedUserIds,
+    selectedDepartmentId,
+    year,
+    month,
+    admin,
+    teamView,
+    sessionUserId,
+    fromDate,
+    toDate,
+    attendanceFilterKey,
+    setLoadedAttendanceFilterKey,
+    setLoading,
+    setRecords,
+    setSummary,
+  ]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
+    return () => {
+      fetchRequestSequence.current += 1;
+    };
   }, [fetchData]);
 
   const filteredRecords = records.filter((record) => {
     if (fromDate && record.attendance_date < fromDate) return false;
     if (toDate && record.attendance_date > toDate) return false;
+    if ((admin || teamView) && selectedUserIds.length && !selectedUserIds.includes(record.user_id)) return false;
     return true;
   });
+
+  const attendanceExportRows = filteredRecords.map((record) => ({
+    Employee: record.user_name || users.find((user) => user.id === record.user_id)?.name || `Employee #${record.user_id}`,
+    Department: record.department || "",
+    Date: format(parseISO(record.attendance_date), "dd MMM yyyy"),
+    "Check-in": formatAttendanceTime(record.check_in),
+    "Check-out": formatAttendanceTime(record.check_out),
+    "Working Hours": formatAttendanceHours(record.check_in, record.check_out),
+    Status: record.status,
+    "Working Day": record.is_working_sunday ? "Yes" : "No",
+    Report: record.report || (record.has_report ? "Submitted" : "Not Submitted"),
+  }));
+
+  const handleExportCSV = () => {
+    if (!canExportAttendance) return;
+    if (!attendanceExportRows.length) {
+      toast.error("No attendance records to export");
+      return;
+    }
+
+    const headers = Object.keys(attendanceExportRows[0]);
+    const csv = [
+      headers.join(","),
+      ...attendanceExportRows.map((row) =>
+        headers
+          .map((header) => `"${String(row[header as keyof typeof row] ?? "").replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").replace(/"/g, '""').trim()}"`)
+          .join(",")
+      ),
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `attendance_${selectedUserIds.length === 1 ? users.find((user) => user.id === selectedUserIds[0])?.name || "selected" : selectedUserIds.length ? "selected" : "all"}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportExcel = () => {
+    if (!canExportAttendance) return;
+    if (!attendanceExportRows.length) {
+      toast.error("No attendance records to export");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(attendanceExportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
+    XLSX.writeFile(
+      workbook,
+      `attendance_${selectedUserIds.length === 1 ? users.find((user) => user.id === selectedUserIds[0])?.name || "selected" : selectedUserIds.length ? "selected" : "all"}.xlsx`
+    );
+  };
 
   const clearRangeFilter = () => {
     setFromDate("");
@@ -753,6 +880,22 @@ setSummary(
                   Clear Range
                 </button>
               )}
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                disabled={!canExportAttendance}
+                className="flex items-center gap-1 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download size={15} /> Export CSV
+              </button>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                disabled={!canExportAttendance}
+                className="flex items-center gap-1 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FileSpreadsheet size={15} /> Export Excel
+              </button>
 
               <div className="flex rounded-lg border border-ink-200 bg-white p-0.5 text-sm">
                 <button

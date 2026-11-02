@@ -6,7 +6,7 @@ and the check-in flow in routers/attendance.py).
 """
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,7 +25,7 @@ from models import (
     ActivityLog,
     Team,
 )
-from schemas import HolidayCreate, HolidayOut
+from schemas import HolidayCreate, HolidayOut, HolidayRangeCreate
 from utils.attendance_status import determine_attendance_status_for_date, holiday_applies_to_user
 from utils.leave_calculator import (
     _get_chargeable_leave_dates,
@@ -334,12 +334,7 @@ def list_holidays(
     return [_holiday_out(db, holiday) for holiday in query.order_by(Holiday.holiday_date).all()]
 
 
-@router.post("/", response_model=HolidayOut, status_code=201)
-def add_holiday(
-    payload: HolidayCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("holidays.manage")),
-):
+def _validate_holiday_audience(db: Session, payload: HolidayCreate | HolidayRangeCreate) -> None:
     if payload.applies_to not in VALID_APPLIES_TO:
         raise HTTPException(status_code=422, detail="Invalid holiday audience")
     if payload.applies_to == "specific_users" and not payload.user_ids:
@@ -351,8 +346,15 @@ def add_holiday(
     if payload.team_ids and db.query(Team.id).filter(Team.id.in_(payload.team_ids)).count() != len(set(payload.team_ids)):
         raise HTTPException(status_code=422, detail="One or more teams were not found")
 
+
+def _create_holiday(
+    db: Session,
+    holiday_date: date,
+    payload: HolidayCreate | HolidayRangeCreate,
+    current_user: User,
+) -> Holiday:
     holiday = Holiday(
-        holiday_date=payload.holiday_date,
+        holiday_date=holiday_date,
         holiday_name=payload.holiday_name,
         applies_to=payload.applies_to,
         target_user_ids_json=json.dumps(sorted(set(payload.user_ids))) if payload.user_ids else None,
@@ -363,9 +365,42 @@ def add_holiday(
     db.flush()
     _sync_holiday_removed_leave(db, holiday)
     db.add(ActivityLog(user_id=current_user.id, activity=f"Added holiday '{payload.holiday_name}'"))
+    return holiday
+
+
+@router.post("/", response_model=HolidayOut, status_code=201)
+def add_holiday(
+    payload: HolidayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
+):
+    _validate_holiday_audience(db, payload)
+    holiday = _create_holiday(db, payload.holiday_date, payload, current_user)
     db.commit()
     db.refresh(holiday)
     return _holiday_out(db, holiday)
+
+
+@router.post("/range", response_model=List[HolidayOut], status_code=201)
+def add_holiday_range(
+    payload: HolidayRangeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
+):
+    if payload.from_date > payload.to_date:
+        raise HTTPException(status_code=422, detail="End date must be on or after start date")
+    _validate_holiday_audience(db, payload)
+
+    holidays = []
+    current_date = payload.from_date
+    while current_date <= payload.to_date:
+        holidays.append(_create_holiday(db, current_date, payload, current_user))
+        current_date += timedelta(days=1)
+
+    db.commit()
+    for holiday in holidays:
+        db.refresh(holiday)
+    return [_holiday_out(db, holiday) for holiday in holidays]
 
 
 @router.delete("/{holiday_id}")

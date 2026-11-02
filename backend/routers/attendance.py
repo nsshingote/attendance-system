@@ -2641,6 +2641,22 @@ def mark_working_sunday(
     return {"message": "Marked as working day"}
 
 
+@router.get("/working-sunday", response_model=List[WorkingSundayOut])
+def list_working_sundays(
+    year: int = Query(..., ge=1900, le=9998),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+):
+    start_date = date(year, 1, 1)
+    end_date = date(year + 1, 1, 1)
+    return (
+        db.query(WorkingSunday)
+        .filter(WorkingSunday.work_date >= start_date, WorkingSunday.work_date < end_date)
+        .order_by(WorkingSunday.work_date, WorkingSunday.user_id)
+        .all()
+    )
+
+
 @router.delete("/working-sunday", response_model=dict)
 def unmark_working_sunday(
     user_id: int = Query(...),

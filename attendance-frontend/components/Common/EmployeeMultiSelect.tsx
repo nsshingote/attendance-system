@@ -21,7 +21,13 @@ export default function EmployeeMultiSelect({ employees, value, onChange, allLab
   const root = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
-  const selected = useMemo(() => employees.filter((employee) => value.includes(employee.id)), [employees, value]);
+  const selected = useMemo(
+    () => value.map((id) => ({
+      id,
+      name: employees.find((employee) => employee.id === id)?.name ?? `Employee #${id}`,
+    })),
+    [employees, value]
+  );
   const filtered = useMemo(() => employees.filter((employee) => employee.name.toLowerCase().includes(search.trim().toLowerCase())), [employees, search]);
 
   useEffect(() => {
@@ -61,7 +67,11 @@ export default function EmployeeMultiSelect({ employees, value, onChange, allLab
   }, [open]);
 
   const toggle = (id: number) => onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]);
-  const summary = selected.length === 0 ? allLabel : selected.length > 2 ? `${selected.length} selected` : selected.map((employee) => employee.name).join(", ");
+  const summary = value.length === 0
+    ? allLabel
+    : value.length > 2
+      ? `${value.length} selected`
+      : selected.map((employee) => employee.name).join(", ");
 
   return <div ref={root} className={`relative min-w-52 ${className}`}>
     <button type="button" onClick={() => setOpen((current) => !current)} className="flex min-h-10 w-full items-center gap-1 rounded-lg border border-ink-200 bg-white px-3 py-2 text-left text-sm text-ink-700 hover:bg-ink-50">

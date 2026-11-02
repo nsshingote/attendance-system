@@ -784,6 +784,23 @@ def test_cancelling_sunday_correction_preserves_preexisting_working_day_assignme
     assert determine_attendance_status_for_date(db_session, employee.id, sunday) == "Absent"
 
 
+def test_list_working_sundays_returns_only_requested_year(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    assignments = [
+        WorkingSunday(user_id=employee.id, work_date=date(2025, 12, 31), marked_by=admin.id),
+        WorkingSunday(user_id=employee.id, work_date=date(2026, 1, 2), marked_by=admin.id),
+        WorkingSunday(user_id=employee.id, work_date=date(2026, 11, 2), marked_by=admin.id),
+        WorkingSunday(user_id=employee.id, work_date=date(2027, 1, 1), marked_by=admin.id),
+    ]
+    db_session.add_all(assignments)
+    db_session.commit()
+
+    results = attendance_router.list_working_sundays(year=2026, db=db_session, current_user=admin)
+
+    assert [entry.work_date for entry in results] == [date(2026, 1, 2), date(2026, 11, 2)]
+
+
 def test_team_leader_cannot_cancel_correction_outside_active_team(db_session: Session, monkeypatch):
     leader = _create_user(db_session, "team_leader")
     outsider = _create_user(db_session)

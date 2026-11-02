@@ -26,7 +26,7 @@ from models import (
     WFHRequest,
     WorkingSunday,
 )
-from routers.holidays import add_holiday, delete_holiday
+from routers.holidays import add_holiday, add_holiday_range, delete_holiday
 from routers.company_settings import _read_company_settings_row, _upsert_company_settings_row
 from routers.attendance import (
     attendance_calendar,
@@ -57,6 +57,7 @@ from schemas import (
     AttendanceOut,
     AttendanceManualUpdate,
     HolidayCreate,
+    HolidayRangeCreate,
     LeaveAllocationOverride,
     LeaveDecision,
     LeaveRequestAllocationIn,
@@ -1056,6 +1057,47 @@ def test_holiday_added_restores_carried_leave_once(db_session: Session):
     assert user.carried_leave == 4
     add_holiday(payload, db=db_session, current_user=user)
     assert user.carried_leave == 4
+
+
+def test_adding_holiday_range_creates_each_inclusive_date(db_session: Session):
+    admin = create_user(db_session, role="superadmin")
+    from_date = date(2026, 12, 24)
+    to_date = date(2026, 12, 26)
+
+    holidays = add_holiday_range(
+        HolidayRangeCreate(
+            from_date=from_date,
+            to_date=to_date,
+            holiday_name="Winter Break",
+        ),
+        db=db_session,
+        current_user=admin,
+    )
+
+    assert [holiday["holiday_date"] for holiday in holidays] == [
+        date(2026, 12, 24),
+        date(2026, 12, 25),
+        date(2026, 12, 26),
+    ]
+    assert all(holiday["holiday_name"] == "Winter Break" for holiday in holidays)
+    assert db_session.query(Holiday).count() == 3
+
+
+def test_adding_holiday_range_rejects_end_before_start(db_session: Session):
+    admin = create_user(db_session, role="superadmin")
+
+    with pytest.raises(HTTPException, match="End date must be on or after start date"):
+        add_holiday_range(
+            HolidayRangeCreate(
+                from_date=date(2026, 12, 26),
+                to_date=date(2026, 12, 24),
+                holiday_name="Invalid Range",
+            ),
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert db_session.query(Holiday).count() == 0
 
 
 @pytest.mark.parametrize("category", ["Paid", "Carried", "Unpaid"])

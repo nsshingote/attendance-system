@@ -6,16 +6,15 @@
  * Admin/SuperAdmin view to see all employee daily reports.
  */
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { format, parseISO } from "date-fns";
-import { Download, FileSpreadsheet, Calendar as CalendarIcon, FileText, FileBarChart } from "lucide-react";
+import { Download, FileSpreadsheet, Calendar as CalendarIcon, ChevronLeft, ChevronRight, FileText, FileBarChart } from "lucide-react";
 import * as XLSX from "xlsx";
 import api, { getErrorMessage } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import Loading from "@/components/Common/Loading";
 import Badge from "@/components/Common/Badge";
-import MonthSelector from "@/components/Calendar/MonthSelector";
 import ExpandableText from "@/components/Common/ExpandableText";
 import EmployeeMultiSelect from "@/components/Common/EmployeeMultiSelect";
 import TeamMultiSelect from "@/components/Common/TeamMultiSelect";
@@ -73,6 +72,20 @@ const isHiddenMonthlyReportUser = (name: string | null | undefined) => {
   return (name || "").trim().toLowerCase() === "nilesh shingote";
 };
 
+function formatDateInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getMonthDateRange(year: number, month: number): { fromDate: string; toDate: string } {
+  return {
+    fromDate: formatDateInput(new Date(year, month - 1, 1)),
+    toDate: formatDateInput(new Date(year, month, 0)),
+  };
+}
+
 interface AdminReportsPageProps {
   compact?: boolean;
 }
@@ -89,19 +102,32 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
+  const currentMonthRange = getMonthDateRange(today.getFullYear(), today.getMonth() + 1);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | "">("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(currentMonthRange.fromDate);
+  const [toDate, setToDate] = useState(currentMonthRange.toDate);
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reports, setReports] = useState<ReportGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [pastSubmissionRequests, setPastSubmissionRequests] = useState<PastSubmissionRequest[]>([]);
   const latestRequestId = useRef(0);
+  const [loadedReportsFilterKey, setLoadedReportsFilterKey] = useState<string | null>(null);
+  const reportsFilterKey = JSON.stringify([
+    fromDate,
+    toDate,
+    selectedUserIds,
+    selectedTeamIds,
+    selectedDepartmentId,
+  ]);
+  const canExportReports =
+    !loading &&
+    Boolean(fromDate && toDate && fromDate <= toDate) &&
+    loadedReportsFilterKey === reportsFilterKey;
 
   useEffect(() => {
     if (compact) {
@@ -125,16 +151,23 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
       .catch(() => toast.error("Failed to load report filters"));
   }, [compact, teamLeader]);
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     if (compact) return;
     const requestId = ++latestRequestId.current;
     setLoading(true);
+    if (!fromDate || !toDate || fromDate > toDate) {
+      setReports([]);
+      setLoadedReportsFilterKey(null);
+      setLoading(false);
+      return;
+    }
     try {
       const params: { employee_ids?: number[]; team_ids?: number[]; department_id?: number; from_date?: string; to_date?: string } = {};
       if (selectedUserIds.length) params.employee_ids = selectedUserIds;
       if (selectedTeamIds.length) params.team_ids = selectedTeamIds;
       if (selectedDepartmentId) params.department_id = selectedDepartmentId;
-      if (fromDate && toDate) { params.from_date = fromDate; params.to_date = toDate; }
+      params.from_date = fromDate;
+      params.to_date = toDate;
 
       const { data } = await api.get<ReportRow[]>("/reports/all", { params, paramsSerializer: { indexes: null } });
       // Requests can finish out of order when filters are changed quickly.  Do
@@ -146,7 +179,8 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
           !isHiddenMonthlyReportUser(report.user_name) &&
           (report.day_label || (selectedUserIds.length === 0 || selectedUserIds.includes(report.user_id))) &&
           (report.day_label || !selectedDepartmentId || report.department_id === selectedDepartmentId) &&
-          (!fromDate || !toDate || (report.attendance_date >= fromDate && report.attendance_date <= toDate))
+          report.attendance_date >= fromDate &&
+          report.attendance_date <= toDate
         );
       });
       const groups = new Map<string, ReportGroup>();
@@ -178,29 +212,48 @@ export function AdminReportsContent({ compact = false }: AdminReportsPageProps) 
           (a, b) => new Date(b.attendance_date).getTime() - new Date(a.attendance_date).getTime()
         )
       );
+      setLoadedReportsFilterKey(reportsFilterKey);
     } catch (error) {
       if (requestId !== latestRequestId.current) return;
       toast.error(getErrorMessage(error));
       setReports([]);
+      setLoadedReportsFilterKey(null);
     } finally {
       if (requestId === latestRequestId.current) setLoading(false);
     }
-  };
+  }, [compact, selectedUserIds, selectedTeamIds, selectedDepartmentId, fromDate, toDate, reportsFilterKey]);
 
   useEffect(() => {
     if (compact) return;
-    fetchReports();
-  }, [compact, selectedUserIds, selectedTeamIds, selectedDepartmentId, fromDate, toDate]);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void fetchReports();
+    });
+    return () => {
+      active = false;
+      latestRequestId.current += 1;
+    };
+  }, [compact, fetchReports]);
 
   useEffect(() => {
     if (compact) return;
     const handleProfileUpdate = () => fetchReports();
     window.addEventListener("profile-updated", handleProfileUpdate);
     return () => window.removeEventListener("profile-updated", handleProfileUpdate);
-  }, [compact, selectedUserIds, selectedDepartmentId, fromDate, toDate]);
+  }, [compact, fetchReports]);
 
   const clearDateFilter = () => { setSelectedDate(""); setShowDatePicker(false); };
 
+  const changeMonth = (offset: number) => {
+    const nextMonth = new Date(year, month - 1 + offset, 1);
+    const nextYearValue = nextMonth.getFullYear();
+    const nextMonthValue = nextMonth.getMonth() + 1;
+    const range = getMonthDateRange(nextYearValue, nextMonthValue);
+    setYear(nextYearValue);
+    setMonth(nextMonthValue);
+    setFromDate(range.fromDate);
+    setToDate(range.toDate);
+  };
 
   const reviewPastSubmissionRequest = async (id: number, status: "Approved" | "Rejected") => {
     try {
@@ -264,6 +317,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
   );
 
   const handleExportCSV = () => {
+    if (!canExportReports) return;
     if (reports.length === 0) {
       toast.error("No data to export");
       return;
@@ -287,6 +341,7 @@ const getTotalDuration = (activities: ReportRow[]) => {
   };
 
   const handleExportExcel = () => {
+    if (!canExportReports) return;
     if (reports.length === 0) {
       toast.error("No data to export");
       return;
@@ -336,13 +391,22 @@ const getTotalDuration = (activities: ReportRow[]) => {
             <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto sm:flex-nowrap">
               <EmployeeMultiSelect employees={users} value={selectedUserIds} onChange={setSelectedUserIds} className="order-1 min-w-52" />
               {!teamLeader && <TeamMultiSelect value={selectedTeamIds} onChange={(ids) => setSelectedTeamIds(ids)} className="order-1 min-w-52" />}
-              <label className="order-3 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
-              <label className="order-4 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
+              <div className="order-2 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-1">
+                <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month" title="Previous month" className="rounded p-1 text-ink-600 hover:bg-ink-50">
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="min-w-28 text-center text-xs font-medium text-ink-700">{format(new Date(year, month - 1, 1), "MMMM yyyy")}</span>
+                <button type="button" onClick={() => changeMonth(1)} aria-label="Next month" title="Next month" className="rounded p-1 text-ink-600 hover:bg-ink-50">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <label className="order-4 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
+              <label className="order-5 flex min-w-36 flex-col gap-1 whitespace-nowrap text-xs text-ink-600">To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="block h-9 rounded border border-ink-200 px-2 py-1" /></label>
               {!teamLeader && (
                 <select
                   value={selectedDepartmentId}
                   onChange={(event) => setSelectedDepartmentId(event.target.value ? Number(event.target.value) : "")}
-                  className="order-2 h-9 min-w-40 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
+                  className="order-3 h-9 min-w-40 rounded border border-ink-200 bg-white px-2 py-1 text-xs"
                 >
                   <option value="">All Departments</option>
                   {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -367,10 +431,10 @@ const getTotalDuration = (activities: ReportRow[]) => {
                   </>
                 )}
               </div>
-              <button onClick={handleExportCSV} className="order-5 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+              <button onClick={handleExportCSV} disabled={!canExportReports} className="order-6 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50">
                 <Download size={13} /> CSV
               </button>
-              <button onClick={handleExportExcel} className="order-6 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50">
+              <button onClick={handleExportExcel} disabled={!canExportReports} className="order-7 flex h-9 items-center gap-1 rounded border border-ink-200 bg-white px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50">
                 <FileSpreadsheet size={13} /> Excel
               </button>
             </div>
@@ -384,9 +448,15 @@ const getTotalDuration = (activities: ReportRow[]) => {
             </div>
           )}
 
+          {(!fromDate || !toDate || fromDate > toDate) && (
+            <p className="text-sm text-amber-700">
+              {!fromDate || !toDate ? "Choose both dates to load reports." : "The From date must not be after the To date."}
+            </p>
+          )}
+
           {loading ? <Loading /> : reports.length === 0 ? (
             <div className="rounded-lg border border-dashed border-ink-300 bg-white py-8 text-center">
-              <p className="text-sm text-ink-500">No reports found.</p>
+              <p className="text-sm text-ink-500">{!fromDate || !toDate || fromDate > toDate ? "Select a valid date range to view reports." : "No reports found."}</p>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-card">

@@ -722,6 +722,15 @@ class HolidayCreate(BaseModel):
     team_ids: list[int] = Field(default_factory=list)
 
 
+class HolidayRangeCreate(BaseModel):
+    from_date: date
+    to_date: date
+    holiday_name: str
+    applies_to: str = "all_users"
+    user_ids: list[int] = Field(default_factory=list)
+    team_ids: list[int] = Field(default_factory=list)
+
+
 class HolidayOut(ORMBase):
     id: int
     holiday_date: date
