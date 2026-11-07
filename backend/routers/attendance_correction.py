@@ -534,6 +534,7 @@ def cancel_legacy_correction_149(
             or db.query(WorkingSunday.id).filter(
                 WorkingSunday.user_id == 23,
                 WorkingSunday.work_date == payload.attendance_date,
+                WorkingSunday.removed_at.is_(None),
             ).first()
             or attendance.manual_override
         ):

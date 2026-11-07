@@ -9,6 +9,7 @@ require a reason.
 from datetime import date, datetime, time, timedelta
 import ipaddress
 import math
+import json
 from typing import List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
@@ -41,6 +42,9 @@ from models import (
     DailyReport,
     WFHRequest as WFHRequestModel,
     WorkingSunday,
+    WorkingSundayRemovalHistory,
+    AttendanceCorrection,
+    SalarySlip,
     CompanySettings,
 )
 from schemas import (
@@ -56,6 +60,7 @@ from schemas import (
     WFHOut,
     WorkingSundayCreate,
     WorkingSundayOut,
+    WorkingSundayRemovalOut,
 )
 from utils.attendance_status import (
     calculate_status,
@@ -285,7 +290,11 @@ def _has_attendance_record(db: Session, user_id: int, target_date: date) -> bool
 
 def _is_working_day(db: Session, user_id: int, target_date: date) -> bool:
     """Return True if this employee is approved to work remotely on this date."""
-    entry = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
+    entry = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == target_date,
+        WorkingSunday.removed_at.is_(None),
+    ).first()
     return entry is not None
 
 
@@ -468,6 +477,7 @@ def _load_working_sunday_keys_for_users(db: Session, user_ids: Set[int], dates: 
         .filter(
             WorkingSunday.user_id.in_(user_ids),
             WorkingSunday.work_date.in_(dates),
+            WorkingSunday.removed_at.is_(None),
         )
         .distinct()
         .all()
@@ -1414,6 +1424,7 @@ def attendance_calendar(
                 WorkingSunday.user_id == target_user_id,
                 WorkingSunday.work_date >= start_date,
                 WorkingSunday.work_date < end_date,
+                WorkingSunday.removed_at.is_(None),
             ).all()
         }
 
@@ -1608,6 +1619,7 @@ def monthly_summary(
             WorkingSunday.user_id == user_id,
             WorkingSunday.work_date >= start_date,
             WorkingSunday.work_date < end_date,
+            WorkingSunday.removed_at.is_(None),
         )
         .all()
     }
@@ -2002,9 +2014,24 @@ def manual_update(
                 holiday_row = None
             if (is_weekly_off(record.attendance_date, db) or holiday_row) and not _is_working_day(db, record.user_id, record.attendance_date):
                 # create per-user working day marker if missing
-                existing_ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == record.user_id, WorkingSunday.work_date == record.attendance_date).first()
+                existing_ws = db.query(WorkingSunday).filter(
+                    WorkingSunday.user_id == record.user_id,
+                    WorkingSunday.work_date == record.attendance_date,
+                    WorkingSunday.removed_at.is_(None),
+                ).first()
                 if not existing_ws:
-                    db.add(WorkingSunday(user_id=record.user_id, work_date=record.attendance_date, marked_by=current_user.id))
+                    removed_ws = db.query(WorkingSunday).filter(
+                        WorkingSunday.user_id == record.user_id,
+                        WorkingSunday.work_date == record.attendance_date,
+                        WorkingSunday.removed_at.isnot(None),
+                    ).order_by(WorkingSunday.removed_at.desc(), WorkingSunday.id.desc()).first()
+                    if removed_ws:
+                        removed_ws.removed_at = None
+                        removed_ws.removed_by = None
+                        removed_ws.removal_reason = None
+                        db.add(removed_ws)
+                    else:
+                        db.add(WorkingSunday(user_id=record.user_id, work_date=record.attendance_date, marked_by=current_user.id, source="attendance_override"))
                     db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{record.user_id} on {record.attendance_date} via override"))
 
         if update_data["status"] == "On Leave":
@@ -2104,9 +2131,24 @@ def manual_update_by_user_date(
             except Exception:
                 holiday_row = None
             if (is_weekly_off(target_date, db) or holiday_row) and not _is_working_day(db, user_id, target_date):
-                existing_ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
+                existing_ws = db.query(WorkingSunday).filter(
+                    WorkingSunday.user_id == user_id,
+                    WorkingSunday.work_date == target_date,
+                    WorkingSunday.removed_at.is_(None),
+                ).first()
                 if not existing_ws:
-                    db.add(WorkingSunday(user_id=user_id, work_date=target_date, marked_by=current_user.id))
+                    removed_ws = db.query(WorkingSunday).filter(
+                        WorkingSunday.user_id == user_id,
+                        WorkingSunday.work_date == target_date,
+                        WorkingSunday.removed_at.isnot(None),
+                    ).order_by(WorkingSunday.removed_at.desc(), WorkingSunday.id.desc()).first()
+                    if removed_ws:
+                        removed_ws.removed_at = None
+                        removed_ws.removed_by = None
+                        removed_ws.removal_reason = None
+                        db.add(removed_ws)
+                    else:
+                        db.add(WorkingSunday(user_id=user_id, work_date=target_date, marked_by=current_user.id, source="attendance_override"))
                     db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{user_id} on {target_date} via override"))
 
         if update_data["status"] == "On Leave":
@@ -2609,7 +2651,7 @@ def admin_request_half_day_for_user(
 def mark_working_sunday(
     payload: WorkingSundayCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
 ):
     """Mark a specific employee/date as a remote-eligible working day."""
     user_id = payload.user_id
@@ -2630,12 +2672,33 @@ def mark_working_sunday(
             detail="Cannot assign a working day while this date has a Weekly Off attendance override.",
         )
 
-    existing = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == work_date).first()
+    existing = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == work_date,
+        WorkingSunday.removed_at.is_(None),
+    ).first()
     if existing:
         return {"message": "Already marked"}
 
-    entry = WorkingSunday(user_id=user_id, work_date=work_date, marked_by=current_user.id)
-    db.add(entry)
+    removed = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == work_date,
+        WorkingSunday.removed_at.isnot(None),
+    ).order_by(WorkingSunday.removed_at.desc(), WorkingSunday.id.desc()).first()
+    if removed:
+        removed.removed_at = None
+        removed.removed_by = None
+        removed.removal_reason = None
+        if removed.source not in {"attendance_override", "holidays"}:
+            removed.source = "holidays"
+        db.add(removed)
+    else:
+        db.add(WorkingSunday(
+            user_id=user_id,
+            work_date=work_date,
+            marked_by=current_user.id,
+            source="holidays",
+        ))
     db.add(ActivityLog(user_id=current_user.id, activity=f"Marked working day for user #{user_id} on {work_date}"))
     db.commit()
     return {"message": "Marked as working day"}
@@ -2643,38 +2706,192 @@ def mark_working_sunday(
 
 @router.get("/working-sunday", response_model=List[WorkingSundayOut])
 def list_working_sundays(
-    year: int = Query(..., ge=1900, le=9998),
+    year: Optional[int] = Query(None, ge=1900, le=9998),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
 ):
-    start_date = date(year, 1, 1)
-    end_date = date(year + 1, 1, 1)
-    return (
-        db.query(WorkingSunday)
-        .filter(WorkingSunday.work_date >= start_date, WorkingSunday.work_date < end_date)
-        .order_by(WorkingSunday.work_date, WorkingSunday.user_id)
-        .all()
-    )
+    query = db.query(WorkingSunday).filter(WorkingSunday.removed_at.is_(None))
+    if year is not None:
+        query = query.filter(
+            WorkingSunday.work_date >= date(year, 1, 1),
+            WorkingSunday.work_date < date(year + 1, 1, 1),
+        )
+    return query.order_by(WorkingSunday.work_date, WorkingSunday.user_id).all()
+
+
+def _salary_slip_extra_working_day_impact(slip: SalarySlip) -> tuple[bool, str]:
+    """Determine whether stored salary data proves an Extra Working Day impact."""
+    candidates = []
+    if slip.earnings:
+        candidates.append(slip.earnings)
+    if slip.particulars and slip.particulars != "[]":
+        candidates.append(slip.particulars)
+
+    for candidate in candidates:
+        try:
+            rows = json.loads(candidate) if isinstance(candidate, str) else candidate
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name", "")).strip().casefold()
+            if name == "extra working day":
+                try:
+                    amount = float(row.get("amount", 0))
+                except (TypeError, ValueError):
+                    return False, "manual_review"
+                return amount != 0, "affected" if amount != 0 else "not_affected"
+    return False, "manual_review"
 
 
 @router.delete("/working-sunday", response_model=dict)
 def unmark_working_sunday(
     user_id: int = Query(...),
     work_date: str = Query(...),
+    reason: str = Query("Removed from Extra Working Day"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_permission("attendance.all_view")),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
 ):
     try:
         work_date_parsed = date.fromisoformat(work_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
-    entry = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == work_date_parsed).first()
-    if not entry:
+    active_entries = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == work_date_parsed,
+        WorkingSunday.removed_at.is_(None),
+    ).order_by(WorkingSunday.id).all()
+    if not active_entries:
         raise HTTPException(status_code=404, detail="Working Sunday not found")
-    db.delete(entry)
+
+    attendance_override = db.query(Attendance.id).filter(
+        Attendance.user_id == user_id,
+        Attendance.attendance_date == work_date_parsed,
+        Attendance.manual_override.is_(True),
+    ).first()
+    if any(entry.source == "attendance_override" for entry in active_entries) or attendance_override:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "This assignment supports a manual attendance override and cannot be undone automatically.",
+                "attendance_date": work_date_parsed.isoformat(),
+            },
+        )
+
+    approved_corrections = db.query(AttendanceCorrection).join(Attendance).filter(
+        Attendance.user_id == user_id,
+        Attendance.attendance_date == work_date_parsed,
+        AttendanceCorrection.status == "Approved",
+    ).all()
+    if approved_corrections:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Cannot undo an assignment used by approved attendance corrections.",
+                "corrections": [
+                    {
+                        "id": correction.id,
+                        "attendance_id": correction.attendance_id,
+                        "approved_at": correction.approved_at,
+                    }
+                    for correction in approved_corrections
+                ],
+            },
+        )
+
+    removed_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+    removal_reason = reason.strip() or "Removed from Extra Working Day"
+    employee_name = db.query(User.name).filter(User.id == user_id).scalar()
+    for entry in active_entries:
+        entry.removed_at = removed_at
+        entry.removed_by = current_user.id
+        entry.removal_reason = removal_reason
+        db.add(WorkingSundayRemovalHistory(
+            working_sunday_id=entry.id,
+            user_id=user_id,
+            employee_name=employee_name,
+            work_date=work_date_parsed,
+            removed_by=current_user.id,
+            remover_name=current_user.name,
+            removed_at=removed_at,
+            reason=removal_reason,
+        ))
     db.add(ActivityLog(user_id=current_user.id, activity=f"Unmarked working day for user #{user_id} on {work_date_parsed}"))
     db.commit()
-    return {"message": "Working day unmarked"}
+    relevant_slips = []
+    for slip in db.query(SalarySlip).filter(
+        SalarySlip.employee_id == user_id,
+        SalarySlip.month == work_date_parsed.month,
+        SalarySlip.year == work_date_parsed.year,
+    ).all():
+        _, assessment = _salary_slip_extra_working_day_impact(slip)
+        relevant_slips.append({
+            "id": slip.id,
+            "status": slip.status,
+            "impact_assessment": assessment,
+        })
+    return {
+        "message": "Working day unmarked",
+        "impact": {
+            "attendance_manual_override": False,
+            "approved_correction_ids": [],
+            "potential_salary_slips": relevant_slips,
+        },
+    }
+
+
+@router.get("/working-sunday/removals", response_model=List[WorkingSundayRemovalOut])
+def list_working_sunday_removals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
+):
+    entries = db.query(WorkingSundayRemovalHistory).order_by(
+        WorkingSundayRemovalHistory.removed_at.desc()
+    ).all()
+    for entry in entries:
+        if not entry.employee_name:
+            entry.employee_name = db.query(User.name).filter(User.id == entry.user_id).scalar()
+        if not entry.remover_name and entry.removed_by is not None:
+            entry.remover_name = db.query(User.name).filter(User.id == entry.removed_by).scalar()
+    return entries
+
+
+@router.post("/working-sunday/reactivate", response_model=dict)
+def reactivate_working_sunday(
+    user_id: int = Query(...),
+    work_date: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_permission("holidays.manage")),
+):
+    try:
+        work_date_parsed = date.fromisoformat(work_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    active = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == work_date_parsed,
+        WorkingSunday.removed_at.is_(None),
+    ).first()
+    if active:
+        return {"message": "Already active"}
+
+    entry = db.query(WorkingSunday).filter(
+        WorkingSunday.user_id == user_id,
+        WorkingSunday.work_date == work_date_parsed,
+        WorkingSunday.removed_at.isnot(None),
+    ).order_by(WorkingSunday.removed_at.desc(), WorkingSunday.id.desc()).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Removed working day not found")
+    entry.removed_at = None
+    entry.removed_by = None
+    entry.removal_reason = None
+    db.add(ActivityLog(user_id=current_user.id, activity=f"Reactivated working day for user #{user_id} on {work_date_parsed}"))
+    db.commit()
+    return {"message": "Working day reactivated"}
 
 # ============================================================
 # WORK FROM HOME (WFH) - EMPLOYEE REQUEST

@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import date, datetime, time
+from inspect import signature
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
@@ -28,8 +29,11 @@ from models import (
     TeamMember,
     User,
     WorkingSunday,
+    WorkingSundayRemovalHistory,
+    SalarySlip,
 )
 from schemas import (
+    AttendanceManualUpdate,
     CorrectionCancellation,
     CorrectionCreate,
     CorrectionDecision,
@@ -799,6 +803,408 @@ def test_list_working_sundays_returns_only_requested_year(db_session: Session):
     results = attendance_router.list_working_sundays(year=2026, db=db_session, current_user=admin)
 
     assert [entry.work_date for entry in results] == [date(2026, 1, 2), date(2026, 11, 2)]
+
+
+def test_unmark_blocks_manual_override_assignment(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 11)
+    assignment = WorkingSunday(
+        user_id=employee.id,
+        work_date=target_date,
+        marked_by=admin.id,
+        source="attendance_override",
+    )
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=target_date,
+        status="Extra Working Day",
+        manual_override=True,
+    )
+    db_session.add_all([assignment, attendance])
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        attendance_router.unmark_working_sunday(
+            user_id=employee.id,
+            work_date=target_date.isoformat(),
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert assignment.removed_at is None
+
+
+def test_unmark_rejects_approved_correction(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 12)
+    attendance = Attendance(user_id=employee.id, attendance_date=target_date, status="Present")
+    assignment = WorkingSunday(user_id=employee.id, work_date=target_date, marked_by=admin.id)
+    db_session.add_all([attendance, assignment])
+    db_session.commit()
+    correction = AttendanceCorrection(
+        attendance_id=attendance.id,
+        requested_by=employee.id,
+        status="Approved",
+        approved_by=admin.id,
+        approved_at=datetime(2026, 10, 13, 9),
+    )
+    db_session.add(correction)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        attendance_router.unmark_working_sunday(
+            user_id=employee.id,
+            work_date=target_date.isoformat(),
+            db=db_session,
+            current_user=admin,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert correction.status == "Approved"
+    assert assignment.removed_at is None
+
+
+def _working_sunday_permission_key(endpoint) -> str:
+    for parameter in signature(endpoint).parameters.values():
+        dependency = getattr(parameter.default, "dependency", None)
+        if dependency is None or not dependency.__closure__:
+            continue
+        permission_keys = [
+            cell.cell_contents
+            for cell in dependency.__closure__
+            if isinstance(cell.cell_contents, str)
+        ]
+        if "attendance.all_view" in permission_keys or "holidays.manage" in permission_keys:
+            return next(
+                key for key in permission_keys
+                if key in {"attendance.all_view", "holidays.manage"}
+            )
+    raise AssertionError("Working Sunday endpoint has no permission dependency")
+
+
+def _working_sunday_permission_dependency(endpoint):
+    for parameter in signature(endpoint).parameters.values():
+        dependency = getattr(parameter.default, "dependency", None)
+        if dependency is None or not dependency.__closure__:
+            continue
+        permission_keys = [
+            cell.cell_contents
+            for cell in dependency.__closure__
+            if isinstance(cell.cell_contents, str)
+        ]
+        if "holidays.manage" in permission_keys:
+            return dependency
+    raise AssertionError("Working Sunday endpoint has no Holiday management dependency")
+
+
+def test_working_sunday_mutations_and_history_require_holiday_management():
+    endpoints = [
+        attendance_router.mark_working_sunday,
+        attendance_router.list_working_sundays,
+        attendance_router.unmark_working_sunday,
+        attendance_router.list_working_sunday_removals,
+        attendance_router.reactivate_working_sunday,
+    ]
+    assert {_working_sunday_permission_key(endpoint) for endpoint in endpoints} == {"holidays.manage"}
+
+
+def test_working_sunday_employee_cannot_bypass_holiday_management(db_session: Session):
+    employee = _create_user(db_session)
+    dependency = _working_sunday_permission_dependency(attendance_router.unmark_working_sunday)
+
+    with pytest.raises(HTTPException) as exc_info:
+        dependency(current_user=employee, db=db_session)
+
+    assert exc_info.value.status_code == 403
+
+
+def test_duplicate_active_assignments_are_all_removed_and_reactivated_once(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 20)
+    first = WorkingSunday(
+        user_id=employee.id, work_date=target_date, marked_by=admin.id, source="holidays"
+    )
+    second = WorkingSunday(
+        user_id=employee.id, work_date=target_date, marked_by=admin.id, source="holidays"
+    )
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    attendance_router.unmark_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        reason="Remove duplicate assignment set",
+        db=db_session,
+        current_user=admin,
+    )
+
+    db_session.expire_all()
+    assert db_session.query(WorkingSunday).filter(
+        WorkingSunday.user_id == employee.id,
+        WorkingSunday.work_date == target_date,
+        WorkingSunday.removed_at.is_(None),
+    ).count() == 0
+    assert db_session.query(WorkingSundayRemovalHistory).filter(
+        WorkingSundayRemovalHistory.user_id == employee.id,
+        WorkingSundayRemovalHistory.work_date == target_date,
+    ).count() == 2
+
+    attendance_router.reactivate_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        db=db_session,
+        current_user=admin,
+    )
+    assert db_session.query(WorkingSunday).filter(
+        WorkingSunday.user_id == employee.id,
+        WorkingSunday.work_date == target_date,
+        WorkingSunday.removed_at.is_(None),
+    ).count() == 1
+
+    attendance_router.unmark_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        reason="Remove again",
+        db=db_session,
+        current_user=admin,
+    )
+    assert db_session.query(WorkingSundayRemovalHistory).filter(
+        WorkingSundayRemovalHistory.user_id == employee.id,
+        WorkingSundayRemovalHistory.work_date == target_date,
+    ).count() == 3
+    assert db_session.query(WorkingSunday).filter(
+        WorkingSunday.user_id == employee.id,
+        WorkingSunday.work_date == target_date,
+    ).count() == 2
+
+
+def test_reactivation_preserves_source_and_removal_history(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 14)
+    assignment = WorkingSunday(
+        user_id=employee.id,
+        work_date=target_date,
+        marked_by=admin.id,
+        source="attendance_override",
+    )
+    db_session.add(assignment)
+    db_session.commit()
+
+    assignment.removed_at = datetime(2026, 10, 15, 9)
+    assignment.removed_by = admin.id
+    assignment.removal_reason = "First removal"
+    db_session.add(WorkingSundayRemovalHistory(
+        working_sunday_id=assignment.id,
+        user_id=employee.id,
+        employee_name=employee.name,
+        work_date=target_date,
+        removed_by=admin.id,
+        remover_name=admin.name,
+        removed_at=assignment.removed_at,
+        reason=assignment.removal_reason,
+    ))
+    db_session.commit()
+
+    attendance_router.reactivate_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        db=db_session,
+        current_user=admin,
+    )
+
+    db_session.refresh(assignment)
+    assert assignment.source == "attendance_override"
+    assert assignment.removed_at is None
+    assert db_session.query(WorkingSundayRemovalHistory).filter_by(
+        working_sunday_id=assignment.id
+    ).count() == 1
+
+
+def test_manual_override_does_not_overwrite_holidays_source(db_session: Session, monkeypatch):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 18)
+    assignment = WorkingSunday(
+        user_id=employee.id,
+        work_date=target_date,
+        marked_by=admin.id,
+        source="holidays",
+        removed_at=datetime(2026, 10, 17, 9),
+        removed_by=admin.id,
+        removal_reason="Original removal",
+    )
+    attendance = Attendance(
+        user_id=employee.id,
+        attendance_date=target_date,
+        status="Absent",
+    )
+    db_session.add_all([assignment, attendance])
+    db_session.commit()
+    monkeypatch.setattr(attendance_router, "is_weekly_off", lambda *_args, **_kwargs: True)
+
+    attendance_router.manual_update_by_user_date(
+        user_id=employee.id,
+        date_value=target_date.isoformat(),
+        payload=AttendanceManualUpdate(status="Present"),
+        db=db_session,
+        current_user=admin,
+    )
+
+    db_session.refresh(assignment)
+    assert assignment.source == "holidays"
+    assert assignment.removed_at is None
+
+
+def test_salary_extra_working_day_assessment_is_not_guessed(db_session: Session):
+    employee = _create_user(db_session)
+    uncertain_slip = SalarySlip(
+        employee_id=employee.id,
+        month=10,
+        year=2026,
+        particulars="[]",
+        total_amount=1000,
+        created_by=employee.id,
+        earnings="[]",
+    )
+    affected_slip = SalarySlip(
+        employee_id=employee.id,
+        month=10,
+        year=2026,
+        particulars="[]",
+        total_amount=1200,
+        created_by=employee.id,
+        earnings='[{"name":"Extra Working Day","amount":200}]',
+    )
+    db_session.add_all([uncertain_slip, affected_slip])
+    db_session.commit()
+
+    assert attendance_router._salary_slip_extra_working_day_impact(uncertain_slip)[1] == "manual_review"
+    assert attendance_router._salary_slip_extra_working_day_impact(affected_slip)[1] == "affected"
+
+
+def test_salary_alias_does_not_become_unqualified_extra_working_day_evidence(db_session: Session):
+    employee = _create_user(db_session)
+    slip = SalarySlip(
+        employee_id=employee.id,
+        month=10,
+        year=2026,
+        particulars="[]",
+        total_amount=1200,
+        created_by=employee.id,
+        earnings='[{"name":"Working Sunday","amount":200}]',
+    )
+    db_session.add(slip)
+    db_session.commit()
+
+    assert attendance_router._salary_slip_extra_working_day_impact(slip)[1] == "manual_review"
+
+
+def test_removal_history_survives_assignment_deletion(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    assignment = WorkingSunday(
+        user_id=employee.id,
+        work_date=date(2026, 10, 16),
+        marked_by=admin.id,
+    )
+    db_session.add(assignment)
+    db_session.commit()
+    history = WorkingSundayRemovalHistory(
+        working_sunday_id=assignment.id,
+        user_id=employee.id,
+        employee_name=employee.name,
+        work_date=assignment.work_date,
+        removed_by=admin.id,
+        remover_name=admin.name,
+        removed_at=datetime(2026, 10, 17, 9),
+        reason="Test removal",
+    )
+    db_session.add(history)
+    db_session.commit()
+    history_id = history.id
+
+    db_session.delete(assignment)
+    db_session.commit()
+
+    assert db_session.get(WorkingSundayRemovalHistory, history_id).reason == "Test removal"
+
+    preserved = db_session.get(WorkingSundayRemovalHistory, history_id)
+    employee_name = employee.name
+    remover_name = admin.name
+    db_session.delete(employee)
+    db_session.delete(admin)
+    db_session.commit()
+    db_session.refresh(preserved)
+    assert preserved.employee_name == employee_name
+    assert preserved.remover_name == remover_name
+    assert preserved.created_at is not None
+
+
+def test_multiple_removals_create_multiple_history_events(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 18)
+    assignment = WorkingSunday(
+        user_id=employee.id,
+        work_date=target_date,
+        marked_by=admin.id,
+        source="holidays",
+    )
+    db_session.add(assignment)
+    db_session.commit()
+
+    attendance_router.unmark_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        reason="First removal",
+        db=db_session,
+        current_user=admin,
+    )
+    attendance_router.reactivate_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        db=db_session,
+        current_user=admin,
+    )
+    attendance_router.unmark_working_sunday(
+        user_id=employee.id,
+        work_date=target_date.isoformat(),
+        reason="Second removal",
+        db=db_session,
+        current_user=admin,
+    )
+
+    history = db_session.query(WorkingSundayRemovalHistory).filter_by(
+        working_sunday_id=assignment.id
+    ).order_by(WorkingSundayRemovalHistory.id).all()
+    assert [entry.reason for entry in history] == ["First removal", "Second removal"]
+
+
+def test_removal_history_includes_snapshotted_employee_and_remover_names(db_session: Session):
+    employee = _create_user(db_session)
+    admin = _create_user(db_session, "admin")
+    target_date = date(2026, 10, 19)
+    db_session.add(WorkingSundayRemovalHistory(
+        working_sunday_id=999,
+        user_id=employee.id,
+        employee_name=employee.name,
+        work_date=target_date,
+        removed_by=admin.id,
+        remover_name=admin.name,
+        removed_at=datetime(2026, 10, 20, 9),
+        reason="Audit test",
+    ))
+    db_session.commit()
+
+    results = attendance_router.list_working_sunday_removals(db=db_session, current_user=admin)
+
+    assert results[0].employee_name == employee.name
+    assert results[0].remover_name == admin.name
 
 
 def test_team_leader_cannot_cancel_correction_outside_active_team(db_session: Session, monkeypatch):

@@ -678,9 +678,29 @@ class WorkingSunday(Base):
     work_date = Column(Date, nullable=False)
     marked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
+    source = Column(String(20), nullable=False, default="legacy_unknown")
+    removed_at = Column(DateTime, nullable=True)
+    removed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    removal_reason = Column(Text, nullable=True)
 
     user = relationship("User", foreign_keys=[user_id])
     marker = relationship("User", foreign_keys=[marked_by])
+    remover = relationship("User", foreign_keys=[removed_by])
+
+
+class WorkingSundayRemovalHistory(Base):
+    __tablename__ = "working_sunday_removal_history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    working_sunday_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, nullable=False)
+    employee_name = Column(String(255), nullable=True)
+    work_date = Column(Date, nullable=False)
+    removed_by = Column(Integer, nullable=True)
+    remover_name = Column(String(255), nullable=True)
+    removed_at = Column(DateTime, nullable=False)
+    reason = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"

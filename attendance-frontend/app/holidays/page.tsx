@@ -54,12 +54,28 @@ interface WorkingDayAssignment {
   work_date: string;
   marked_by: number | null;
   created_at: string;
+  source?: string;
+  removed_at?: string | null;
+  removed_by?: number | null;
+  removal_reason?: string | null;
+}
+
+interface WorkingDayRemoval {
+  id: number;
+  working_sunday_id: number;
+  user_id: number;
+  employee_name?: string | null;
+  work_date: string;
+  removed_by: number | null;
+  remover_name?: string | null;
+  removed_at: string;
+  reason: string;
 }
 
 export default function HolidaysPage() {
   const { permissions } = usePermissions();
   const admin = hasPermission(permissions, "holidays.manage");
-  const canViewWorkingDays = hasPermission(permissions, "attendance.all_view");
+  const canViewWorkingDays = admin || hasPermission(permissions, "attendance.all_view");
 
   const [holidaysByYear, setHolidaysByYear] = useState<Record<number, Holiday[]>>({});
   const [failedYears, setFailedYears] = useState<number[]>([]);
@@ -80,8 +96,21 @@ export default function HolidaysPage() {
   const [selectedUserId, setSelectedUserId] = useState<number | "">("");
   const [selectedWorkDate, setSelectedWorkDate] = useState("");
   const [workingSundaySubmitting, setWorkingSundaySubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<"holiday" | "extra">("holiday");
+  const [allWorkingDays, setAllWorkingDays] = useState<WorkingDayAssignment[]>([]);
+  const [workingDayRemovalHistory, setWorkingDayRemovalHistory] = useState<WorkingDayRemoval[]>([]);
   const submissionLock = useRef(false);
   const holidayRequests = useRef(new Map<number, Promise<Holiday[]>>());
+
+  const loadWorkingDayHistory = useCallback(() => {
+    if (!canViewWorkingDays) return;
+    api.get<WorkingDayAssignment[]>("/attendance/working-sunday").then(({ data }) => setAllWorkingDays(data)).catch(() => {});
+    api.get<WorkingDayRemoval[]>("/attendance/working-sunday/removals").then(({ data }) => setWorkingDayRemovalHistory(data)).catch(() => {});
+  }, [canViewWorkingDays]);
+
+  useEffect(() => {
+    loadWorkingDayHistory();
+  }, [loadWorkingDayHistory]);
 
   const visibleDays = eachDayOfInterval({
     start: startOfWeek(startOfMonth(activeMonth)),
@@ -266,26 +295,37 @@ export default function HolidaysPage() {
     }
   };
 
-  const handleUnmarkWorkingSunday = async () => {
-    if (!selectedUserId || !selectedWorkDate) {
-      toast.error("Please choose an employee and date");
-      return;
-    }
-
+  const handleUndoWorkingSunday = async (assignment: WorkingDayAssignment) => {
+    const reason = window.prompt("Reason for removing this assignment:", "Removed from Extra Working Day");
+    if (reason === null) return;
     setWorkingSundaySubmitting(true);
     try {
-      const { data } = await api.delete("/attendance/working-sunday", {
-        params: {
-          user_id: Number(selectedUserId),
-          work_date: selectedWorkDate,
-        },
-      });
-      toast.success(data?.message || "Working Sunday unmarked");
-      invalidateWorkingDayYear(parseISO(selectedWorkDate).getFullYear());
+      const { data } = await api.delete<{ message?: string; impact?: { attendance_manual_override: boolean; approved_correction_ids: number[]; potential_salary_slips: { id: number; status: string }[] } }>(
+        "/attendance/working-sunday",
+        { params: { user_id: assignment.user_id, work_date: assignment.work_date, reason: reason.trim() || "Removed from Extra Working Day" } },
+      );
+      const impact = data.impact;
+      if (impact?.attendance_manual_override || impact?.approved_correction_ids?.length || impact?.potential_salary_slips?.length) {
+        toast.success("Assignment removed. Existing attendance and approved salary records were preserved.");
+      } else {
+        toast.success(data?.message || "Working day removed");
+      }
+      loadWorkingDayHistory();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setWorkingSundaySubmitting(false);
+    }
+  };
+
+  const handleReactivateWorkingSunday = async (userId: number, workDate: string) => {
+    if (!confirm("Reactivate this working-day assignment?")) return;
+    try {
+      await api.post("/attendance/working-sunday/reactivate", null, { params: { user_id: userId, work_date: workDate } });
+      toast.success("Working day reactivated");
+      loadWorkingDayHistory();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -420,7 +460,7 @@ export default function HolidaysPage() {
             <p className="text-sm text-ink-500">Company holiday calendar for {activeMonth.getFullYear()}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            {activeTab === "holiday" && <button
               type="button"
               onClick={handleExportCSV}
               disabled={!canExportCalendar}
@@ -428,8 +468,8 @@ export default function HolidaysPage() {
               className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download size={15} /> Export CSV
-            </button>
-            <button
+            </button>}
+            {activeTab === "holiday" && <button
               type="button"
               onClick={handleExportExcel}
               disabled={!canExportCalendar}
@@ -437,8 +477,8 @@ export default function HolidaysPage() {
               className="flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <FileSpreadsheet size={15} /> Export Excel
-            </button>
-            {admin && (
+            </button>}
+            {admin && activeTab === "holiday" && (
               <button
                 onClick={openAddHoliday}
                 className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
@@ -450,12 +490,82 @@ export default function HolidaysPage() {
           </div>
         </div>
 
-        {canViewWorkingDays && workingDaysLoading && (
+        <div className="flex gap-1 border-b border-ink-200">
+          {(["holiday", "extra"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === tab ? "border-brand-500 text-brand-700" : "border-transparent text-ink-500 hover:text-ink-800"}`}
+            >
+              {tab === "holiday" ? "Holiday" : "Extra Working Day"}
+            </button>
+          ))}
+        </div>
+
+        {admin && activeTab === "extra" && (
+          <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card">
+            <h2 className="text-sm font-semibold text-ink-900">Mark Working Day</h2>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
+              <select
+                value={selectedUserId}
+                onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : "")}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              >
+                {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+              </select>
+              <input type="date" value={selectedWorkDate} onChange={(event) => setSelectedWorkDate(event.target.value)} className="rounded-lg border border-ink-200 px-3 py-2 text-sm" />
+              <button onClick={handleMarkWorkingSunday} disabled={workingSundaySubmitting} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                {workingSundaySubmitting ? "Working..." : "Mark"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {canViewWorkingDays && activeTab === "extra" && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border border-ink-200 bg-white p-4">
+              <h2 className="font-semibold text-ink-900">Active Assignments</h2>
+              <div className="mt-3 space-y-2">
+                {allWorkingDays.map((assignment) => (
+                  <div key={assignment.id} className="flex items-center justify-between rounded-lg border border-ink-100 p-3 text-sm">
+                    <div>
+                      <p className="font-medium">{users.find((user) => user.id === assignment.user_id)?.name ?? `User #${assignment.user_id}`}</p>
+                      <p className="text-xs text-ink-500">{assignment.work_date} - {assignment.source || "legacy_unknown"}</p>
+                    </div>
+                    {admin && <button onClick={() => void handleUndoWorkingSunday(assignment)} className="rounded border border-red-200 px-2 py-1 text-xs text-red-700">Undo</button>}
+                  </div>
+                ))}
+                {!allWorkingDays.length && <p className="text-sm text-ink-500">No active assignments.</p>}
+              </div>
+            </section>
+            <section className="rounded-xl border border-ink-200 bg-white p-4">
+              <h2 className="font-semibold text-ink-900">Removed / Undo History</h2>
+              <div className="mt-3 space-y-2">
+                {workingDayRemovalHistory.map((removal) => (
+                  <div key={removal.id} className="rounded-lg border border-ink-100 p-3 text-sm">
+                    <p className="font-medium">
+                      {removal.employee_name || users.find((user) => user.id === removal.user_id)?.name || `User #${removal.user_id}`} - {removal.work_date}
+                    </p>
+                    <p className="text-xs text-ink-500">
+                      Removed by {removal.remover_name || (removal.removed_by != null ? `User #${removal.removed_by}` : "Unknown user")} - {removal.removed_at}
+                    </p>
+                    <p className="text-xs text-ink-500">{removal.reason}</p>
+                    {admin && <button onClick={() => handleReactivateWorkingSunday(removal.user_id, removal.work_date)} className="mt-2 rounded border border-brand-200 px-2 py-1 text-xs text-brand-700">Reactivate</button>}
+                  </div>
+                ))}
+                {!workingDayRemovalHistory.length && <p className="text-sm text-ink-500">No removed assignments.</p>}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {canViewWorkingDays && workingDaysLoading && activeTab === "extra" && (
           <p role="status" className="rounded-lg border border-ink-200 bg-white px-4 py-3 text-sm text-ink-500">
             Loading working-day assignments for {calendarYear}...
           </p>
         )}
-        {failedWorkingDayYears.includes(calendarYear) && (
+        {activeTab === "extra" && failedWorkingDayYears.includes(calendarYear) && (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
             <p className="text-sm text-red-700">Could not load working-day assignments for {calendarYear}.</p>
             <button
@@ -468,56 +578,7 @@ export default function HolidaysPage() {
           </div>
         )}
 
-        {admin && (
-          <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-card">
-            <div className="mb-3">
-              <h2 className="text-sm font-semibold text-ink-900">Mark Working Day</h2>
-              <p className="text-sm text-ink-500">Choose an employee and any date to allow remote attendance on that day, including Sundays and holidays.</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-ink-700">Employee</label>
-                <select
-                  value={selectedUserId}
-                  onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : "")}
-                  className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-                >
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-ink-700">Date</label>
-                <input
-                  type="date"
-                  value={selectedWorkDate}
-                  onChange={(event) => setSelectedWorkDate(event.target.value)}
-                  className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <button
-                  onClick={handleMarkWorkingSunday}
-                  disabled={workingSundaySubmitting}
-                  className="rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-60"
-                >
-                  {workingSundaySubmitting ? "Working..." : "Mark"}
-                </button>
-                <button
-                  onClick={handleUnmarkWorkingSunday}
-                  disabled={workingSundaySubmitting}
-                  className="rounded-lg border border-ink-200 px-3.5 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-60"
-                >
-                  {workingSundaySubmitting ? "Working..." : "Unmark"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
+        <div className={activeTab === "holiday" ? "space-y-5" : "hidden"}>
         {loading && (
           <p role="status" className="rounded-lg border border-ink-200 bg-white px-4 py-3 text-sm text-ink-500">
             Loading holiday calendar...
@@ -651,6 +712,7 @@ export default function HolidaysPage() {
             ))}
           </div>
         )}
+      </div>
       </div>
 
       <Modal

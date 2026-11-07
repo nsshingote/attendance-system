@@ -494,6 +494,22 @@ class WorkingSundayOut(ORMBase):
     work_date: date
     marked_by: Optional[int] = None
     created_at: datetime
+    source: str = "legacy_unknown"
+    removed_at: Optional[datetime] = None
+    removed_by: Optional[int] = None
+    removal_reason: Optional[str] = None
+
+
+class WorkingSundayRemovalOut(ORMBase):
+    id: int
+    working_sunday_id: int
+    user_id: int
+    employee_name: Optional[str] = None
+    work_date: date
+    removed_by: Optional[int] = None
+    remover_name: Optional[str] = None
+    removed_at: datetime
+    reason: str
 
 
 # =========================================================

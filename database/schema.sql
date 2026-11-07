@@ -214,9 +214,30 @@ CREATE TABLE IF NOT EXISTS working_sundays (
     work_date DATE NOT NULL,
     marked_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    source VARCHAR(20) NOT NULL DEFAULT 'legacy_unknown',
+    removed_at DATETIME NULL,
+    removed_by INT NULL,
+    removal_reason TEXT NULL,
     INDEX ix_working_sundays_user_id_work_date (user_id, work_date),
+    INDEX ix_working_sundays_active (removed_at),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (marked_by) REFERENCES users(id) ON DELETE SET NULL
+    FOREIGN KEY (marked_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (removed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS working_sunday_removal_history (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    working_sunday_id INT NOT NULL,
+    user_id INT NOT NULL,
+    employee_name VARCHAR(255) NULL,
+    work_date DATE NOT NULL,
+    removed_by INT NULL,
+    remover_name VARCHAR(255) NULL,
+    removed_at DATETIME NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX ix_working_sunday_removal_history_assignment (working_sunday_id),
+    INDEX ix_working_sunday_removal_history_employee_date (user_id, work_date)
 );
 
 -- ============================================================

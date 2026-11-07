@@ -81,6 +81,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
             is_assigned_working_day = db.query(WorkingSunday).filter(
                 WorkingSunday.user_id == user_id,
                 WorkingSunday.work_date == target_date,
+                WorkingSunday.removed_at.is_(None),
             ).first() is not None
             if is_assigned_working_day and status in {"Present", "Late", "Half Day"}:
                 return "Extra Working Day"
@@ -89,6 +90,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     is_assigned_working_day = db.query(WorkingSunday).filter(
         WorkingSunday.user_id == user_id,
         WorkingSunday.work_date == target_date,
+        WorkingSunday.removed_at.is_(None),
     ).first() is not None
 
     holiday = applicable_holiday(db, user_id, target_date)
@@ -140,7 +142,11 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
         if is_weekly_off(target_date, db):
             # check working sunday override
             if target_date.weekday() == 6:
-                ws = db.query(WorkingSunday).filter(WorkingSunday.user_id == user_id, WorkingSunday.work_date == target_date).first()
+                ws = db.query(WorkingSunday).filter(
+                    WorkingSunday.user_id == user_id,
+                    WorkingSunday.work_date == target_date,
+                    WorkingSunday.removed_at.is_(None),
+                ).first()
                 if not ws:
                     return "Weekly Off"
             else:
