@@ -932,6 +932,7 @@ class EmployeeDashboardStats(BaseModel):
     user_id: int
     user_name: str
     today_status: str
+    late_grace_minutes: int
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
     pending_leave_requests: int

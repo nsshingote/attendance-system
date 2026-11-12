@@ -45,6 +45,7 @@ interface SelfSnapshot {
   check_in: string | null;
   check_out: string | null;
   today_status: string;
+  late_grace_minutes: number;
 }
 
 export default function AdminDashboard() {
@@ -55,11 +56,12 @@ export default function AdminDashboard() {
 
   const fetchSelfSnapshot = useCallback(async (): Promise<AttendanceStatus> => {
     const requestSequence = ++attendanceRefreshSequence.current;
-    const { data } = await api.get("/dashboard/me");
+    const { data } = await api.get<{ check_in: string | null; check_out: string | null; today_status: string; late_grace_minutes: number }>("/dashboard/me");
     const nextSnapshot = {
       check_in: data.check_in || null,
       check_out: data.check_out || null,
       today_status: data.today_status || "Absent",
+      late_grace_minutes: data.late_grace_minutes,
     };
     if (requestSequence === attendanceRefreshSequence.current) setSelfSnapshot(nextSnapshot);
     return nextSnapshot;
@@ -137,6 +139,9 @@ export default function AdminDashboard() {
                 />
               </div>
             </div>
+            <p className="mt-4 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800">
+              Your check-in grace period is {selfSnapshot.late_grace_minutes} minutes. After the {selfSnapshot.late_grace_minutes}-minute grace period, you will be marked Late and must provide a valid reason.
+            </p>
           </div>
         )}
 

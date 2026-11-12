@@ -296,7 +296,7 @@ export default function KundliPage() {
 
             <div className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]">
               <div className="w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-ink-200 touch-auto">
-                <table className="w-full min-w-[54rem] text-sm">
+                <table className="w-full `min-w-216` text-sm">
                   <thead className="bg-ink-50 text-left text-ink-600">
                     <tr>
                       <th className="px-4 py-3">Date</th>

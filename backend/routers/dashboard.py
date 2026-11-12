@@ -13,7 +13,7 @@ from database import get_db
 from models import (
     User, Attendance, LeaveRequest, AttendanceCorrection, Holiday,
     DailyReportData, DailyReport, DeviceRequest, EmployeeProfileEditRequest, PastReportSubmissionRequest,
-    HalfDayRequest, WFHRequest, Feedback
+    HalfDayRequest, WFHRequest, Feedback, CompanySettings
 )
 from schemas import (
     AdminDashboardStats,
@@ -74,6 +74,7 @@ def get_employee_dashboard(
     
     # Today's status
     status = get_today_attendance_status(db, current_user.id, today)
+    company_settings = db.query(CompanySettings).order_by(CompanySettings.id.desc()).first()
     
     # Pending leave requests
     pending_leave = db.query(LeaveRequest).filter(
@@ -91,6 +92,7 @@ def get_employee_dashboard(
         user_id=current_user.id,
         user_name=current_user.name,
         today_status=status,
+        late_grace_minutes=(company_settings.late_grace_minutes or 30) if company_settings else 30,
         check_in=iso_with_offset(today_attendance.check_in) if today_attendance and today_attendance.check_in else None,
         check_out=iso_with_offset(today_attendance.check_out) if today_attendance and today_attendance.check_out else None,
         pending_leave_requests=pending_leave,

@@ -118,6 +118,7 @@ interface EmployeeSnapshot {
   check_in: string | null;
   check_out: string | null;
   today_status: string;
+  late_grace_minutes: number;
   pending_leave_requests: number;
   pending_corrections: number;
 }
@@ -138,6 +139,7 @@ export default function EmployeeDashboard() {
         check_in: data.check_in || null,
         check_out: data.check_out || null,
         today_status: data.today_status || "Absent",
+        late_grace_minutes: data.late_grace_minutes,
         pending_leave_requests: data.pending_leave_requests || 0,
         pending_corrections: data.pending_corrections || 0,
       };
@@ -197,6 +199,9 @@ export default function EmployeeDashboard() {
               />
             </div>
           </div>
+          <p className="mt-4 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800">
+            Your check-in grace period is {snapshot.late_grace_minutes} minutes. After the {snapshot.late_grace_minutes}-minute grace period, you will be marked Late and must provide a valid reason.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
