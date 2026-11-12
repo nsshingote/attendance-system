@@ -225,6 +225,28 @@ class KundliNote(Base):
 
     employee = relationship("User", back_populates="kundli_notes", foreign_keys=[employee_id])
     creator = relationship("User", foreign_keys=[created_by])
+    attachments = relationship(
+        "KundliNoteAttachment",
+        back_populates="note",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class KundliNoteAttachment(Base):
+    __tablename__ = "kundli_note_attachments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    note_id = Column(Integer, ForeignKey("kundli_notes.id", ondelete="CASCADE"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=False)
+    storage_filename = Column(String(255), nullable=False, unique=True)
+    content_type = Column(String(100), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    uploaded_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    uploaded_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    note = relationship("KundliNote", back_populates="attachments")
+    uploader = relationship("User", foreign_keys=[uploaded_by])
 
 
 class EmployeeDocument(Base):
@@ -1082,7 +1104,7 @@ def _snapshot_explicit_deletes(session, flush_context, instances):
     for obj in list(session.deleted):
         if isinstance(obj, RecycleBinEntry) or obj.__class__.__name__ in {
             "RefreshToken", "PasswordResetToken", "Notification", "Attendance",
-            "LeaveRequestAllocation",
+            "LeaveRequestAllocation", "KundliNoteAttachment",
         }:
             continue
         mapper = obj.__mapper__

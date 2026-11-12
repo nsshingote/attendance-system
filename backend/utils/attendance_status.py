@@ -171,24 +171,14 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     
     # Get company settings
     settings = db.query(CompanySettings).first()
-    start_time_str = settings.office_start_time if settings else "10:00"
-    grace_minutes = settings.late_grace_minutes if settings else 30
-    
-    try:
-        start_hour, start_min = map(int, start_time_str.split(":"))
-    except:
-        start_hour, start_min = 10, 0
+    cutoff_minutes = get_late_cutoff_minutes(settings)
     
     check_in_time = attendance.check_in
     check_out_time = attendance.check_out
     
     # If no check-out, status depends only on check-in
     if not check_out_time:
-        check_in_min = check_in_time.hour * 60 + check_in_time.minute
-        start_total_min = start_hour * 60 + start_min
-        grace_total_min = start_total_min + grace_minutes
-
-        status = "Present" if check_in_min <= grace_total_min else "Late"
+        status = "Present" if not is_late(check_in_time, cutoff_minutes) else "Late"
         return "Extra Working Day" if holiday and is_assigned_working_day and status in {"Present", "Late"} else status
 
     # Calculate working hours
@@ -198,11 +188,7 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
     if working_hours < 4.5:
         return "Extra Working Day" if holiday and is_assigned_working_day else "Half Day"
 
-    check_in_min = check_in_time.hour * 60 + check_in_time.minute
-    start_total_min = start_hour * 60 + start_min
-    grace_total_min = start_total_min + grace_minutes
-
-    status = "Present" if check_in_min <= grace_total_min else "Late"
+    status = "Present" if not is_late(check_in_time, cutoff_minutes) else "Late"
     return "Extra Working Day" if holiday and is_assigned_working_day and status in {"Present", "Late"} else status
 
 
@@ -214,25 +200,24 @@ def calculate_working_hours(check_in: datetime, check_out: datetime) -> float:
     return round(delta.total_seconds() / 3600, 2)
 
 
+def get_late_cutoff_minutes(settings: CompanySettings | None) -> int:
+    """Return the configured grace cutoff as minutes after midnight."""
+    office_start_time = settings.office_start_time if settings else time(10, 0)
+    grace_minutes = settings.late_grace_minutes if settings else 30
+    return office_start_time.hour * 60 + office_start_time.minute + grace_minutes
+
+
+def is_late(check_in_time: datetime, cutoff_minutes: int) -> bool:
+    """Treat the entire cutoff minute as within the grace period."""
+    check_in_minutes = check_in_time.hour * 60 + check_in_time.minute
+    return check_in_minutes > cutoff_minutes
+
+
 def calculate_status(check_in_time: datetime, db: Session) -> str:
     """Calculate attendance status based on check-in time."""
     settings = db.query(CompanySettings).first()
-    start_time_str = settings.office_start_time if settings else "10:00"
-    grace_minutes = settings.late_grace_minutes if settings else 30
-    
-    try:
-        start_hour, start_min = map(int, start_time_str.split(":"))
-    except:
-        start_hour, start_min = 10, 0
-    
-    check_in_min = check_in_time.hour * 60 + check_in_time.minute
-    start_total_min = start_hour * 60 + start_min
-    grace_total_min = start_total_min + grace_minutes
-    
-    if check_in_min <= grace_total_min:
-        return "Present"
-    else:
-        return "Late"
+    cutoff_minutes = get_late_cutoff_minutes(settings)
+    return "Late" if is_late(check_in_time, cutoff_minutes) else "Present"
 
 
 def calculate_half_day(check_in: datetime, check_out: datetime, db: Session) -> bool:

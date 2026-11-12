@@ -8,7 +8,15 @@ from fastapi import HTTPException
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from models import Base, LeaveRequestAllocation, RecycleBinEntry
+from models import Base, KundliNoteAttachment, LeaveRequestAllocation, RecycleBinEntry
+from services.kundli_attachments import (
+    finalize_staged_attachment_deletion,
+    kundli_attachment_path,
+    restore_staged_attachment_files,
+    stage_attachment_files,
+)
+
+KUNDLI_ATTACHMENT_SNAPSHOT_KEY = "__kundli_attachments"
 
 
 def archive_object(
@@ -73,13 +81,21 @@ def _serialize_value(value):
 def purge_expired(db: Session) -> int:
     """Permanently remove expired snapshots and any retained upload files."""
     rows = db.query(RecycleBinEntry).filter(RecycleBinEntry.expires_at <= datetime.utcnow()).all()
-    for row in rows:
-        _remove_snapshot_files(row.snapshot)
-        db.info["skip_recycle"] = True
-        db.delete(row)
-    if rows:
-        db.commit()
-    db.info.pop("skip_recycle", None)
+    staged = _stage_kundli_snapshot_files(rows)
+    try:
+        for row in rows:
+            _remove_snapshot_files(row.snapshot)
+            db.info["skip_recycle"] = True
+            db.delete(row)
+        if rows:
+            db.commit()
+    except Exception:
+        db.rollback()
+        restore_staged_attachment_files(staged)
+        raise
+    finally:
+        db.info.pop("skip_recycle", None)
+    finalize_staged_attachment_deletion(staged)
     return len(rows)
 
 
@@ -96,6 +112,33 @@ def _remove_snapshot_files(snapshot: str) -> None:
                 os.remove(value)
             except OSError:
                 pass
+
+
+def _snapshot_attachment_records(snapshot: str) -> list[dict]:
+    try:
+        values = json.loads(snapshot)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail="Invalid recycle-bin snapshot") from error
+    records = values.get(KUNDLI_ATTACHMENT_SNAPSHOT_KEY, [])
+    if not isinstance(records, list) or any(not isinstance(item, dict) for item in records):
+        raise HTTPException(status_code=400, detail="Invalid Kundli attachment snapshot")
+    for record in records:
+        storage_filename = record.get("storage_filename")
+        if not isinstance(storage_filename, str):
+            raise HTTPException(status_code=400, detail="Invalid Kundli attachment snapshot")
+        kundli_attachment_path(storage_filename)
+    return records
+
+
+def _stage_kundli_snapshot_files(entries) -> list:
+    filenames = []
+    for entry in entries:
+        if entry.table_name == "kundli_notes":
+            filenames.extend(
+                item["storage_filename"]
+                for item in _snapshot_attachment_records(entry.snapshot)
+            )
+    return stage_attachment_files(filenames)
 
 
 def list_entries(db: Session):
@@ -122,8 +165,55 @@ def restore(db: Session, entry_id: int):
         raise HTTPException(status_code=400, detail="The original model is no longer available")
     if db.get(model, entry.record_id) is not None:
         raise HTTPException(status_code=409, detail="A record with this ID already exists")
+    table_name = entry.table_name
+    record_id = entry.record_id
     raw = json.loads(entry.snapshot)
     allocations = raw.pop("__allocations", [])
+    attachment_records = (
+        _snapshot_attachment_records(entry.snapshot)
+        if table_name == "kundli_notes"
+        else []
+    )
+    attachment_values = []
+    for record in attachment_records:
+        storage_path = kundli_attachment_path(record["storage_filename"])
+        if not storage_path.is_file():
+            raise HTTPException(
+                status_code=409,
+                detail="A Kundli attachment file is missing and the note cannot be restored",
+            )
+        values = _restore_column_values(KundliNoteAttachment, record)
+        values["note_id"] = record_id
+        attachment_id = values.get("id")
+        if attachment_id is not None and db.get(KundliNoteAttachment, attachment_id) is not None:
+            raise HTTPException(status_code=409, detail="A Kundli attachment with this ID already exists")
+        attachment_values.append(values)
+
+    values = _restore_column_values(model, raw)
+    db.info["skip_recycle"] = True
+    try:
+        restored = model(**values)
+        db.add(restored)
+        db.flush()
+        db.add_all(KundliNoteAttachment(**item) for item in attachment_values)
+        if table_name == "leave_requests":
+            for allocation in allocations:
+                db.add(LeaveRequestAllocation(
+                    leave_request_id=record_id,
+                    allocation_date=date.fromisoformat(allocation["allocation_date"]),
+                    leave_category=allocation["leave_category"],
+                ))
+        db.delete(entry)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.info.pop("skip_recycle", None)
+    return {"message": "Record restored", "table": table_name, "record_id": record_id}
+
+
+def _restore_column_values(model, raw: dict) -> dict:
     values = {}
     for column in inspect(model).columns:
         if column.name not in raw:
@@ -137,30 +227,24 @@ def restore(db: Session, entry_id: int):
             elif column.type.__class__.__name__ == "DECIMAL":
                 value = Decimal(value)
         values[column.name] = value
-    db.info["skip_recycle"] = True
-    restored = model(**values)
-    db.add(restored)
-    db.flush()
-    if entry.table_name == "leave_requests":
-        for allocation in allocations:
-            db.add(LeaveRequestAllocation(
-                leave_request_id=entry.record_id,
-                allocation_date=date.fromisoformat(allocation["allocation_date"]),
-                leave_category=allocation["leave_category"],
-            ))
-    db.delete(entry)
-    db.commit()
-    db.info.pop("skip_recycle", None)
-    return {"message": "Record restored", "table": entry.table_name, "record_id": entry.record_id}
+    return values
 
 
 def permanently_delete(db: Session, entry_id: int):
     entry = db.query(RecycleBinEntry).filter(RecycleBinEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Recycle-bin entry not found")
-    _remove_snapshot_files(entry.snapshot)
-    db.info["skip_recycle"] = True
-    db.delete(entry)
-    db.commit()
-    db.info.pop("skip_recycle", None)
+    staged = _stage_kundli_snapshot_files([entry])
+    try:
+        _remove_snapshot_files(entry.snapshot)
+        db.info["skip_recycle"] = True
+        db.delete(entry)
+        db.commit()
+    except Exception:
+        db.rollback()
+        restore_staged_attachment_files(staged)
+        raise
+    finally:
+        db.info.pop("skip_recycle", None)
+    finalize_staged_attachment_deletion(staged)
     return {"message": "Record permanently deleted"}

@@ -7,8 +7,10 @@ import calendar
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from urllib.parse import quote
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from sqlalchemy import func
@@ -19,13 +21,28 @@ from auth import get_current_user, has_permission, require_admin, require_admin_
 from team_scope import get_team_member_ids, is_team_member, require_team_member_access
 from config import settings
 from database import get_db
-from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, LetterTemplate, SalarySlip, User
+from models import ActivityLog, ChangedLog, CompanySettings, EmployeeDocument, EmployeePersonalDocument, PersonalDocumentChangeRequest, KundliNote, KundliNoteAttachment, LetterTemplate, SalarySlip, User
 from schemas import AppointmentLetterCreate, DynamicLetterCreate, KundliNoteCreate, LetterTemplateCreate, LetterTemplateUpdate, OfferLetterCreate, PersonalDocumentRequestDecision, SalarySlipCreate, SalarySlipRequestCreate, SalarySlipReviewUpdate
 from utils.email_service import send_email
 from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
+from services.kundli_attachments import (
+    PREVIEWABLE_CONTENT_TYPES,
+    attachment_file_sha256,
+    attachment_response,
+    finalize_staged_attachment_deletion,
+    idempotent_storage_filename,
+    kundli_attachment_path,
+    kundli_upload_storage_prefix,
+    lock_kundli_upload,
+    promote_kundli_upload,
+    restore_staged_attachment_files,
+    stage_attachment_files,
+    store_kundli_upload,
+)
 from routers.changed_logs import record_changed_log
 from services.recycle_bin import archive_object
 from services.salary_attendance import derive_salary_attendance_counts
+from utils.logger import logger
 
 router = APIRouter()
 PERSONAL_UPLOAD_DIR = Path(settings.UPLOAD_DIR) / "personal_documents"
@@ -38,6 +55,141 @@ PERSONAL_DOCUMENT_DOWNLOAD_URL_EXPIRE_SECONDS = 60
 def _require_document_permissions(current_user: User, db: Session, *permission_keys: str) -> None:
     if any(not has_permission(current_user, key, db) for key in permission_keys):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+
+
+def _require_kundli_attachment_write_access(db: Session, current_user: User, note: KundliNote) -> None:
+    if note.created_by == current_user.id:
+        try:
+            require_team_member_access(db, current_user, note.employee_id, "kundli.create")
+            return
+        except HTTPException as error:
+            if error.status_code != 403:
+                raise
+    require_team_member_access(db, current_user, note.employee_id, "kundli.edit")
+
+
+def _get_kundli_note_for_attachment(db: Session, note_id: int) -> KundliNote:
+    note = db.query(KundliNote).filter(KundliNote.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Kundli note not found")
+    return note
+
+
+def _kundli_attachment_note_response(note: KundliNote, attachments: list[KundliNoteAttachment]) -> dict:
+    return {
+        "id": note.id,
+        "positive_note": note.positive_note,
+        "negative_note": note.negative_note,
+        "created_at": note.created_at,
+        "attachments": [attachment_response(item) for item in attachments],
+    }
+
+
+def _persist_kundli_uploads(
+    db: Session,
+    note: KundliNote,
+    current_user: User,
+    normalized_key: str,
+    stored_files: list[dict],
+    created_targets: list[str],
+    commit_started: list[bool],
+) -> list[dict]:
+    prefix = kundli_upload_storage_prefix(note.id, current_user.id, normalized_key)
+    storage_filenames = [
+        idempotent_storage_filename(prefix, index)
+        for index in range(len(stored_files))
+    ]
+    existing_items = (
+        db.query(KundliNoteAttachment)
+        .filter(KundliNoteAttachment.storage_filename.like(f"{prefix}%"))
+        .order_by(KundliNoteAttachment.storage_filename)
+        .all()
+    )
+    if existing_items:
+        if [item.storage_filename for item in existing_items] != sorted(storage_filenames):
+            raise HTTPException(
+                status_code=409,
+                detail="This Idempotency-Key was already used for a different attachment request",
+            )
+        for item, stored in zip(existing_items, stored_files):
+            existing_path = kundli_attachment_path(item.storage_filename)
+            if (
+                item.original_filename != stored["original_filename"]
+                or item.content_type != stored["content_type"]
+                or item.file_size != stored["file_size"]
+                or not existing_path.is_file()
+                or attachment_file_sha256(existing_path) != stored["sha256"]
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="This Idempotency-Key was already used for a different attachment request",
+                )
+        return [attachment_response(item) for item in existing_items]
+
+    for stored, storage_filename in zip(stored_files, storage_filenames):
+        if promote_kundli_upload(stored, storage_filename):
+            created_targets.append(storage_filename)
+
+    items = [
+        KundliNoteAttachment(
+            note_id=note.id,
+            uploaded_by=current_user.id,
+            original_filename=stored["original_filename"],
+            storage_filename=storage_filename,
+            content_type=stored["content_type"],
+            file_size=stored["file_size"],
+            uploaded_at=datetime.utcnow(),
+        )
+        for stored, storage_filename in zip(stored_files, storage_filenames)
+    ]
+    db.add_all(items)
+    db.flush()
+    response = [attachment_response(item) for item in items]
+    commit_started[0] = True
+    try:
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            logger.exception("Could not roll back Kundli attachment upload")
+        try:
+            persisted_items = (
+                db.query(KundliNoteAttachment)
+                .filter(KundliNoteAttachment.storage_filename.in_(storage_filenames))
+                .order_by(KundliNoteAttachment.storage_filename)
+                .all()
+            )
+        except Exception as query_error:
+            logger.exception("Could not determine whether Kundli attachment upload committed")
+            raise HTTPException(
+                status_code=503,
+                detail="Upload status is unknown. Retry safely using the same Idempotency-Key.",
+            ) from query_error
+        if len(persisted_items) == len(storage_filenames) and all(
+            item.storage_filename == expected
+            and kundli_attachment_path(expected).is_file()
+            and item.original_filename == stored["original_filename"]
+            and item.content_type == stored["content_type"]
+            and item.file_size == stored["file_size"]
+            and attachment_file_sha256(kundli_attachment_path(expected)) == stored["sha256"]
+            for item, expected, stored in zip(
+                persisted_items, sorted(storage_filenames), stored_files
+            )
+        ):
+            return [attachment_response(item) for item in persisted_items]
+        if persisted_items:
+            raise HTTPException(
+                status_code=503,
+                detail="Upload status is incomplete. Retry safely using the same Idempotency-Key.",
+            )
+        for storage_filename in created_targets:
+            try:
+                kundli_attachment_path(storage_filename).unlink(missing_ok=True)
+            except OSError:
+                logger.exception("Could not remove uncommitted Kundli attachment %s", storage_filename)
+        raise
+    return response
 
 
 DEFAULT_COMPANY_NAME = "PropCheckup"
@@ -857,8 +1009,19 @@ def delete_salary_slip(slip_id: int, db: Session = Depends(get_db), current_user
 @router.get("/kundli/{employee_id}")
 def get_kundli_notes(employee_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     require_team_member_access(db, current_user, employee_id, "kundli.team_view")
-    return [{"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
-            for note in db.query(KundliNote).filter(KundliNote.employee_id == employee_id).order_by(KundliNote.created_at.desc()).all()]
+    notes = db.query(KundliNote).filter(KundliNote.employee_id == employee_id).order_by(KundliNote.created_at.desc()).all()
+    note_ids = [note.id for note in notes]
+    attachments = (
+        db.query(KundliNoteAttachment)
+        .filter(KundliNoteAttachment.note_id.in_(note_ids))
+        .order_by(KundliNoteAttachment.uploaded_at, KundliNoteAttachment.id)
+        .all()
+        if note_ids else []
+    )
+    attachments_by_note: dict[int, list[KundliNoteAttachment]] = {}
+    for item in attachments:
+        attachments_by_note.setdefault(item.note_id, []).append(item)
+    return [_kundli_attachment_note_response(note, attachments_by_note.get(note.id, [])) for note in notes]
 
 
 @router.post("/kundli", status_code=201)
@@ -875,7 +1038,7 @@ def create_kundli_note(payload: KundliNoteCreate, db: Session = Depends(get_db),
     db.add(ActivityLog(user_id=current_user.id, activity=f"Added Kundli note for '{employee.name}'"))
     db.commit()
     db.refresh(note)
-    return {"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
+    return _kundli_attachment_note_response(note, [])
 
 
 @router.put("/kundli/{note_id}")
@@ -893,7 +1056,168 @@ def update_kundli_note(note_id: int, payload: KundliNoteCreate, db: Session = De
     if old_negative != negative:
         record_changed_log(db, note.employee_id, current_user.id, "Kundli note", "Negative note", old_negative, negative)
     db.commit(); db.refresh(note)
-    return {"id": note.id, "positive_note": note.positive_note, "negative_note": note.negative_note, "created_at": note.created_at}
+    return _kundli_attachment_note_response(note, list(note.attachments))
+
+
+@router.get("/kundli/{note_id}/attachments")
+def list_kundli_note_attachments(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    note = _get_kundli_note_for_attachment(db, note_id)
+    require_team_member_access(db, current_user, note.employee_id, "kundli.team_view")
+    items = (
+        db.query(KundliNoteAttachment)
+        .filter(KundliNoteAttachment.note_id == note.id)
+        .order_by(KundliNoteAttachment.uploaded_at, KundliNoteAttachment.id)
+        .all()
+    )
+    return [attachment_response(item) for item in items]
+
+
+@router.post("/kundli/{note_id}/attachments", status_code=201)
+async def upload_kundli_note_attachments(
+    note_id: int,
+    files: list[UploadFile] = File(...),
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    note = _get_kundli_note_for_attachment(db, note_id)
+    _require_kundli_attachment_write_access(db, current_user, note)
+    if not files:
+        raise HTTPException(status_code=400, detail="Select at least one attachment")
+
+    try:
+        normalized_key = str(UUID(idempotency_key))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Idempotency-Key must be a UUID") from error
+
+    stored_files: list[dict] = []
+    created_targets: list[str] = []
+    commit_started = [False]
+    try:
+        for upload in files:
+            stored_files.append(await store_kundli_upload(upload))
+        # End the pre-lock authorization read transaction so retries see the
+        # latest committed rows after waiting for the advisory lock.
+        db.rollback()
+        with lock_kundli_upload(db, note.id, current_user.id, normalized_key):
+            return _persist_kundli_uploads(
+                db,
+                note,
+                current_user,
+                normalized_key,
+                stored_files,
+                created_targets,
+                commit_started,
+            )
+    except BaseException:
+        if not commit_started[0]:
+            try:
+                db.rollback()
+            except Exception:
+                logger.exception("Could not roll back failed Kundli attachment upload")
+            for storage_filename in created_targets:
+                try:
+                    kundli_attachment_path(storage_filename).unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("Could not remove uncommitted Kundli attachment %s", storage_filename)
+        raise
+    finally:
+        for stored in stored_files:
+            try:
+                kundli_attachment_path(stored["storage_filename"]).unlink(missing_ok=True)
+            except OSError:
+                logger.exception("Could not remove temporary Kundli attachment %s", stored["storage_filename"])
+        for upload in files:
+            if not upload.file.closed:
+                await upload.close()
+
+
+def _get_scoped_kundli_attachment(
+    db: Session,
+    current_user: User,
+    note_id: int,
+    attachment_id: int,
+) -> KundliNoteAttachment:
+    note = _get_kundli_note_for_attachment(db, note_id)
+    require_team_member_access(db, current_user, note.employee_id, "kundli.team_view")
+    item = (
+        db.query(KundliNoteAttachment)
+        .filter(KundliNoteAttachment.id == attachment_id, KundliNoteAttachment.note_id == note.id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Kundli attachment not found")
+    return item
+
+
+def _kundli_attachment_file_response(item: KundliNoteAttachment, inline: bool) -> FileResponse:
+    path = kundli_attachment_path(item.storage_filename)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Kundli attachment file not found")
+    disposition = "inline" if inline else "attachment"
+    headers = {
+        "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(item.original_filename, safe='')}",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+    }
+    return FileResponse(path=str(path), media_type=item.content_type, headers=headers)
+
+
+@router.get("/kundli/{note_id}/attachments/{attachment_id}/download")
+def download_kundli_note_attachment(
+    note_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = _get_scoped_kundli_attachment(db, current_user, note_id, attachment_id)
+    return _kundli_attachment_file_response(item, inline=False)
+
+
+@router.get("/kundli/{note_id}/attachments/{attachment_id}/preview")
+def preview_kundli_note_attachment(
+    note_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = _get_scoped_kundli_attachment(db, current_user, note_id, attachment_id)
+    if item.content_type not in PREVIEWABLE_CONTENT_TYPES:
+        raise HTTPException(status_code=415, detail="Preview is available only for images and PDF files")
+    return _kundli_attachment_file_response(item, inline=True)
+
+
+@router.delete("/kundli/{note_id}/attachments/{attachment_id}")
+def delete_kundli_note_attachment(
+    note_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    note = _get_kundli_note_for_attachment(db, note_id)
+    require_team_member_access(db, current_user, note.employee_id, "kundli.edit")
+    item = (
+        db.query(KundliNoteAttachment)
+        .filter(KundliNoteAttachment.id == attachment_id, KundliNoteAttachment.note_id == note.id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Kundli attachment not found")
+    staged = stage_attachment_files([item])
+    try:
+        db.delete(item)
+        db.commit()
+    except Exception:
+        db.rollback()
+        restore_staged_attachment_files(staged)
+        raise
+    finalize_staged_attachment_deletion(staged)
+    return {"message": "Kundli attachment deleted"}
 
 
 @router.delete("/kundli/{note_id}")
@@ -902,8 +1226,27 @@ def delete_kundli_note(note_id: int, db: Session = Depends(get_db), current_user
     if not note: raise HTTPException(status_code=404, detail="Kundli note not found")
     require_team_member_access(db, current_user, note.employee_id, "kundli.delete")
     employee_name = note.employee.name
-    db.delete(note); db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'"))
-    db.commit()
+    try:
+        archive_object(
+            db,
+            note,
+            deleted_by=current_user.id,
+            extra_values={
+                "__kundli_attachments": [
+                    {
+                        column.name: getattr(attachment, column.name)
+                        for column in KundliNoteAttachment.__table__.columns
+                    }
+                    for attachment in note.attachments
+                ]
+            },
+        )
+        db.delete(note)
+        db.add(ActivityLog(user_id=current_user.id, activity=f"Deleted Kundli note for '{employee_name}'"))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return {"message": "Kundli note deleted"}
 
 

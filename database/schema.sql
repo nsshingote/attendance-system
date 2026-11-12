@@ -730,6 +730,20 @@ CREATE TABLE IF NOT EXISTS kundli_notes (
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS kundli_note_attachments (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    note_id INT NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    storage_filename VARCHAR(255) NOT NULL UNIQUE,
+    content_type VARCHAR(100) NOT NULL,
+    file_size INT NOT NULL,
+    uploaded_by INT NOT NULL,
+    uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX ix_kundli_note_attachments_note_id (note_id),
+    FOREIGN KEY (note_id) REFERENCES kundli_notes(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS employee_documents (
     id INT PRIMARY KEY AUTO_INCREMENT, employee_id INT NOT NULL, document_type VARCHAR(50) NOT NULL,
     title VARCHAR(255) NOT NULL, content TEXT NOT NULL, status ENUM('Draft', 'Sent') NOT NULL DEFAULT 'Draft',

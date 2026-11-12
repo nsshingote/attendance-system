@@ -63,8 +63,9 @@ from schemas import (
     WorkingSundayRemovalOut,
 )
 from utils.attendance_status import (
-    calculate_status,
     calculate_half_day,
+    get_late_cutoff_minutes,
+    is_late,
     is_weekly_off,
     determine_attendance_status_for_date,
     update_summary_counts,
@@ -703,34 +704,28 @@ def check_in(
 
     # Compute late-entry cutoff dynamically from CompanySettings
     settings = db.query(CompanySettings).first()
-    office_start_str = settings.office_start_time if settings else "10:00"
-    grace_minutes = settings.late_grace_minutes if settings else 30
-    try:
-        start_hour, start_min = map(int, office_start_str.split(":")[:2])
-    except (ValueError, AttributeError):
-        start_hour, start_min = 10, 0
-    grace_cutoff = time(start_hour, start_min)
-    grace_cutoff_with_buffer = time(
-        (start_hour * 60 + start_min + grace_minutes) // 60,
-        (start_hour * 60 + start_min + grace_minutes) % 60
+    grace_cutoff_minutes = get_late_cutoff_minutes(settings)
+    grace_cutoff_display = (
+        f"{grace_cutoff_minutes // 60:02d}:{grace_cutoff_minutes % 60:02d}"
     )
+    late_status = "Late" if not onsite and is_late(ist_now, grace_cutoff_minutes) else "Present"
 
     # Require reason for late check-in (after grace cutoff)
-    if not onsite and ist_now.time() > grace_cutoff_with_buffer and not reason:
+    if late_status == "Late" and not reason:
         raise HTTPException(
             status_code=400,
-            detail=f"REASON_REQUIRED: Please provide a reason for checking in after {grace_cutoff_with_buffer.strftime('%H:%M')}.",
+            detail=f"REASON_REQUIRED: Please provide a reason for checking in after {grace_cutoff_display}.",
         )
 
     # An assigned working day takes precedence over a holiday or weekly off.
     if _is_working_day(db, current_user.id, today):
-        status_value = "Present" if onsite else calculate_status(ist_now, db)
+        status_value = late_status
     elif is_weekly_off(today, db):
         status_value = "Present"
     elif applicable_holiday(db, current_user.id, today):
         status_value = "Holiday"
     else:
-        status_value = "Present" if onsite else calculate_status(ist_now, db)
+        status_value = late_status
 
     if existing:
         existing.check_in = ist_now
