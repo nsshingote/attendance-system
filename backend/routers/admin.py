@@ -6,7 +6,10 @@ import models
 import schemas
 from database import get_db
 from auth import get_current_user, require_admin_permission
-from utils.attendance_status import determine_attendance_status_for_date
+from utils.attendance_status import (
+    determine_attendance_status_for_date,
+    load_grace_change_history,
+)
 from utils.date_helpers import india_today
 
 
@@ -91,6 +94,11 @@ def attendance_report(
         )
         .all()
     )
+    grace_history = (
+        load_grace_change_history(db)
+        if any(attendance.check_in for attendance, _ in records)
+        else None
+    )
 
 
     response = []
@@ -111,7 +119,12 @@ def attendance_report(
                     if attendance.check_out
                     else None
                 ),
-                "status": determine_attendance_status_for_date(db, attendance.user_id, attendance.attendance_date)
+                "status": determine_attendance_status_for_date(
+                    db,
+                    attendance.user_id,
+                    attendance.attendance_date,
+                    grace_history=grace_history,
+                )
             }
         )
 
@@ -157,6 +170,11 @@ def attendance_filter(
 
 
     records = query.all()
+    grace_history = (
+        load_grace_change_history(db)
+        if any(attendance.check_in for attendance, _ in records)
+        else None
+    )
 
 
     response = []
@@ -178,7 +196,12 @@ def attendance_filter(
                     if attendance.check_out
                     else None
                 ),
-                "status": determine_attendance_status_for_date(db, attendance.user_id, attendance.attendance_date)
+                "status": determine_attendance_status_for_date(
+                    db,
+                    attendance.user_id,
+                    attendance.attendance_date,
+                    grace_history=grace_history,
+                )
             }
         )
 

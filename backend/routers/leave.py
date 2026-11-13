@@ -15,7 +15,7 @@ from typing import Optional, List
 
 from database import get_db
 from models import (
-    User, CompanySettings, LeaveRequest, LeaveType, LeaveEncashmentRequest,
+    User, CompanySettings, ChangedLog, LeaveRequest, LeaveType, LeaveEncashmentRequest,
     NotificationEmail, Attendance, LeaveRequestAllocation, ActivityLog
 )
 from schemas import (
@@ -49,6 +49,7 @@ from utils.logger import log_activity
 from utils.attendance_status import (
     applicable_holiday,
     determine_attendance_status_for_date,
+    load_grace_change_history,
 )
 
 router = APIRouter()
@@ -252,7 +253,11 @@ def _apply_sandwich_rule_on_request(db: Session, leave_request: LeaveRequest, ta
     )
 
 
-def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
+def _reconcile_sandwich_allocations_for_user(
+    db: Session,
+    user_id: int,
+    grace_history: list[ChangedLog] | None = None,
+) -> None:
     settings = db.query(CompanySettings).first()
     active_requests = db.query(LeaveRequest).filter(
         LeaveRequest.user_id == user_id,
@@ -309,6 +314,8 @@ def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
             )
 
     db.flush()
+    if grace_history is None and len(removed_dates) > 1:
+        grace_history = load_grace_change_history(db)
     for target_date in removed_dates:
         attendance = db.query(Attendance).filter(
             Attendance.user_id == user_id,
@@ -316,7 +323,9 @@ def _reconcile_sandwich_allocations_for_user(db: Session, user_id: int) -> None:
         ).first()
         if not attendance or attendance.manual_override or attendance.status != "On Leave":
             continue
-        status = determine_attendance_status_for_date(db, user_id, target_date)
+        status = determine_attendance_status_for_date(
+            db, user_id, target_date, grace_history=grace_history
+        )
         attendance.status = (
             "Absent" if status in {"On Leave", "Weekly Off", "Not Started"} else status
         )
@@ -326,7 +335,10 @@ def _restore_attendance_after_leave_removal(
     db: Session,
     user_id: int,
     removed_dates: set[date],
+    grace_history: list[ChangedLog] | None = None,
 ) -> None:
+    if grace_history is None and len(removed_dates) > 1:
+        grace_history = load_grace_change_history(db)
     for target_date in removed_dates:
         attendance = db.query(Attendance).filter(
             Attendance.user_id == user_id,
@@ -334,7 +346,9 @@ def _restore_attendance_after_leave_removal(
         ).first()
         if not attendance or attendance.manual_override:
             continue
-        status = determine_attendance_status_for_date(db, user_id, target_date)
+        status = determine_attendance_status_for_date(
+            db, user_id, target_date, grace_history=grace_history
+        )
         if status == "On Leave":
             continue
         # Weekly Off is a computed attendance status, not a persisted enum value.

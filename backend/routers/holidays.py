@@ -26,7 +26,11 @@ from models import (
     Team,
 )
 from schemas import HolidayCreate, HolidayOut, HolidayRangeCreate
-from utils.attendance_status import determine_attendance_status_for_date, holiday_applies_to_user
+from utils.attendance_status import (
+    determine_attendance_status_for_date,
+    load_grace_change_history,
+    holiday_applies_to_user,
+)
 from utils.leave_calculator import (
     _get_chargeable_leave_dates,
     compute_request_category_from_allocations,
@@ -122,11 +126,16 @@ def _sync_holiday_removed_leave(db: Session, holiday: Holiday) -> None:
         changed_user_ids.add(leave_request.user_id)
 
     db.flush()
+    grace_history = (
+        load_grace_change_history(db) if changed_user_ids else None
+    )
     if changed_user_ids:
         from routers.leave import _reconcile_sandwich_allocations_for_user
 
         for user_id in changed_user_ids:
-            _reconcile_sandwich_allocations_for_user(db, user_id)
+            _reconcile_sandwich_allocations_for_user(
+                db, user_id, grace_history=grace_history
+            )
 
     for user_id in changed_user_ids:
         attendance = db.query(Attendance).filter(
@@ -135,7 +144,10 @@ def _sync_holiday_removed_leave(db: Session, holiday: Holiday) -> None:
         ).first()
         if attendance and not attendance.manual_override and attendance.status == "On Leave":
             attendance.status = determine_attendance_status_for_date(
-                db, user_id, holiday.holiday_date
+                db,
+                user_id,
+                holiday.holiday_date,
+                grace_history=grace_history,
             )
 
 
@@ -148,6 +160,7 @@ def _restore_approved_leave_for_deleted_holiday(db: Session, holiday: Holiday) -
         LeaveRequest.from_date <= holiday.holiday_date,
         LeaveRequest.to_date >= holiday.holiday_date,
     ).with_for_update().all()
+    grace_history = load_grace_change_history(db) if requests else None
 
     for leave_request in requests:
         if not holiday_applies_to_user(db, holiday, leave_request.user_id):
@@ -211,6 +224,7 @@ def _restore_approved_leave_for_deleted_holiday(db: Session, holiday: Holiday) -
                     db,
                     leave_request.user_id,
                     holiday.holiday_date,
+                    grace_history=grace_history,
                 )
                 if status != "On Leave":
                     attendance.status = (

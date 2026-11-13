@@ -30,6 +30,7 @@ from team_scope import get_team_member_ids, require_team_member_access, require_
 from database import get_db
 from models import (
     Attendance,
+    ChangedLog,
     OfficeIP,
     User,
     UserDepartment,
@@ -68,6 +69,7 @@ from utils.attendance_status import (
     is_late,
     is_weekly_off,
     determine_attendance_status_for_date,
+    load_grace_change_history,
     update_summary_counts,
     applicable_holiday,
 )
@@ -299,10 +301,19 @@ def _is_working_day(db: Session, user_id: int, target_date: date) -> bool:
     return entry is not None
 
 
-def _format_attendance_status(record: Attendance, db: Session) -> str:
+def _format_attendance_status(
+    record: Attendance,
+    db: Session,
+    grace_history: list[ChangedLog] | None = None,
+) -> str:
     # Use the canonical final-status resolver to ensure a single source
     # of truth for all API responses and aggregations.
-    return determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+    return determine_attendance_status_for_date(
+        db,
+        record.user_id,
+        record.attendance_date,
+        grace_history=grace_history,
+    )
 
 
 def _display_only_weekly_off_rows(
@@ -421,10 +432,20 @@ def _load_approved_wfh_dates_for_user(db: Session, user_id: int, dates: set[date
     )
 
 
-def _format_attendance_status_with_cache(record: Attendance, db: Session, approved_wfh_keys: Set[Tuple[int, date]]) -> str:
+def _format_attendance_status_with_cache(
+    record: Attendance,
+    db: Session,
+    approved_wfh_keys: Set[Tuple[int, date]],
+    grace_history: list[ChangedLog] | None = None,
+) -> str:
     # Delegate to the canonical resolver for consistency. The approved_wfh_keys
     # optimization is supported by the resolver so prefer correctness.
-    return determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+    return determine_attendance_status_for_date(
+        db,
+        record.user_id,
+        record.attendance_date,
+        grace_history=grace_history,
+    )
 
 
 def _load_report_keys_for_users(db: Session, user_ids: Set[int], dates: Set[date]) -> Set[Tuple[int, date]]:
@@ -1001,6 +1022,11 @@ def my_attendance(
         _mark_absent_records_for_date_range(db, target_start, target_end, {current_user.id})
 
     records = query.order_by(Attendance.attendance_date.desc()).all()
+    grace_history = (
+        load_grace_change_history(db)
+        if any(attendance.check_in for attendance in records)
+        else None
+    )
     attendance_dates = {attendance.attendance_date for attendance in records}
     report_keys = _load_report_keys_for_users(db, {current_user.id}, attendance_dates)
     working_sunday_keys = _load_working_sunday_keys_for_users(db, {current_user.id}, attendance_dates)
@@ -1018,7 +1044,7 @@ def my_attendance(
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
-            "status": _format_attendance_status(attendance, db),
+            "status": _format_attendance_status(attendance, db, grace_history),
             "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
@@ -1086,6 +1112,11 @@ def user_attendance(
         _mark_absent_records_for_date_range(db, target_start, target_end, {user_id})
 
     records = query.order_by(Attendance.attendance_date.desc()).all()
+    grace_history = (
+        load_grace_change_history(db)
+        if any(attendance.check_in for attendance in records)
+        else None
+    )
     attendance_dates = {attendance.attendance_date for attendance in records}
     report_keys = _load_report_keys_for_users(db, {user_id}, attendance_dates)
     working_sunday_keys = _load_working_sunday_keys_for_users(db, {user_id}, attendance_dates)
@@ -1103,7 +1134,7 @@ def user_attendance(
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
-            "status": _format_attendance_status(attendance, db),
+            "status": _format_attendance_status(attendance, db, grace_history),
             "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
@@ -1281,6 +1312,11 @@ def get_all_attendance(
     manual_leave_categories = _load_manual_override_leave_categories(
         db, {attendance.id for attendance, _, _, _ in results}
     )
+    grace_history = (
+        load_grace_change_history(db)
+        if any(attendance.check_in for attendance, _, _, _ in results)
+        else None
+    )
 
     # Format the response with user details
     formatted_results = []
@@ -1297,7 +1333,7 @@ def get_all_attendance(
             "attendance_date": attendance.attendance_date.isoformat(),
             "check_in": iso_with_offset(attendance.check_in),
             "check_out": iso_with_offset(attendance.check_out),
-            "status": _format_attendance_status(attendance, db),
+            "status": _format_attendance_status(attendance, db, grace_history),
             "leave_category": manual_leave_categories.get(attendance.id),
             "ip_address": attendance.ip_address,
             "reason": attendance.reason,
@@ -1411,6 +1447,11 @@ def attendance_calendar(
         records_query = records_query.filter(Attendance.user_id.in_(employee_ids))
 
     records = records_query.all()
+    grace_history = (
+        load_grace_change_history(db)
+        if any(record.check_in for record in records)
+        else None
+    )
     manual_leave_categories = _load_manual_override_leave_categories(db, {record.id for record in records})
     working_day_dates = set()
     if not aggregated_all and target_user_id is not None:
@@ -1462,7 +1503,12 @@ def attendance_calendar(
         if day_records:
             if aggregated_all:
                 final_statuses = {
-                    determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+                    determine_attendance_status_for_date(
+                        db,
+                        record.user_id,
+                        record.attendance_date,
+                        grace_history=grace_history,
+                    )
                     for record in day_records
                 }
                 if final_statuses == {"Weekly Off"}:
@@ -1484,7 +1530,12 @@ def attendance_calendar(
                     day_records,
                     key=lambda item: (bool(item.manual_override), item.check_in is not None, item.check_out is not None, item.id),
                 )
-                day["status"] = determine_attendance_status_for_date(db, record.user_id, record.attendance_date)
+                day["status"] = determine_attendance_status_for_date(
+                    db,
+                    record.user_id,
+                    record.attendance_date,
+                    grace_history=grace_history,
+                )
                 if day["status"] == "Weekly Off":
                     day["day_type"] = "weekly_off"
                     day["label"] = "Weekly Off"
@@ -1628,10 +1679,17 @@ def monthly_summary(
         ):
             records_by_date[record.attendance_date] = record
 
+    grace_history = (
+        load_grace_change_history(db)
+        if any(record.check_in for record in records_by_date.values())
+        else None
+    )
     processed_dates = set()
     absent_dates = set()  # Track dates with Absent status for LWP logic
     for r in records_by_date.values():
-        status = determine_attendance_status_for_date(db, user_id, r.attendance_date)
+        status = determine_attendance_status_for_date(
+            db, user_id, r.attendance_date, grace_history=grace_history
+        )
         processed_dates.add(r.attendance_date)
         if status == "Absent":
             absent_dates.add(r.attendance_date)

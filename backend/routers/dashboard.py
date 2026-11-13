@@ -21,7 +21,12 @@ from schemas import (
     TodayAttendanceOut
 )
 from auth import get_current_user, require_admin_permission
-from utils.attendance_status import get_today_attendance_status, determine_attendance_status_for_date, applicable_holiday
+from utils.attendance_status import (
+    get_today_attendance_status,
+    determine_attendance_status_for_date,
+    load_grace_change_history,
+    applicable_holiday,
+)
 from utils.logger import log_activity
 from utils.date_helpers import india_today, iso_with_offset
 
@@ -118,10 +123,22 @@ def get_admin_dashboard(
     # 1. Get all active employees
     employees = db.query(User).filter(User.status == "active").all()
     total_employees = len(employees)
+    today_attendance = (
+        db.query(Attendance)
+        .filter(Attendance.attendance_date == today)
+        .all()
+    )
+    grace_history = (
+        load_grace_change_history(db)
+        if any(attendance.check_in for attendance in today_attendance)
+        else None
+    )
     
     # 2. Today's attendance breakdown
     today_status_map = {
-        emp.id: determine_attendance_status_for_date(db, emp.id, today)
+        emp.id: determine_attendance_status_for_date(
+            db, emp.id, today, grace_history=grace_history
+        )
         for emp in employees
     }
     present_count = sum(1 for status in today_status_map.values() if status in ["Present", "Late", "Half Day", "WFH", "Extra Working Day"])
@@ -176,12 +193,6 @@ def get_admin_dashboard(
     ).count()
     
     # 7. Today's attendance records and table with reports
-    today_attendance = (
-        db.query(Attendance)
-        .filter(Attendance.attendance_date == today)
-        .all()
-    )
-
     today_records = []
     for emp in employees:
         att = next((a for a in today_attendance if a.user_id == emp.id), None)
@@ -191,7 +202,9 @@ def get_admin_dashboard(
         report_display = _format_report_display(has_report)
         
         # Determine status
-        status = determine_attendance_status_for_date(db, emp.id, today)
+        status = determine_attendance_status_for_date(
+            db, emp.id, today, grace_history=grace_history
+        )
         
         today_records.append(
             TodayAttendanceOut(

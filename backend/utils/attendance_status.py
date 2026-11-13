@@ -4,9 +4,13 @@ Helper functions for determining attendance status.
 """
 
 import json
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
-from models import Attendance, CompanySettings, Holiday, LeaveRequest, TeamMember, User, WFHRequest, WorkingSunday
+from models import Attendance, ChangedLog, CompanySettings, Holiday, LeaveRequest, TeamMember, User, WFHRequest, WorkingSunday
+
+
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def holiday_applies_to_user(db: Session, holiday: Holiday, user_id: int) -> bool:
@@ -56,7 +60,26 @@ def get_today_attendance_status(db: Session, user_id: int, target_date: date) ->
     return determine_attendance_status_for_date(db, user_id, target_date)
 
 
-def determine_attendance_status_for_date(db: Session, user_id: int, target_date: date) -> str:
+def load_grace_change_history(db: Session) -> list[ChangedLog]:
+    """Return grace-period changes in chronological order for reuse per request/batch."""
+    return (
+        db.query(ChangedLog)
+        .filter(
+            ChangedLog.category == "settings",
+            ChangedLog.item_name == "Late Grace Minutes",
+        )
+        .order_by(ChangedLog.created_at.asc(), ChangedLog.id.asc())
+        .all()
+    )
+
+
+def determine_attendance_status_for_date(
+    db: Session,
+    user_id: int,
+    target_date: date,
+    *,
+    grace_history: list[ChangedLog] | None = None,
+) -> str:
     """
     Determine attendance status for a user on a specific date.
     Returns: 'Present', 'Late', 'Half Day', 'Absent', 'Holiday', 'WFH', or 'On Leave'
@@ -169,24 +192,22 @@ def determine_attendance_status_for_date(db: Session, user_id: int, target_date:
                 return "On Leave"
         return "Absent"
     
-    # Get company settings
-    settings = db.query(CompanySettings).first()
-    cutoff_minutes = get_late_cutoff_minutes(settings)
-    
     check_in_time = attendance.check_in
     check_out_time = attendance.check_out
-    
-    # If no check-out, status depends only on check-in
-    if not check_out_time:
-        status = "Present" if not is_late(check_in_time, cutoff_minutes) else "Late"
-        return "Extra Working Day" if holiday and is_assigned_working_day and status in {"Present", "Late"} else status
+    if check_out_time:
+        working_hours = (check_out_time - check_in_time).total_seconds() / 3600
+        if working_hours < 4.5:
+            return "Extra Working Day" if holiday and is_assigned_working_day else "Half Day"
 
-    # Calculate working hours
-    working_hours = (check_out_time - check_in_time).total_seconds() / 3600
-
-    # Check if it's a half day based only on worked hours.
-    if working_hours < 4.5:
-        return "Extra Working Day" if holiday and is_assigned_working_day else "Half Day"
+    settings = db.query(CompanySettings).first()
+    current_grace_minutes = settings.late_grace_minutes if settings else 30
+    grace_minutes = _effective_grace_minutes_for_check_in(
+        db,
+        check_in_time,
+        current_grace_minutes,
+        grace_history=grace_history,
+    )
+    cutoff_minutes = get_late_cutoff_minutes(settings, grace_minutes)
 
     status = "Present" if not is_late(check_in_time, cutoff_minutes) else "Late"
     return "Extra Working Day" if holiday and is_assigned_working_day and status in {"Present", "Late"} else status
@@ -200,10 +221,52 @@ def calculate_working_hours(check_in: datetime, check_out: datetime) -> float:
     return round(delta.total_seconds() / 3600, 2)
 
 
-def get_late_cutoff_minutes(settings: CompanySettings | None) -> int:
+def _effective_grace_minutes_for_check_in(
+    db: Session,
+    check_in_time: datetime,
+    current_grace_minutes: int,
+    *,
+    grace_history: list[ChangedLog] | None = None,
+) -> int:
+    """Resolve the grace period from setting-change history at check-in time."""
+    check_in_instant = check_in_time
+    if check_in_instant.tzinfo is None:
+        # Attendance DATETIME values are interpreted as IST wall time; changed-log
+        # TIMESTAMP values are interpreted as UTC by the changed-log API.
+        check_in_instant = check_in_instant.replace(tzinfo=IST)
+    check_in_utc = check_in_instant.astimezone(timezone.utc).replace(tzinfo=None)
+
+    if grace_history is None:
+        grace_history = load_grace_change_history(db)
+
+    prior_changes = [
+        change for change in grace_history
+        if change.created_at is not None and change.created_at <= check_in_utc
+    ]
+    if prior_changes:
+        value = prior_changes[-1].new_value
+    else:
+        if not grace_history:
+            return current_grace_minutes
+        value = grace_history[0].old_value
+
+    try:
+        grace_minutes = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid late-grace setting history value: {value!r}") from error
+    if grace_minutes < 0:
+        raise ValueError(f"Invalid negative late-grace setting history value: {value!r}")
+    return grace_minutes
+
+
+def get_late_cutoff_minutes(
+    settings: CompanySettings | None,
+    grace_minutes: int | None = None,
+) -> int:
     """Return the configured grace cutoff as minutes after midnight."""
     office_start_time = settings.office_start_time if settings else time(10, 0)
-    grace_minutes = settings.late_grace_minutes if settings else 30
+    if grace_minutes is None:
+        grace_minutes = settings.late_grace_minutes if settings else 30
     return office_start_time.hour * 60 + office_start_time.minute + grace_minutes
 
 
@@ -213,10 +276,24 @@ def is_late(check_in_time: datetime, cutoff_minutes: int) -> bool:
     return check_in_minutes > cutoff_minutes
 
 
-def calculate_status(check_in_time: datetime, db: Session) -> str:
+def calculate_status(
+    check_in_time: datetime,
+    db: Session,
+    *,
+    grace_history: list[ChangedLog] | None = None,
+) -> str:
     """Calculate attendance status based on check-in time."""
     settings = db.query(CompanySettings).first()
-    cutoff_minutes = get_late_cutoff_minutes(settings)
+    if settings is not None and grace_history is not None:
+        resolved_grace = _effective_grace_minutes_for_check_in(
+            db,
+            check_in_time,
+            settings.late_grace_minutes,
+            grace_history=grace_history,
+        )
+        cutoff_minutes = get_late_cutoff_minutes(settings, resolved_grace)
+    else:
+        cutoff_minutes = get_late_cutoff_minutes(settings)
     return "Late" if is_late(check_in_time, cutoff_minutes) else "Present"
 
 

@@ -20,7 +20,7 @@ from auth import has_permission, require_admin, require_admin_permission, get_cu
 from team_scope import is_team_member, require_team_permission, require_team_member_access, get_team_member_ids
 from database import get_db
 from models import (
-    Attendance, User, LeaveRequest, LeaveEncashmentRequest, Holiday,
+    Attendance, ChangedLog, User, LeaveRequest, LeaveEncashmentRequest, Holiday,
     DailyReport, ReportDepartment, ReportType, ReportSubtype,
     Department, DynamicReportType, DynamicReportSubtype, DynamicReportField,
     ReportDefaultRow, UserDailyRow, DailyReportData, UserDepartment, ActivityLog, WFHRequest,
@@ -34,7 +34,13 @@ from utils.leave_calculator import (
 )
 from utils.logger import log_activity
 from services.notifications import create_notification, get_admin_user_ids, get_approver_user_ids
-from utils.attendance_status import determine_attendance_status_for_date, update_summary_counts, holiday_applies_to_user, is_weekly_off
+from utils.attendance_status import (
+    determine_attendance_status_for_date,
+    load_grace_change_history,
+    update_summary_counts,
+    holiday_applies_to_user,
+    is_weekly_off,
+)
 from utils.date_helpers import iso_with_offset
 from routers.changed_logs import record_changed_log
 from zoneinfo import ZoneInfo
@@ -68,6 +74,8 @@ def _count_final_leave_category_days(
     leave_requests: list[LeaveRequest],
     start_date: date,
     end_date: date,
+    *,
+    grace_history: list[ChangedLog] | None = None,
 ) -> dict[str, int]:
     """Count leave categories only for dates whose final attendance is On Leave.
 
@@ -94,7 +102,12 @@ def _count_final_leave_category_days(
         for leave_date, category in allocated_categories.items():
             if category not in LEAVE_CATEGORIES:
                 continue
-            if determine_attendance_status_for_date(db, user_id, leave_date) != "On Leave":
+            if determine_attendance_status_for_date(
+                db,
+                user_id,
+                leave_date,
+                grace_history=grace_history,
+            ) != "On Leave":
                 continue
             if is_manual_leave or leave_date not in categories_by_date:
                 categories_by_date[leave_date] = category
@@ -333,11 +346,18 @@ def attendance_report(
         )
 
     records = query.all()
+    grace_history = (
+        load_grace_change_history(db)
+        if any(record.check_in for record in records)
+        else None
+    )
     result = []
     for r in records:
         # Get all reports for this date
         report_display = get_all_reports_for_date(db, r.user_id, r.attendance_date)
-        status = determine_attendance_status_for_date(db, r.user_id, r.attendance_date)
+        status = determine_attendance_status_for_date(
+            db, r.user_id, r.attendance_date, grace_history=grace_history
+        )
         result.append({
             "user_id": r.user_id,
             "user_name": r.user.name,
@@ -379,6 +399,11 @@ def export_attendance_csv(
     if effective_role_key(current_user) == "team_leader":
         records_query = records_query.filter(Attendance.user_id.in_(team_member_ids))
     records = records_query.all()
+    grace_history = (
+        load_grace_change_history(db)
+        if any(record.check_in for record in records)
+        else None
+    )
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -391,7 +416,9 @@ def export_attendance_csv(
         
         # Get all reports for this date
         report_display = get_all_reports_for_date(db, r.user_id, r.attendance_date)
-        status = determine_attendance_status_for_date(db, r.user_id, r.attendance_date)
+        status = determine_attendance_status_for_date(
+            db, r.user_id, r.attendance_date, grace_history=grace_history
+        )
 
         writer.writerow(
             [
@@ -443,6 +470,7 @@ def employee_wise_summary(
 
     start_date = date(year, month, 1)
     end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    grace_history = load_grace_change_history(db) if users else None
 
     for user in users:
         accrue_monthly_leave(db, user)
@@ -474,7 +502,9 @@ def employee_wise_summary(
         records = records_by_date.values()
         summary = {"Present": 0, "Late": 0, "Half Day": 0, "Absent": 0, "WFH": 0, "Leave": 0, "Extra Working Day": 0}
         for r in records:
-            status = determine_attendance_status_for_date(db, user.id, r.attendance_date)
+            status = determine_attendance_status_for_date(
+                db, user.id, r.attendance_date, grace_history=grace_history
+            )
             if status == "Holiday":
                 continue
             update_summary_counts(summary, status)
@@ -490,7 +520,12 @@ def employee_wise_summary(
             .all()
         )
         category_counts = _count_final_leave_category_days(
-            db, user.id, leave_requests_this_month, start_date, end_date
+            db,
+            user.id,
+            leave_requests_this_month,
+            start_date,
+            end_date,
+            grace_history=grace_history,
         )
         paid_leave_days = category_counts["Paid"]
         carried_leave_used_days = category_counts["Carried"]
@@ -546,6 +581,11 @@ def leave_summary(
         for user in db.query(User).filter(User.status == "active").all()
         if effective_role_key(user) != "superadmin"
     ]
+    grace_history = (
+        load_grace_change_history(db)
+        if year is not None and month is not None and users
+        else None
+    )
     results = []
     for user in users:
         accrue_monthly_leave(db, user)
@@ -565,7 +605,12 @@ def leave_summary(
         approved_leaves = leave_query.all()
         if year and month:
             category_counts = _count_final_leave_category_days(
-                db, user.id, approved_leaves, start_date, end_date
+                db,
+                user.id,
+                approved_leaves,
+                start_date,
+                end_date,
+                grace_history=grace_history,
             )
         else:
             category_counts = count_leave_category_days(approved_leaves)

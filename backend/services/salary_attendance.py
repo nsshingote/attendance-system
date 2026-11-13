@@ -6,7 +6,10 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from models import Attendance, LeaveRequest, User, WFHRequest
-from utils.attendance_status import determine_attendance_status_for_date
+from utils.attendance_status import (
+    determine_attendance_status_for_date,
+    load_grace_change_history,
+)
 from utils.date_helpers import india_today
 
 
@@ -71,9 +74,12 @@ def derive_salary_attendance_counts(db: Session, employee: User, year: int, mont
     lwp_days = 0
     half_day_days = 0
     review_details: list[dict[str, str]] = []
+    grace_history = load_grace_change_history(db)
     current = first_day
     while current <= end_day:
-        status = determine_attendance_status_for_date(db, employee.id, current)
+        status = determine_attendance_status_for_date(
+            db, employee.id, current, grace_history=grace_history
+        )
         covered_by_leave = bool(leave_coverage.get(current))
 
         if status == "On Leave":
